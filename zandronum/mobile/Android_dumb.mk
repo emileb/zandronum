@@ -15,7 +15,7 @@ LOCAL_C_INCLUDES :=   $(LOCAL_PATH)/include/
 
 
 LOCAL_SRC_FILES =  	\
-	  src/core/atexit.c \
+   src/core/atexit.c \
     src/core/duhlen.c \
     src/core/duhtag.c \
     src/core/dumbfile.c \
@@ -28,15 +28,14 @@ LOCAL_SRC_FILES =  	\
     src/core/rendsig.c \
     src/core/unload.c \
     src/helpers/barray.c \
+    src/helpers/blip_buf.c \
     src/helpers/clickrem.c \
     src/helpers/memfile.c \
     src/helpers/resample.c \
-    src/helpers/resampler.c \
     src/helpers/riff.c \
     src/helpers/sampbuf.c \
     src/helpers/silence.c \
     src/helpers/stdfile.c \
-    src/helpers/lpc.c \
     src/it/itload.c \
     src/it/itload2.c \
     src/it/itmisc.c \
@@ -91,6 +90,8 @@ LOCAL_SRC_FILES =  	\
     src/it/readxm.c \
     src/it/readxm2.c \
     src/it/xmeffect.c \
+
+
 
 LOCAL_LDLIBS :=  -ldl -llog
 

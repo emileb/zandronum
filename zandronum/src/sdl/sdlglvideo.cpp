@@ -289,13 +289,24 @@ bool SDLGLVideo::SetupPixelFormat(bool allowsoftware, int multisample)
 	SDL_GL_SetAttribute( SDL_GL_GREEN_SIZE,  8 );
 	SDL_GL_SetAttribute( SDL_GL_BLUE_SIZE,  8 );
 	SDL_GL_SetAttribute( SDL_GL_ALPHA_SIZE,  8 );
+#ifdef __ANDROID__
+	SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE,  16 );
+#else
 	SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE,  24 );
+#endif
 	SDL_GL_SetAttribute( SDL_GL_STENCIL_SIZE,  8 );
 //		SDL_GL_SetAttribute( SDL_GL_DOUBLEBUFFER,  1 );
 	if (multisample > 0) {
 		SDL_GL_SetAttribute( SDL_GL_MULTISAMPLEBUFFERS, 1 );
 		SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, multisample );
 	}
+
+#ifdef __ANDROID__
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    //SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#endif
 	return true;
 }
 

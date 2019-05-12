@@ -206,6 +206,9 @@ bool I_CheckResolution (int width, int height, int bits)
 
 void I_ClosestResolution (int *width, int *height, int bits)
 {
+#ifdef __ANDROID__ // Always allow the specifed resolution
+	return;
+#endif
 	int twidth, theight;
 	int cwidth = 0, cheight = 0;
 	int iteration;

@@ -92,7 +92,11 @@
 
 // PUBLIC DATA DEFINITIONS -------------------------------------------------
 
+#ifdef __ANDROID__
+CVAR(String, fluid_patchset, "./audiopack/snd_fluidsynth/fluidsynth.sf2", 0)
+#else
 CVAR(String, fluid_patchset, "", CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+#endif
 
 CUSTOM_CVAR(Float, fluid_gain, 0.5, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 {

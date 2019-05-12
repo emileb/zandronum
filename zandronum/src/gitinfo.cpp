@@ -37,6 +37,13 @@
 #include "gitinfo.h"
 #include "version.h"
 
+#ifdef __ANDROID__
+#define HG_REVISION_HASH_STRING "ANDROID######"
+#define HG_TIME                 "HG_TIME"
+#define DOTVERSIONSTR_REV       "DOTVERSIONSTR_REV"
+#define HG_REVISION_NUMBER       1
+#endif
+
 const char *GetGitDescription()
 {
 	// [BB]

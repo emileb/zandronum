@@ -71,8 +71,17 @@
 #include <GL/glew.h>
 #include <OpenGL/OpenGL.h>
 #elif defined(__unix__)
+#ifdef __ANDROID__
+//#define GL_GLEXT_PROTOTYPES
+#include "GL/gl.h"
+//#define GL_GLEXT_PROTOTYPES
+#include "GL/glext.h"
+//#include "gl/api/glext.h"
+#else
 #include <GL/glew.h>
 #include "gl/api/glext.h"
+#endif
+
 #else // !__APPLE__ && !__unix__
 #include <GL/gl.h>
 #include <GL/glu.h>

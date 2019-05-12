@@ -113,7 +113,7 @@ angle_t FGLRenderer::FrustumAngle()
 {
 	float tilt= fabs(mAngles.Pitch);
 
-	// If the pitch is larger than this you can look all around at a FOV of 90°
+	// If the pitch is larger than this you can look all around at a FOV of 90ï¿½
 	if (tilt>46.0f) return 0xffffffff;
 
 	// ok, this is a gross hack that barely works...
@@ -250,7 +250,32 @@ void FGLRenderer::SetCameraPos(fixed_t viewx, fixed_t viewy, fixed_t viewz, angl
 // sets projection matrix
 //
 //-----------------------------------------------------------------------------
+#ifdef __ANDROID__
 
+static void setPerspective(GLdouble fovy, GLdouble aspect, GLdouble zNear, GLdouble zFar)
+{
+	GLdouble m[4][4];
+	double sine, cotangent, deltaZ;
+	double radians = fovy / 2 * M_PI / 180;
+
+	deltaZ = zFar - zNear;
+	sine = sin(radians);
+	if ((deltaZ == 0) || (sine == 0) || (aspect == 0)) {
+		return;
+	}
+	cotangent = cos(radians) / sine;
+
+	memset(m, 0, sizeof(m));
+	m[0][0] = cotangent / aspect;
+	m[1][1] = cotangent;
+	m[2][2] = -(zFar + zNear) / deltaZ;
+	m[2][3] = -1;
+	m[3][2] = -2 * zNear * zFar / deltaZ;
+	m[3][3] = 0;
+	glLoadMatrixd(&m[0][0]);
+}
+
+#endif
 void FGLRenderer::SetProjection(float fov, float ratio, float fovratio, float eyeShift) // [BB] Added eyeShift from GZ3Doom.
 {
 	glMatrixMode(GL_PROJECTION);
@@ -259,7 +284,11 @@ void FGLRenderer::SetProjection(float fov, float ratio, float fovratio, float ey
 	float fovy = 2 * RAD2DEG(atan(tan(DEG2RAD(fov) / 2) / fovratio));
 	// [BB] Added eyeShift from GZ3Doom.
 	if ( eyeShift == 0 )
+#ifdef __ANDROID__
+		setPerspective(fovy, ratio, 5.f, 65536.f);
+#else
 		gluPerspective(fovy, ratio, 5.f, 65536.f);
+#endif
 	else
 	{
 		const float zNear = 5.0f;
@@ -1069,6 +1098,21 @@ void FGLRenderer::RenderView (player_t* player)
 // Render the view to a savegame picture
 //
 //===========================================================================
+#ifdef __ANDROID__
+uint8_t * gles_convertRGB(uint8_t * data, int width, int height)
+{
+	uint8_t *src = data;
+	uint8_t *dst = data;
+
+	for (int i=0; i<width*height; i++) {
+		for (int j=0; j<3; j++)
+			*(dst++) = *(src++);
+		src++;
+	}
+
+	return dst;
+}
+#endif
 
 void FGLRenderer::WriteSavePic (player_t *player, FILE *file, int width, int height)
 {
@@ -1091,10 +1135,16 @@ void FGLRenderer::WriteSavePic (player_t *player, FILE *file, int width, int hei
 	screen->Begin2D(false);
 	DrawBlend(viewsector);
 	glFlush();
-
+#ifdef __ANDROID__ //Some androids do not like GL_RGB
+	uint8_t * scr = (uint8_t *)M_Malloc(width * height * 4);
+	glReadPixels(0,0,width, height,GL_RGBA,GL_UNSIGNED_BYTE,scr);
+	gles_convertRGB(scr,width,height);
+	M_CreatePNG (file, scr + ((height-1) * width * 3), NULL, SS_RGB, width, height, -width*3);
+#else
 	byte * scr = (byte *)M_Malloc(width * height * 3);
 	glReadPixels(0,0,width, height,GL_RGB,GL_UNSIGNED_BYTE,scr);
 	M_CreatePNG (file, scr + ((height-1) * width * 3), NULL, SS_RGB, width, height, -width*3);
+#endif
 	M_Free(scr);
 
 	// [BC] In GZDoom, this is called every frame, regardless of whether or not

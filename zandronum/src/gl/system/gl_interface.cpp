@@ -54,8 +54,27 @@ char myGlBeginCharArray[4] = {0,0,0,0};
 #define PROC void*
 #define LPCSTR const char*
 
+#ifdef __ANDROID__
+#include <dlfcn.h>
+void * wglGetProcAddress(const char * name)
+{
+	static void* h = NULL;
+
+	if (h == NULL)
+	{
+		h = dlopen("libGL4ES.so", RTLD_LAZY | RTLD_LOCAL);
+	}
+
+	void * ret = 0;
+	ret =  dlsym(h, (const char*)name);
+
+	return ret;
+}
+#else
 #include <SDL.h>
 #define wglGetProcAddress(x) (*SDL_GL_GetProcAddress)(x)
+#endif
+
 #endif
 static void APIENTRY glBlendEquationDummy (GLenum mode);
 

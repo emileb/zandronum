@@ -969,7 +969,7 @@ void FString::Substitute (const char *oldstr, const char *newstr, size_t oldstrl
 
 bool FString::IsInt () const
 {
-	// String must match: [whitespace] [{+ | –}] [0 [{ x | X }]] [digits] [whitespace]
+	// String must match: [whitespace] [{+ | â€“}] [0 [{ x | X }]] [digits] [whitespace]
 
 /* This state machine is based on a simplification of re2c's output for this input:
 digits		= [0-9];

@@ -1,0 +1,1 @@
+python.exe ./protocolspec/generator/codegenerator.py --spec ./protocolspec/spec.txt --source "src/network/servercommands.cpp" --header src/network/servercommands.h
