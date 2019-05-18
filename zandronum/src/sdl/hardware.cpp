@@ -193,6 +193,9 @@ DFrameBuffer *I_SetMode (int &width, int &height, DFrameBuffer *old)
 
 bool I_CheckResolution (int width, int height, int bits)
 {
+#ifdef __ANDROID__ // All resolutions OK
+    return true;
+#endif
 	int twidth, theight;
 
 	Video->StartModeIterator (bits, screen ? screen->IsFullscreen() : fullscreen);

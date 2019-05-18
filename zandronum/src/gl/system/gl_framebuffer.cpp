@@ -113,16 +113,9 @@ OpenGLFrameBuffer::~OpenGLFrameBuffer()
 // Initializes the GL renderer
 //
 //==========================================================================
-#ifdef __ANDROID__
-	extern "C"  void initialize_gl4es();
-#endif
 void OpenGLFrameBuffer::InitializeState()
 {
 	static bool first=true;
-
-#ifdef __ANDROID__
-	initialize_gl4es();
-#endif
 
 	gl_LoadExtensions();
 	Super::InitializeState();
@@ -134,6 +127,9 @@ void OpenGLFrameBuffer::InitializeState()
 		gl_PrintStartupLog();
 #endif
 
+#ifdef __ANDROID__
+        gl_PrintStartupLog();
+#endif
 		if (gl.flags&RFL_NPOT_TEXTURE)
 		{
 			Printf("Support for non power 2 textures enabled.\n");

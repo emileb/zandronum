@@ -262,7 +262,7 @@ void FHardwareTexture::LoadImage(unsigned char * buffer,int w, int h, unsigned i
 		if (rw == w && rh == h)
 		{
 		}
-		else if (wrapparam==GL_REPEAT || rw < w || rh < h)
+		else if (rw < w || rh < h)
 		{
 			// The image must be scaled to fit the texture
 			unsigned char * scaledbuffer=(unsigned char *)calloc(4,rw * (rh+1));
@@ -274,29 +274,31 @@ void FHardwareTexture::LoadImage(unsigned char * buffer,int w, int h, unsigned i
 				buffer=scaledbuffer;
 			}
 		}
+        else if (wrapparam==GL_REPEAT) // Need to make bigger by resampling, for 3d textures
+        {
+            unsigned int * scaledbuffer=(unsigned int *)calloc(4,rw * (rh+1));
+            GL_ResampleTexture((unsigned  *)buffer,w,h,(unsigned *)scaledbuffer,rw,rh);
+            deletebuffer=true;
+            buffer=(unsigned char *)scaledbuffer;
+        }
 		else
 		{
-			// The image must be copied to a larger buffer
-			unsigned char * scaledbuffer=(unsigned char *)calloc(4,rw * (rh+1));
-			if (scaledbuffer)
-			{
-				for(int y=0;y<h;y++)
-				{
-					memcpy(scaledbuffer + rw * y * 4, buffer + w * y * 4, w * 4);
-					// duplicate the last row to eliminate texture filtering artifacts on borders!
-					if (rw>w) 
-						memcpy(	scaledbuffer + rw * y * 4 + w * 4,
-						scaledbuffer + rw * y * 4 + w * 4 -4, 4);
-				}
-				// also duplicate the last line for the same reason!
-				memcpy(	scaledbuffer + rw * h * 4, 	scaledbuffer + rw * (h-1) * 4, w*4 + 4);
-				
-				deletebuffer=true;
-				buffer=scaledbuffer;
-			}
+            unsigned int * scaledbuffer=(unsigned int *)calloc(4,rw * (rh+1));
+            for(int y = 0; y < h; y++)
+                for( int x = 0; x < w; x++ )
+                {
+                    scaledbuffer[x + y * rw] = ((unsigned int *)buffer)[x + y * w];
+                }
+            deletebuffer=true;
+            buffer=(unsigned char *)scaledbuffer;
 		}
 	}
-	glTexImage2D(GL_TEXTURE_2D, 0, texformat, rw, rh, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+#ifdef __MOBILE__
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rw, rh, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+#else
+    glTexImage2D(GL_TEXTURE_2D, 0, texformat, rw, rh, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+#endif
+
 
 	if (deletebuffer) free(buffer);
 
@@ -311,17 +313,21 @@ void FHardwareTexture::LoadImage(unsigned char * buffer,int w, int h, unsigned i
 	{
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+#ifndef __MOBILE__
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 1.f);
+#endif
 	}
 	else
 	{
 		if (mipmap && use_mipmapping)
 		{
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, TexFilter[gl_texture_filter].minfilter);
+#ifndef __MOBILE__
 			if (gl_texture_filter_anisotropic)
 			{
 				glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, gl_texture_filter_anisotropic);
 			}
+#endif
 		}
 		else
 		{

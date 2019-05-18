@@ -220,7 +220,9 @@ private:
 	{
 		int amount;
 
+#ifndef __ANDROID__ // Fix corrupt status bar on NPOT
 		if ( ForceRefresh() )
+#endif
 			DrawImage (&StatusBarTex, 0, 0);
 
 		DrawAmmoStats ();

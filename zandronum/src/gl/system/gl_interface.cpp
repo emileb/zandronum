@@ -156,7 +156,9 @@ static void InitContext()
 		myGlBeginCharArray[i] = reinterpret_cast<char *>(glBegin)[i];
 #endif
 }
-
+#ifdef __ANDROID__
+extern int glesLoad;
+#endif
 //==========================================================================
 //
 // 
@@ -166,8 +168,33 @@ static void InitContext()
 void gl_LoadExtensions()
 {
 	InitContext();
-	CollectExtensions();
 
+	ogl_LoadFunctions();
+
+	CollectExtensions();
+#ifdef __ANDROID__
+    if( glesLoad == 1)
+    {
+	    gl.shadermodel = 0;	// assume no shader support
+	    gl.vendorstring =(char*)glGetString(GL_VENDOR);
+
+        if (CheckExtension("GL_OES_texture_npot")) gl.flags|=RFL_NPOT_TEXTURE;
+    }
+    else if( glesLoad == 2)
+    {
+        gl.shadermodel = 4;
+        gl.shadermodel = 3;
+        gl.flags|=RFL_GL_20;
+        gl.flags|=RFL_GL_21;
+
+        gl.flags |= RFL_VBO;
+        gl.flags |= RFL_MAP_BUFFER_RANGE;
+        gl.flags |= RFL_FRAMEBUFFER;
+    }
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE,&gl.max_texturesize);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+#else
 	const char *version = (const char*)glGetString(GL_VERSION);
 
 	// Don't even start if it's lower than 1.3
@@ -181,6 +208,7 @@ void gl_LoadExtensions()
 		// on most 1.3 cards this is present but let's print a warning that not everything may work as intended.
 		Printf(TEXTCOLOR_RED "The current graphics driver implements a OpenGL version lower than 1.4 and may not support all features " GAMENAME " requires.\n");
 	}
+
 
 	// This loads any function pointers and flags that require a vaild render context to
 	// initialize properly
@@ -360,6 +388,7 @@ void gl_LoadExtensions()
 	glActiveTexture = (PFNGLACTIVETEXTUREPROC)myGetProcAddress("glActiveTextureARB");
 	glMultiTexCoord2f = (PFNGLMULTITEXCOORD2FPROC) myGetProcAddress("glMultiTexCoord2fARB");
 	glMultiTexCoord2fv = (PFNGLMULTITEXCOORD2FVPROC) myGetProcAddress("glMultiTexCoord2fvARB");
+#endif
 }
 
 //==========================================================================

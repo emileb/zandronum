@@ -64,6 +64,7 @@ ANDROID_SRC_FILES = \
     ../../../../Clibs_OpenTouch/idtech1/android_jni.cpp \
     ../../../../Clibs_OpenTouch/idtech1/zan_game_interface.cpp \
     ../mobile/src/sqlite/sqlite3.c \
+    ../mobile/src/extrafiles/gl_load.c \
     ../GeoIP/GeoIP.c
 
 
@@ -85,7 +86,6 @@ PLAT_SDL_SOURCES = \
 
 
 GL_SOURCES = \
-		gl/api/gl_api.cpp \
 		gl/data/gl_sections.cpp \
 		gl/data/gl_data.cpp \
 		gl/data/gl_portaldata.cpp \
@@ -505,11 +505,11 @@ LOCAL_SRC_FILES = \
 
 
 
-LOCAL_LDLIBS := -ldl -llog -lOpenSLES
+LOCAL_LDLIBS := -ldl -llog -lOpenSLES  -lGLESv1_CM
 LOCAL_LDLIBS +=  -lEGL
 
 LOCAL_STATIC_LIBRARIES := sndfile mpg123 fluidsynth-static SDL2_net libjpeg zlib_zan30 lzma_zan30 gdtoa_zan30 dumb_zan30 gme_zan30 bzip2_zan30 logwritter ssl_static crypto_static
-LOCAL_SHARED_LIBRARIES := touchcontrols openal SDL2 jwzgles_shared fmod core_shared GL4ES
+LOCAL_SHARED_LIBRARIES := touchcontrols openal SDL2 jwzgles_shared fmod core_shared
 
 
 include $(BUILD_SHARED_LIBRARY)
