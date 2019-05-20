@@ -628,7 +628,7 @@ FString M_GetConfigPath(bool for_reading)
 FString M_GetScreenshotsPath()
 {
 #ifdef __ANDROID__
-	return NicePath("./zandronum/screenshots/");
+	return NicePath("./zandronum_3.0/screenshots/");
 #else
 	return NicePath("~/" GAME_DIR "/screenshots/");
 #endif
@@ -645,7 +645,7 @@ FString M_GetScreenshotsPath()
 FString M_GetSavegamesPath()
 {
 #ifdef __ANDROID__
-    return NicePath("./zandronum/saves");
+    return NicePath("./zandronum_3.0/saves");
 #else
 	return NicePath("~/" GAME_DIR);
 #endif

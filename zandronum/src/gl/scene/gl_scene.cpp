@@ -1311,7 +1311,11 @@ void FGLInterface::Init()
 // Camera texture rendering
 //
 //===========================================================================
+#ifdef __ANDROID__ // This is faster for gles2 in KDIZ
+CVAR(Bool, gl_usefb, true , CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+#else
 CVAR(Bool, gl_usefb, false , CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+#endif
 extern TexFilter_s TexFilter[];
 
 void FGLInterface::RenderTextureView (FCanvasTexture *tex, AActor *Viewpoint, int FOV)
