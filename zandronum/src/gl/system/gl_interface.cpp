@@ -194,6 +194,9 @@ void gl_LoadExtensions()
     glGetIntegerv(GL_MAX_TEXTURE_SIZE,&gl.max_texturesize);
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
+    //This is needed to the fix the brutal doom white lines?!
+    glDisable(GL_CLIP_PLANE0);
+    glEnable(GL_CLIP_PLANE0);
 #else
 	const char *version = (const char*)glGetString(GL_VERSION);
 
@@ -454,6 +457,9 @@ void gl_SetTextureMode(int type)
 
 	if (type == TM_MASK)
 	{
+#ifdef __MOBILE__
+        return; //Causes textures to screw up for some reason...
+#endif
 		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE);
 		glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, GL_REPLACE);
 		glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB, GL_PRIMARY_COLOR);
