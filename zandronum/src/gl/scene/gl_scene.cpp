@@ -565,9 +565,11 @@ void FGLRenderer::RenderScene(int recursion)
 	// This will always be drawn like GLDL_PLAIN or GLDL_FOG, depending on the fog settings
 
 	// [BB] We may only do this when drawing the final eye.
+#ifndef __ANDROID__
 	GLint drawBuffer;
 	glGetIntegerv ( GL_DRAW_BUFFER, &drawBuffer );
 	if ( drawBuffer != GL_BACK_LEFT )
+#endif
 	{
 		glDepthMask(false);							// don't write to Z-buffer!
 		gl_RenderState.EnableFog(true);
@@ -909,8 +911,10 @@ sector_t * FGLRenderer::RenderViewpoint (AActor * camera, GL_IRECT * bounds, flo
 	// [BB] Check if stereo rendering is supported.
 	GLboolean supportsStereo = false;
 	GLboolean supportsBuffered = false;
+#ifndef __ANDROID__
 	glGetBooleanv(GL_STEREO, &supportsStereo);
 	glGetBooleanv(GL_DOUBLEBUFFER, &supportsBuffered);
+#endif
 	const bool renderStereo = (supportsStereo && supportsBuffered && toscreen);
 
 	sector_t * retval;

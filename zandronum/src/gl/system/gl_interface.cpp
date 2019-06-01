@@ -405,6 +405,10 @@ void gl_PrintStartupLog()
 	Printf ("GL_VENDOR: %s\n", glGetString(GL_VENDOR));
 	Printf ("GL_RENDERER: %s\n", glGetString(GL_RENDERER));
 	Printf ("GL_VERSION: %s\n", glGetString(GL_VERSION));
+#ifdef __ANDROID__
+    if( glesLoad == 2)
+    {
+#endif
 	Printf ("GL_SHADING_LANGUAGE_VERSION: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 	Printf ("GL_EXTENSIONS: %s\n", glGetString(GL_EXTENSIONS));
 	int v;
@@ -422,7 +426,9 @@ void gl_PrintStartupLog()
 	Printf ("Max. combined uniforms: %d\n", v);
 	glGetIntegerv(GL_MAX_COMBINED_UNIFORM_BLOCKS, &v);
 	Printf ("Max. combined uniform blocks: %d\n", v);
-
+#ifdef __ANDROID__
+    }
+#endif
 }
 
 //==========================================================================
