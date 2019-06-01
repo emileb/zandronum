@@ -360,10 +360,10 @@ int main (int argc, char **argv)
 		  loud SFX noise because the sound card is
 		  left in an unstable state.
 		*/
-
+#ifndef __ANDROID__
 		atexit (call_terms);
 		atterm (I_Quit);
-
+#endif
 		// Should we even be doing anything with progdir on Unix systems?
 		char program[PATH_MAX];
 		if (realpath (argv[0], program) == NULL)
