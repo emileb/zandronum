@@ -165,7 +165,10 @@ bool FShader::Load(const char * name, const char * vert_prog_lump, const char * 
 			error << "Linking:\n" << buffer << "\n";
 		}
 #ifdef __ANDROID__
-		int linked = 0;
+		int linked = 1;
+        int linkStatus[1];
+        glGetProgramiv(hShader, GL_LINK_STATUS, linkStatus);
+        linked = (linkStatus[0] == GL_TRUE) ;
 #else
 		int linked;
 		glGetObjectParameteriv(hShader, GL_LINK_STATUS, &linked);
@@ -354,9 +357,17 @@ FShaderContainer::FShaderContainer(const char *ShaderName, const char *ShaderPat
 				shader[i] = NULL;
 				I_Error("Unable to load shader %s:\n%s\n", name.GetChars(), err.GetMessage());
 			}
+
+			if( shader[i] )
+			    Printf("Shader %d LOADED",i);
+            else
+                Printf("Shader %d NOT LOADED",i);
+
 		}
 	}
 	else memset(shader, 0, sizeof(shader));
+
+
 }
 
 //==========================================================================
