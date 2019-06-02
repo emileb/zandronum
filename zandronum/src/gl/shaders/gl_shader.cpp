@@ -63,7 +63,7 @@
 CVAR(Bool, gl_warp_shader, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG|CVAR_NOINITCALL)
 CVAR(Bool, gl_fog_shader, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG|CVAR_NOINITCALL)
 CVAR(Bool, gl_colormap_shader, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG|CVAR_NOINITCALL)
-CVAR(Bool, gl_brightmap_shader, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG|CVAR_NOINITCALL)
+CVAR(Bool, gl_brightmap_shader, true, CVAR_ARCHIVE|CVAR_GLOBALCONFIG|CVAR_NOINITCALL)
 CVAR(Bool, gl_glow_shader, true, CVAR_ARCHIVE|CVAR_GLOBALCONFIG|CVAR_NOINITCALL)
 
 
@@ -99,6 +99,9 @@ bool FShader::Load(const char * name, const char * vert_prog_lump, const char * 
 			vp_comb << "#define NO_SM4\n";
 		}
 
+#ifdef __MOBILE__
+        vp_comb << "#define NO_TEXTUREMODE\n"; // Needed to fix brightmaps..TODO
+#endif
 		fp_comb = vp_comb;
 		// This uses GetChars on the strings to get rid of terminating 0 characters.
 		vp_comb << vp_data.GetString().GetChars() << "\n";
@@ -336,6 +339,7 @@ FShaderContainer::FShaderContainer(const char *ShaderName, const char *ShaderPat
 					str = "#version 120\n#extension GL_EXT_gpu_shader4 : enable\n";
 					if (gl.MaxLights() == 128) str += "#define MAXLIGHTS128\n";
 				}
+#ifndef __MOBILE__ // Why is this here?? Need to remove so shaders 0 to 7 are loaded with shader mode 3...
 				if ((i&8) == 0)
 				{
 					if (gl.shadermodel != 4)
@@ -344,6 +348,8 @@ FShaderContainer::FShaderContainer(const char *ShaderName, const char *ShaderPat
 						continue;
 					}
 				}
+#endif
+
 				str += shaderdefines[i];
 				shader[i] = new FShader;
 				if (!shader[i]->Load(name, "shaders/glsl/main.vp", "shaders/glsl/main.fp", ShaderPath, str.GetChars()))
