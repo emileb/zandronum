@@ -360,7 +360,7 @@ int main (int argc, char **argv)
 		  loud SFX noise because the sound card is
 		  left in an unstable state.
 		*/
-#ifndef __ANDROID__
+#ifndef __ANDROID__kk
 		atexit (call_terms);
 		atterm (I_Quit);
 #endif
