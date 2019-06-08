@@ -814,8 +814,9 @@ void FGLRenderer::EndDrawScene(sector_t * viewsector)
 	}
 
 	glDisable(GL_STENCIL_TEST);
+#ifndef __MOBILE__
 	glDisable(GL_POLYGON_SMOOTH);
-
+#endif
 	gl_RenderState.EnableFog(false);
 	framebuffer->Begin2D(false);
 
