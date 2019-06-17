@@ -88,7 +88,7 @@ ReverbContainer *ForcedEnvironment;
 CVAR (Int, snd_driver, 0, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 CVAR (Int, snd_buffercount, 0, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 CVAR (Bool, snd_hrtf, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
-CVAR (Bool, snd_waterreverb, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+CVAR (Bool, snd_waterreverb, true, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 CVAR (String, snd_resampler, "Linear", CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 CVAR (String, snd_speakermode, "Auto", CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 CVAR (String, snd_output_format, "PCM-16", CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
@@ -683,7 +683,7 @@ bool FMODSoundRenderer::IsValid()
 // FMODSoundRenderer :: Init
 //
 //==========================================================================
-
+bool IsFModExPresent();
 bool FMODSoundRenderer::Init()
 {
 	FMOD_RESULT result;
@@ -714,7 +714,7 @@ bool FMODSoundRenderer::Init()
 	OutputPlugin = 0;
 
 	Printf("I_InitSound: Initializing FMOD\n");
-/*
+
 	// This is just for safety. Normally this should never be called if FMod Ex cannot be found.
 	if (!IsFModExPresent())
 	{
@@ -726,7 +726,7 @@ bool FMODSoundRenderer::Init()
 			".dll\n");
 		return false;
 	}
-*/
+
 	// Create a System object and initialize.
 	result = FMOD::System_Create(&Sys);
 	if (result != FMOD_OK)

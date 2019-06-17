@@ -165,6 +165,14 @@ FGameConfigFile::FGameConfigFile ()
 		SetValueForKey ("Path", "$DOOMWADDIR", true);
 	}
 
+#ifdef __ANDROID__
+	SetSection ("FileSearch.Directories", true);
+    SetValueForKey ("Path", "./mods", true);
+    SetValueForKey ("Path", "./maps", true);
+    SetValueForKey ("Path", "./res", true);
+#endif
+
+
 	// Create auto-load sections, so users know what's available.
 	// Note that this totem pole is the reverse of the order that
 	// they will appear in the file.
