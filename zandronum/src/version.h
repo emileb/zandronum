@@ -119,7 +119,7 @@ unsigned int GetRevisionNumber();
 // This is so that derivates can use the same savegame versions without worrying about engine compatibility
 #define GAMESIG "ZANDRONUM"
 #ifdef __ANDROID__
-#define BASEWAD "zandronum.pk3"
+#define BASEWAD "res/zandronum.pk3"
 #else
 #define BASEWAD "zandronum.pk3"
 #endif

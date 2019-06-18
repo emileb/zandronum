@@ -2010,6 +2010,7 @@ FxExpression *FxGlobalVariable::Resolve(FCompileContext&)
 	case VAL_Fixed:
 	case VAL_Angle:
 		ValueType = VAL_Float;
+		break;
 
 	case VAL_Object:
 	case VAL_Class:
@@ -2779,7 +2780,7 @@ void FStateExpressions::Clear()
 	{
 		if (expressions[i].expr != NULL && !expressions[i].cloned)
 		{
-			delete expressions[i].expr;
+		    delete expressions[i].expr;
 		}
 	}
 	expressions.Clear();

@@ -158,7 +158,17 @@ protected:
 		ScriptPosition = pos;
 	}
 public:
-	virtual ~FxExpression() {}
+#ifdef __ANDROID__
+/*
+    There is memory corruption somewhere when void FStateExpressions::Clear() is called.
+    Possible double deletion so I put this here, but it has fixed it due to change in size.. Could be luck...
+*/
+    bool isDeleted = false;
+#endif
+	virtual ~FxExpression()
+	{
+	    isDeleted = true;
+	}
 	virtual FxExpression *Resolve(FCompileContext &ctx);
 	FxExpression *ResolveAsBoolean(FCompileContext &ctx);
 	
