@@ -2106,6 +2106,24 @@ static const char *BaseFileSearch (const char *file, const char *ext, bool lookf
 		return wad;
 	}
 
+#ifdef __ANDROID__
+	mysnprintf (wad, countof(wad), "./res/%s", file);
+	if (DirEntryExists (wad))
+    {
+        return wad;
+    }
+    mysnprintf (wad, countof(wad), "./mods/%s", file);
+    if (DirEntryExists (wad))
+    {
+    return wad;
+    }
+    mysnprintf (wad, countof(wad), "./maps/%s", file);
+    if (DirEntryExists (wad))
+    {
+        return wad;
+    }
+#endif
+
 	if (GameConfig->SetSection ("FileSearch.Directories"))
 	{
 		const char *key;
