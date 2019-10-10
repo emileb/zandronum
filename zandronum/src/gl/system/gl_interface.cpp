@@ -184,7 +184,11 @@ void gl_LoadExtensions()
     {
 
         gl.shadermodel = 2;
-        //gl.shadermodel = 3; // UNCOMMENT THIS TO ENABLE SHADERS
+        if( Args->CheckParm("-sm3") )
+        {
+            Printf("Enableing shaders for GLES2");
+            gl.shadermodel = 3; // UNCOMMENT THIS TO ENABLE SHADERS
+        }
         gl.flags|=RFL_GL_20;
         gl.flags|=RFL_GL_21;
 
