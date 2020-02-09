@@ -200,7 +200,11 @@ bool FShader::Load(const char * name, const char * vert_prog_lump, const char * 
 		glUseProgram(hShader);
 
 		int texture_index = glGetUniformLocation(hShader, "texture2");
+#ifdef __MOBILE__ //Actually 0 can be valid on some mobile chips..
+		if (texture_index >= 0) glUniform1i(texture_index, 1);
+#else
 		if (texture_index > 0) glUniform1i(texture_index, 1);
+#endif
 
 		glUseProgram(0);
 		return !!linked;
