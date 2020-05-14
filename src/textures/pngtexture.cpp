@@ -625,12 +625,21 @@ int FPNGTexture::CopyTrueColorPixels(FBitmap *bmp, int x, int y, int rotate, FCo
 			break;
 
 		case MAKE_ID('t','R','N','S'):
+			if (ColorType == 3)
+            {
 			for(DWORD i = 0; i < len; i++)
 			{
 				(*lump) >> pe[i].a;
 				if (pe[i].a != 0 && pe[i].a != 255)
 					transpal = true;
 			}
+			}
+#ifdef __ANDROID__ // Backport this important fix! Fixes random crash when reading some PNGs
+            else
+            {
+                lump->Seek(len, SEEK_CUR);
+            }
+#endif
 			break;
 		}
 		lump->Seek(4, SEEK_CUR);		// Skip CRC

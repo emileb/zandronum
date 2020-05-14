@@ -35,7 +35,11 @@ public:
 
 	FString GetName()
 	{
+#ifdef __ANDROID__
+		return "FIX";
+#else
 		return SDL_JoystickName(DeviceIndex);
+#endif
 	}
 	float GetSensitivity()
 	{

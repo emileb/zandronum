@@ -121,7 +121,11 @@ typedef struct
 	LONG			lNumPWADs;
 
 	// Names of each PWAD the server is using.
+#ifdef __ANDROID__ // For some reason some servers have more than 32 pwads, this was causing the browers to crash
+	FString			PWADNames[128];
+#else
 	FString			PWADNames[32];
+#endif
 
 	// Name of the IWAD being used.
 	FString			IWADName;
