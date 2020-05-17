@@ -474,7 +474,7 @@ FString GetUserFile (const char *file)
 	FString path;
 	struct stat info;
 #ifdef __ANDROID__
-    path = "./zandronum_3.0/";
+    path = "./user_files/zandronum_3.0/";
     if (stat (path, &info) == -1)
     {
         if (mkdir (path, S_IRUSR | S_IWUSR | S_IXUSR) == -1)
@@ -553,7 +553,7 @@ FString M_GetCachePath(bool create)
 	// share the node cache.
 	FString path = NicePath("~/.config/zdoom/cache");
 #ifdef __ANDROID__
-    path = "./zandronum_3.0/";
+    path = "./user_files/zandronum_3.0/";
 #endif
 	if (create)
 	{
@@ -628,7 +628,7 @@ FString M_GetConfigPath(bool for_reading)
 FString M_GetScreenshotsPath()
 {
 #ifdef __ANDROID__
-	return NicePath("./zandronum_3.0/screenshots/");
+	return NicePath("./user_files/zandronum_3.0/screenshots/");
 #else
 	return NicePath("~/" GAME_DIR "/screenshots/");
 #endif
@@ -645,7 +645,7 @@ FString M_GetScreenshotsPath()
 FString M_GetSavegamesPath()
 {
 #ifdef __ANDROID__
-    return NicePath("./zandronum_3.0/saves");
+    return NicePath("./user_files/zandronum_3.0/saves");
 #else
 	return NicePath("~/" GAME_DIR);
 #endif
