@@ -41,7 +41,8 @@
 #define HG_REVISION_HASH_STRING "ANDROID######"
 #define HG_TIME                 "200501-1847"
 //#define DOTVERSIONSTR_REV       "DD3C3B57023F"
-#define HG_REVISION_NUMBER       1504266050
+// IMPORTANT, must be updated each time to allow connection to online servers
+#define HG_REVISION_NUMBER       1588358877
 #endif
 
 const char *GetGitDescription()
