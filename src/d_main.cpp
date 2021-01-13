@@ -2444,7 +2444,7 @@ static void D_DoomInit()
 	Args->CollectFiles("-file", NULL);	// anything left goes after -file
 	Args->CollectFiles( "-optfile", NULL ); // [TP]
 
-	atterm (C_DeinitConsole);
+	//atterm (C_DeinitConsole); // Crashes at exit
 
 	gamestate = GS_STARTUP;
 
