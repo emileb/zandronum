@@ -613,6 +613,9 @@ void DBaseStatusBar::DrawFadedImage (FTexture *img,
 
 void DBaseStatusBar::DrawPartialImage (FTexture *img, int wx, int ww) const
 {
+#ifdef __ANDROID__ // This does not work and breaks the status bar with NPOT = false
+	return;
+#endif
 	if (img != NULL)
 	{
 		screen->DrawTexture (img, ST_X, ST_Y,

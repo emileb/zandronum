@@ -2010,6 +2010,7 @@ FxExpression *FxGlobalVariable::Resolve(FCompileContext&)
 	case VAL_Fixed:
 	case VAL_Angle:
 		ValueType = VAL_Float;
+		break;
 
 	case VAL_Object:
 	case VAL_Class:
@@ -2775,6 +2776,9 @@ FStateExpressions StateParams;
 
 void FStateExpressions::Clear()
 {
+#ifndef __ANDROID__
+// OK there is a memory bug somewhere (double free maybe?), and this crashed
+// Obvs this casues a memory leak but it isn't too big, and it is only called when starting a new MP game
 	for(unsigned i=0; i<Size(); i++)
 	{
 		if (expressions[i].expr != NULL && !expressions[i].cloned)
@@ -2782,6 +2786,7 @@ void FStateExpressions::Clear()
 			delete expressions[i].expr;
 		}
 	}
+#endif
 	expressions.Clear();
 }
 

@@ -79,6 +79,143 @@ int FHardwareTexture::GetTexDimension(int value)
 	return i;
 }
 
+
+#ifdef __ANDROID__
+struct BoxPrecalc
+{
+	int boxStart;
+	int boxEnd;
+};
+
+static void ResampleBoxPrecalc(TArray<BoxPrecalc>& boxes, int oldDim)
+{
+	int newDim = boxes.Size();
+	const double scale_factor_1 = double(oldDim) / newDim;
+	const int scale_factor_2 = (int)(scale_factor_1 / 2);
+
+	for (int dst = 0; dst < newDim; ++dst)
+	{
+		// Source pixel in the Y direction
+		const int src_p = int(dst * scale_factor_1);
+
+		BoxPrecalc& precalc = boxes[dst];
+		precalc.boxStart = clamp<int>(int(src_p - scale_factor_1 / 2.0 + 1), 0, oldDim - 1);
+		precalc.boxEnd = clamp<int>(MAX<int>(precalc.boxStart + 1, int(src_p + scale_factor_2)), 0, oldDim - 1);
+	}
+}
+
+static void Resize(int texwidth, int texheight, int width, int height, unsigned char *src_data, unsigned char *dst_data)
+{
+
+	// This function implements a simple pre-blur/box averaging method for
+	// downsampling that gives reasonably smooth results To scale the image
+	// down we will need to gather a grid of pixels of the size of the scale
+	// factor in each direction and then do an averaging of the pixels.
+
+	TArray<BoxPrecalc> vPrecalcs(height);
+	TArray<BoxPrecalc> hPrecalcs(width);
+
+	ResampleBoxPrecalc(vPrecalcs, texheight);
+	ResampleBoxPrecalc(hPrecalcs, texwidth);
+
+	int averaged_pixels, averaged_alpha, src_pixel_index;
+	double sum_r, sum_g, sum_b, sum_a;
+
+	for (int y = 0; y < height; y++)         // Destination image - Y direction
+	{
+		// Source pixel in the Y direction
+		const BoxPrecalc& vPrecalc = vPrecalcs[y];
+
+		for (int x = 0; x < width; x++)      // Destination image - X direction
+		{
+			// Source pixel in the X direction
+			const BoxPrecalc& hPrecalc = hPrecalcs[x];
+
+			// Box of pixels to average
+			averaged_pixels = 0;
+			averaged_alpha = 0;
+			sum_r = sum_g = sum_b = sum_a = 0.0;
+
+			for (int j = vPrecalc.boxStart; j <= vPrecalc.boxEnd; ++j)
+			{
+				for (int i = hPrecalc.boxStart; i <= hPrecalc.boxEnd; ++i)
+				{
+					// Calculate the actual index in our source pixels
+					src_pixel_index = j * texwidth + i;
+
+					int a = src_data[src_pixel_index * 4 + 3];
+					if (a > 0)	// do not use color from fully transparent pixels
+					{
+						sum_r += src_data[src_pixel_index * 4 + 0];
+						sum_g += src_data[src_pixel_index * 4 + 1];
+						sum_b += src_data[src_pixel_index * 4 + 2];
+						sum_a += a;
+						averaged_pixels++;
+					}
+					averaged_alpha++;
+
+				}
+			}
+
+			// Calculate the average from the sum and number of averaged pixels
+			dst_data[0] = (unsigned char)xs_CRoundToInt(sum_r / averaged_pixels);
+			dst_data[1] = (unsigned char)xs_CRoundToInt(sum_g / averaged_pixels);
+			dst_data[2] = (unsigned char)xs_CRoundToInt(sum_b / averaged_pixels);
+			dst_data[3] = (unsigned char)xs_CRoundToInt(sum_a / averaged_alpha);
+			dst_data += 4;
+		}
+	}
+}
+
+static void GL_ResampleTexture (uint32_t *in, uint32_t inwidth, uint32_t inheight, uint32_t *out,  uint32_t outwidth, uint32_t outheight)
+{
+	//LOGI("GL_ResampleTexture %dx%d -> %dx%d",inwidth,inheight,outwidth,outheight);
+
+	int		i, j;
+	uint32_t	*inrow, *inrow2;
+	uint32_t	frac, fracstep;
+	uint8_t		*pix1, *pix2, *pix3, *pix4;
+	uint32_t	*p1 = (uint32_t*)malloc(sizeof(uint32_t) * outwidth );
+	uint32_t	*p2 = (uint32_t*)malloc(sizeof(uint32_t) * outwidth );
+
+	fracstep = inwidth*0x10000/outwidth;
+
+	frac = fracstep>>2;
+	for (i=0 ; i<outwidth ; i++)
+	{
+		p1[i] = 4*(frac>>16);
+		frac += fracstep;
+	}
+	frac = 3*(fracstep>>2);
+	for (i=0 ; i<outwidth ; i++)
+	{
+		p2[i] = 4*(frac>>16);
+		frac += fracstep;
+	}
+
+	for (i=0 ; i<outheight ; i++, out += outwidth)
+	{
+		inrow = in + inwidth*(int)((i+0.25)*inheight/outheight);
+		inrow2 = in + inwidth*(int)((i+0.75)*inheight/outheight);
+		frac = fracstep >> 1;
+		for (j=0 ; j<outwidth ; j++)
+		{
+			pix1 = (uint8_t *)inrow + p1[j];
+			pix2 = (uint8_t *)inrow + p2[j];
+			pix3 = (uint8_t *)inrow2 + p1[j];
+			pix4 = (uint8_t *)inrow2 + p2[j];
+			((uint8_t *)(out+j))[0] = (pix1[0] + pix2[0] + pix3[0] + pix4[0])>>2;
+			((uint8_t *)(out+j))[1] = (pix1[1] + pix2[1] + pix3[1] + pix4[1])>>2;
+			((uint8_t *)(out+j))[2] = (pix1[2] + pix2[2] + pix3[2] + pix4[2])>>2;
+			((uint8_t *)(out+j))[3] = (pix1[3] + pix2[3] + pix3[3] + pix4[3])>>2;
+		}
+	}
+
+	free(p1);
+	free(p2);
+}
+#endif
+
 //===========================================================================
 // 
 //	Loads the texture image into the hardware
@@ -125,40 +262,43 @@ void FHardwareTexture::LoadImage(unsigned char * buffer,int w, int h, unsigned i
 		if (rw == w && rh == h)
 		{
 		}
-		else if (wrapparam==GL_REPEAT || rw < w || rh < h)
+		else if (rw < w || rh < h)
 		{
 			// The image must be scaled to fit the texture
 			unsigned char * scaledbuffer=(unsigned char *)calloc(4,rw * (rh+1));
 			if (scaledbuffer)
 			{
-				gluScaleImage(GL_RGBA,w, h,GL_UNSIGNED_BYTE,buffer, rw, rh, GL_UNSIGNED_BYTE,scaledbuffer);
+				//gluScaleImage(GL_RGBA,w, h,GL_UNSIGNED_BYTE,buffer, rw, rh, GL_UNSIGNED_BYTE,scaledbuffer);
+				::Resize(w,h,rw,rh,buffer,scaledbuffer);
 				deletebuffer=true;
 				buffer=scaledbuffer;
 			}
 		}
+        else if (wrapparam==GL_REPEAT) // Need to make bigger by resampling, for 3d textures
+        {
+            unsigned int * scaledbuffer=(unsigned int *)calloc(4,rw * (rh+1));
+            GL_ResampleTexture((unsigned  *)buffer,w,h,(unsigned *)scaledbuffer,rw,rh);
+            deletebuffer=true;
+            buffer=(unsigned char *)scaledbuffer;
+        }
 		else
 		{
-			// The image must be copied to a larger buffer
-			unsigned char * scaledbuffer=(unsigned char *)calloc(4,rw * (rh+1));
-			if (scaledbuffer)
-			{
+            unsigned int * scaledbuffer=(unsigned int *)calloc(4,rw * (rh+1));
 				for(int y=0;y<h;y++)
+                for( int x = 0; x < w; x++ )
 				{
-					memcpy(scaledbuffer + rw * y * 4, buffer + w * y * 4, w * 4);
-					// duplicate the last row to eliminate texture filtering artifacts on borders!
-					if (rw>w) 
-						memcpy(	scaledbuffer + rw * y * 4 + w * 4,
-						scaledbuffer + rw * y * 4 + w * 4 -4, 4);
+                    scaledbuffer[x + y * rw] = ((unsigned int *)buffer)[x + y * w];
 				}
-				// also duplicate the last line for the same reason!
-				memcpy(	scaledbuffer + rw * h * 4, 	scaledbuffer + rw * (h-1) * 4, w*4 + 4);
-				
 				deletebuffer=true;
-				buffer=scaledbuffer;
-			}
+            buffer=(unsigned char *)scaledbuffer;
 		}
 	}
+#ifdef __MOBILE__
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rw, rh, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+#else
 	glTexImage2D(GL_TEXTURE_2D, 0, texformat, rw, rh, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+#endif
+
 
 	if (deletebuffer) free(buffer);
 
@@ -173,17 +313,21 @@ void FHardwareTexture::LoadImage(unsigned char * buffer,int w, int h, unsigned i
 	{
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+#ifndef __MOBILE__
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 1.f);
+#endif
 	}
 	else
 	{
 		if (mipmap && use_mipmapping)
 		{
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, TexFilter[gl_texture_filter].minfilter);
+#ifndef __MOBILE__
 			if (gl_texture_filter_anisotropic)
 			{
 				glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, gl_texture_filter_anisotropic);
 			}
+#endif
 		}
 		else
 		{

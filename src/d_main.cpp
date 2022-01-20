@@ -2121,6 +2121,24 @@ static const char *BaseFileSearch (const char *file, const char *ext, bool lookf
 		return wad;
 	}
 
+#ifdef __ANDROID__
+	mysnprintf (wad, countof(wad), "./res/%s", file);
+	if (DirEntryExists (wad))
+    {
+        return wad;
+    }
+    mysnprintf (wad, countof(wad), "./mods/%s", file);
+    if (DirEntryExists (wad))
+    {
+    return wad;
+    }
+    mysnprintf (wad, countof(wad), "./maps/%s", file);
+    if (DirEntryExists (wad))
+    {
+        return wad;
+    }
+#endif
+
 	if (GameConfig->SetSection ("FileSearch.Directories"))
 	{
 		const char *key;
@@ -2438,7 +2456,7 @@ static void D_DoomInit()
 	Args->CollectFiles("-file", NULL);	// anything left goes after -file
 	Args->CollectFiles( "-optfile", NULL ); // [TP]
 
-	atterm (C_DeinitConsole);
+	//atterm (C_DeinitConsole); // Crashes at exit
 
 	gamestate = GS_STARTUP;
 

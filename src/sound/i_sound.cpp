@@ -61,7 +61,11 @@ extern HINSTANCE g_hInst;
 #include <math.h>
 
 #ifndef NO_SOUND
+#ifdef __ANDROID__
+#include "fmodsound_studio.h"
+#else
 #include "fmodsound.h"
+#endif
 #endif
 
 #include "m_swap.h"
