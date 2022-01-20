@@ -194,8 +194,11 @@ CCMD (snd_listmididevices)
 #else
 
 // Everything but Windows uses this code.
-
+#ifdef __ANDROID__
+CUSTOM_CVAR(Int, snd_mididevice, -5, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+#else
 CUSTOM_CVAR(Int, snd_mididevice, -1, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+#endif
 {
 	if (self < -5)
 		self = -5;
