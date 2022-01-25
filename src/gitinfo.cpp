@@ -41,7 +41,7 @@
 #define HG_REVISION_HASH_STRING "ANDROID######"
 #define HG_TIME                 "200501-1847"
 //#define DOTVERSIONSTR_REV       "DD3C3B57023F"
-#define HG_REVISION_NUMBER       1504266050
+#define HG_REVISION_NUMBER       1639258555
 #endif
 
 const char *GetGitDescription()
