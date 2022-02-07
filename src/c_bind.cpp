@@ -103,7 +103,11 @@ static const FBinding DefBindings[] =
 	{ "f9", "quickload" },
 	{ "f11", "bumpgamma" },
 	{ "f10", "menu_quit" },
+#ifdef __ANDROID__ // Try to stop the map randomly being activated
+	{ "z", "togglemap" }, // [AK]
+#else
 	{ "enter", "togglemap" }, // [AK]
+#endif
 	{ "pause", "pause" },
 	{ "sysrq", "screenshot" },
 	// [AK] Added/changed binds for global, team, and private chat modes.
