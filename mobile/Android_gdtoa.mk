@@ -1,16 +1,11 @@
 
 LOCAL_PATH := $(call my-dir)/../gdtoa
 
-
 include $(CLEAR_VARS)
-
 
 LOCAL_MODULE    := gdtoa_zan31
 
-LOCAL_LDLIBS += -llog
-
 LOCAL_C_INCLUDES :=   . $(GZDOOM_TOP_PATH)/mobile/src/extrafiles
-
 
 LOCAL_SRC_FILES =  	\
 	dmisc.c \
@@ -53,10 +48,6 @@ LOCAL_SRC_FILES =  	\
 	strtorxL.c \
 	sum.c \
 	ulp.c \
-
-#strtof.c \
-
-LOCAL_LDLIBS :=  -ldl -llog
 
 include $(BUILD_STATIC_LIBRARY)
 
