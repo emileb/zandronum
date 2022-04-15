@@ -1,19 +1,13 @@
 
 LOCAL_PATH := $(call my-dir)/../lzma
 
-
 include $(CLEAR_VARS)
-
 
 LOCAL_MODULE    := lzma_zan31
 
 LOCAL_CFLAGS = -Wall -fomit-frame-pointer -D_7ZIP_ST
 
-
-LOCAL_LDLIBS += -llog
-
 LOCAL_C_INCLUDES :=
-
 
 LOCAL_SRC_FILES =  \
     C/7zBuf.c \
@@ -31,9 +25,6 @@ LOCAL_SRC_FILES =  \
 	C/LzmaDec.c \
 	C/LzmaEnc.c \
 
-
-
-LOCAL_LDLIBS :=  -ldl -llog
 
 include $(BUILD_STATIC_LIBRARY)
 

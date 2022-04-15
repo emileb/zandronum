@@ -1,18 +1,13 @@
 
 LOCAL_PATH := $(call my-dir)/../dumb
 
-
 include $(CLEAR_VARS)
-
 
 LOCAL_MODULE    := dumb_zan31
 
 LOCAL_CFLAGS := -DNEED_ITOA  -Wno-pointer-sign -Wno-uninitialized -fsigned-char
 
-LOCAL_LDLIBS += -llog
-
 LOCAL_C_INCLUDES :=   $(LOCAL_PATH)/include/
-
 
 LOCAL_SRC_FILES =  	\
    src/core/atexit.c \
@@ -91,9 +86,6 @@ LOCAL_SRC_FILES =  	\
     src/it/readxm2.c \
     src/it/xmeffect.c \
 
-
-
-LOCAL_LDLIBS :=  -ldl -llog
 
 include $(BUILD_STATIC_LIBRARY)
 
