@@ -39,7 +39,7 @@
 
 #ifdef __ANDROID__
 #define HG_REVISION_HASH_STRING "ANDROID######"
-#define HG_TIME                 "200501-1847"
+#define HG_TIME                 "211211-2135"
 //#define DOTVERSIONSTR_REV       "DD3C3B57023F"
 #define HG_REVISION_NUMBER       1639258555
 #endif
