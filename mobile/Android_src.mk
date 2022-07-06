@@ -62,10 +62,6 @@ ANDROID_SRC_FILES = \
     ../mobile/src/extrafiles/gl_load.c \
     ../GeoIP/GeoIP.c
 
-
-#ANDROID_SRC_FILES =
-
-
 PLAT_SDL_SOURCES = \
 	sdl/crashcatcher.c \
 	sdl/hardware.cpp \
@@ -497,15 +493,15 @@ LOCAL_SRC_FILES = \
     $(PLAT_SDL_SOURCES) \
 
 
-
-
-
 LOCAL_LDLIBS := -ldl -llog -lOpenSLES  -lGLESv1_CM
 LOCAL_LDLIBS +=  -lEGL
 
-LOCAL_STATIC_LIBRARIES := sndfile mpg123 fluidsynth-static SDL2_net libjpeg zlib_zan31 lzma_zan31 gdtoa_zan31 dumb_zan31 gme_zan31 bzip2_zan31 logwritter ssl_static crypto_static
+LOCAL_STATIC_LIBRARIES := sndfile mpg123 fluidsynth-static SDL2_net libjpeg zlib_zan31 lzma_zan31 gdtoa_zan31 dumb_zan31 gme_zan31 bzip2_zan31 logwritter #ssl_static crypto_static
 LOCAL_SHARED_LIBRARIES := touchcontrols openal SDL2 jwzgles_shared fmod core_shared saffal
 
+#Strip unused functions/data
+LOCAL_CFLAGS += -fvisibility=hidden
+LOCAL_LDFLAGS += -Wl,--gc-sections -flto
 
 include $(BUILD_SHARED_LIBRARY)
 

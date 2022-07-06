@@ -49,11 +49,13 @@ LOCAL_SRC_FILES =  	\
     gme/Spc_Cpu.cpp \
     gme/Spc_Dsp.cpp \
     gme/Spc_Emu.cpp \
-      gme/Spc_Filter.cpp \
+    gme/Spc_Filter.cpp \
     gme/Vgm_Emu.cpp \
     gme/Vgm_Emu_Impl.cpp \
     gme/Ym2413_Emu.cpp \
     gme/Ym2612_Emu.cpp \
+
+LOCAL_CFLAGS += -fvisibility=hidden -fdata-sections -ffunction-sections
 
 include $(BUILD_STATIC_LIBRARY)
 
