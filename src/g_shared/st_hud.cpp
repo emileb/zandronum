@@ -59,6 +59,7 @@
 #include "gi.h"
 #include "c_bind.h"
 #include "cl_demo.h"
+#include "cl_main.h"
 #include "g_game.h"
 #include "callvote.h"
 #include "scoreboard.h"
@@ -68,7 +69,29 @@
 #include "cooperative.h"
 #include "invasion.h"
 #include "domination.h"
+#include "lastmanstanding.h"
 #include "sbar.h"
+#include "p_trace.h"
+#include "win32/g15/g15.h"
+
+// [AK] Message levels used for cl_identifytarget.
+enum
+{
+	IDENTIFY_TARGET_OFF,
+	IDENTIFY_TARGET_NAME,
+	IDENTIFY_TARGET_HEALTH,
+	IDENTIFY_TARGET_WEAPON,
+	IDENTIFY_TARGET_CLASS,
+};
+
+// [AK] Message levels used for cl_identifymonsters.
+enum
+{
+	IDENTIFY_MONSTERS_OFF,
+	IDENTIFY_MONSTERS_NAME,
+	IDENTIFY_MONSTERS_DROPITEMS,
+	IDENTIFY_MONSTERS_GHOST,
+};
 
 //*****************************************************************************
 //	VARIABLES
@@ -103,11 +126,20 @@ static	player_t	*g_pArtifactCarrier = NULL;
 // [AK] Who are the two duelers?
 static	player_t	*g_pDuelers[2];
 
-// [AK] How long we have to wait until we can respawn, used for displaying on the screen if sv_respawndelaytime is greater than 1.
-static	LONG		g_lRespawnDelay = -1;
+// [AK] The player whose name is drawn in the large frag message. If this is NULL, no message is drawn.
+static	player_t	*g_pFragMessagePlayer = NULL;
+
+// [AK] Did this player frag us, or did we frag them?
+static	bool		g_bFraggedBy = false;
+
+// [AK] How long we have to wait until we can respawn, used for displaying on the screen.
+static	float		g_fRespawnDelay = -1.0f;
 
 // [AK] At what tic will we be able to respawn?
 static	LONG		g_lRespawnGametic = 0;
+
+// [AK] Do we need to update the HUD before we draw it on the screen?
+static	bool		g_bRefreshBeforeRendering = false;
 
 //*****************************************************************************
 //	PROTOTYPES
@@ -118,12 +150,17 @@ static	void	HUD_RenderTeamScores( void );
 static	void	HUD_RenderRankAndSpread( void );
 static	void	HUD_RenderInvasionStats( void );
 static	void	HUD_RenderCountdown( ULONG ulTimeLeft );
+static	void	HUD_DrawFragMessage( void );
 
 //*****************************************************************************
 //	CONSOLE VARIABLES
 
+CVAR( Int, cl_identifytarget, IDENTIFY_TARGET_NAME, CVAR_ARCHIVE )
+CVAR( Int, cl_identifymonsters, IDENTIFY_MONSTERS_OFF, CVAR_ARCHIVE )
+CVAR( Bool, cl_showlargefragmessages, true, CVAR_ARCHIVE )
 CVAR( Bool, cl_drawcoopinfo, true, CVAR_ARCHIVE )
 CVAR( Bool, r_drawspectatingstring, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG )
+CVAR( Bool, r_drawrespawnstring, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG )
 EXTERN_CVAR( Int, con_notifylines )
 EXTERN_CVAR( Bool, cl_stfullscreenhud )
 EXTERN_CVAR( Int, screenblocks )
@@ -223,8 +260,15 @@ void HUD_Render( ULONG ulDisplayPlayer )
 	if ( ulDisplayPlayer >= MAXPLAYERS )
 		return;
 
+	// [AK] If we need to update the HUD, do so before rendering it.
+	if ( g_bRefreshBeforeRendering )
+	{
+		HUD_Refresh( );
+		g_bRefreshBeforeRendering = false;
+	}
+
 	// Draw the main scoreboard.
-	if (SCOREBOARD_ShouldDrawBoard( ulDisplayPlayer ))
+	if ( SCOREBOARD_ShouldDrawBoard( ))
 		SCOREBOARD_Render( ulDisplayPlayer );
 
 	if ( CALLVOTE_ShouldShowVoteScreen( ))
@@ -234,6 +278,14 @@ void HUD_Render( ULONG ulDisplayPlayer )
 			CALLVOTE_RenderClassic( );
 		else
 			CALLVOTE_Render( );
+	}
+
+	// [AK] Draw the frag message if we have to.
+	if ( g_pFragMessagePlayer != NULL )
+	{
+		HUD_DrawFragMessage( );
+		g_pFragMessagePlayer = NULL;
+		g_bFraggedBy = false;
 	}
 
 	// [AK] Render the countdown screen when we're in the countdown.
@@ -280,11 +332,9 @@ void HUD_Render( ULONG ulDisplayPlayer )
 //
 void HUD_Refresh( void )
 {
-	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-		return;
+	ULONG ulNumDuelers = 0;
 
 	// [AK] Reset the dueler pointers.
-	ULONG ulNumDuelers = 0;
 	g_pDuelers[0] = g_pDuelers[1] = NULL;
 
 	// [AK] Determine which players are currently dueling.
@@ -341,6 +391,281 @@ void HUD_Refresh( void )
 			}
 		}
 	}
+
+	// [AK] If we updated the HUD, then we should also update the scoreboard when we need to.
+	SCOREBOARD_ShouldRefreshBeforeRendering( );
+}
+
+//*****************************************************************************
+//
+void HUD_ShouldRefreshBeforeRendering( void )
+{
+	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+		return;
+
+	g_bRefreshBeforeRendering = true;
+}
+
+//*****************************************************************************
+//
+static AActor *HUD_ScanForTarget( AActor *pSource )
+{
+	FTraceResults trace;
+
+	angle_t angle = pSource->angle >> ANGLETOFINESHIFT;
+	angle_t pitch = static_cast<angle_t>( pSource->pitch ) >> ANGLETOFINESHIFT;
+	fixed_t vx = FixedMul( finecosine[pitch], finecosine[angle] );
+	fixed_t vy = FixedMul( finecosine[pitch], finesine[angle] );
+	fixed_t vz = -finesine[pitch];
+	fixed_t eyez = pSource->player ? pSource->player->viewz : pSource->z + pSource->height / 2;
+
+	if ( Trace( pSource->x,	// Actor x
+		pSource->y, // Actor y
+		eyez,	// Actor z
+		pSource->Sector,
+		vx,
+		vy,
+		vz,
+		( 32 * 64 * FRACUNIT ) /* MISSILERANGE */,	// Maximum distance
+		MF_SHOOTABLE,	// Actor mask
+		ML_BLOCKEVERYTHING,	// Wall mask
+		pSource,		// Actor to ignore
+		trace,	// Result
+		TRACE_NoSky,	// Trace flags
+		NULL ) == false )	// Callback
+	// Did not spot anything anything.
+	{
+		return ( NULL );
+	}
+	else
+	{
+		// Return NULL if we did not hit an actor.
+		if ( trace.HitType != TRACE_HitActor )
+			return ( NULL );
+
+		// Return the actor we found.
+		return ( trace.Actor );
+	}
+}
+
+//*****************************************************************************
+//
+void HUD_DrawTargetName( player_t *pPlayer )
+{
+	// [BC] The player may not have a body between intermission-less maps.
+	if (( pPlayer->camera == NULL ) || ( viewactive == false ))
+		return;
+
+	// Break out if we don't want to identify the target, or
+	// a medal has just been awarded and is being displayed.
+	if (( cl_identifytarget == IDENTIFY_TARGET_OFF ) || ( zadmflags & ZADF_NO_IDENTIFY_TARGET ) || ( MEDAL_GetDisplayedMedal( pPlayer->camera->player - players ) != NUM_MEDALS ))
+		return;
+
+	// Don't do any of this while still receiving a snapshot.
+	if (( NETWORK_GetState( ) == NETSTATE_CLIENT ) && ( CLIENT_GetConnectionState( ) == CTS_RECEIVINGSNAPSHOT ))
+		return;
+
+	if (( pPlayer->bSpectating ) && ( lastmanstanding || teamlms ) && ( LASTMANSTANDING_GetState( ) == LMSS_INPROGRESS ))
+		return;
+
+	// Look for players directly in front of the player.
+	if ( camera )
+	{
+		// Search for a player or monster directly in front of the camera. If none are found, exit.
+		AActor *pTargetActor = HUD_ScanForTarget( camera );
+		if (( pTargetActor == NULL ) || (( pTargetActor->player == NULL ) && (( pTargetActor->flags3 & MF3_ISMONSTER ) == false )))
+			return;
+
+		// [CK] If the actor shouldn't be identified from decorate flags, ignore them.
+		// [AK] Likewise, ignore monsters if we don't want to identify them.
+		if ((( pTargetActor->STFlags & STFL_DONTIDENTIFYTARGET ) != 0 ) || (( cl_identifymonsters == IDENTIFY_MONSTERS_OFF ) && ( pTargetActor->flags3 & MF3_ISMONSTER )))
+			return;
+
+		// Build the string and text color;
+		EColorRange color = CR_GRAY;
+		FString targetInfoMsg;
+
+		if ( pTargetActor->player )
+		{
+			targetInfoMsg = pTargetActor->player->userinfo.GetName( );
+		}
+		else
+		{
+			targetInfoMsg = pTargetActor->GetTag( );
+
+			// [AK] Colorize the string in case the actor's name tag contains unformatted color codes.
+			V_ColorizeString( targetInfoMsg );
+		}
+
+		// Attempt to use the team color.
+		if ( GAMEMODE_GetCurrentFlags( ) & GMF_PLAYERSONTEAMS )
+		{
+			ULONG ulTeam = TEAM_None;
+
+			// [AK] If the target is not a player, then check their designated team.
+			if ( pTargetActor->player == NULL )
+				ulTeam = pTargetActor->DesignatedTeam;
+			else if ( pTargetActor->player->bOnTeam )
+				ulTeam = pTargetActor->player->Team;
+
+			// [AK] Only change the text color if this actor's team is valid.
+			if (( ulTeam != TEAM_None ) && ( TEAM_CheckIfValid( ulTeam )))
+				color = static_cast<EColorRange>( TEAM_GetTextColor( ulTeam ));
+		}
+
+		// [AK] If this actor is friendly to us, print more information about them.
+		if ( pTargetActor->IsFriend( players[consoleplayer].mo ))
+		{
+			// [AK] Print this actor's current health and armor.
+			if ( cl_identifytarget >= IDENTIFY_TARGET_HEALTH )
+			{
+				int healthPercentage = ( 100 * pTargetActor->health ) / ( pTargetActor->player ? pTargetActor->player->mo->GetMaxHealth( ) : pTargetActor->SpawnHealth( ));
+				targetInfoMsg += '\n';
+
+				if ( healthPercentage <= 25 )
+					targetInfoMsg += TEXTCOLOR_RED;
+				else if ( healthPercentage <= 50 )
+					targetInfoMsg += TEXTCOLOR_ORANGE;
+				else if ( healthPercentage <= 75 )
+					targetInfoMsg += TEXTCOLOR_GOLD;
+				else
+					targetInfoMsg += TEXTCOLOR_GREEN;
+
+				AInventory *armor = pTargetActor->FindInventory( RUNTIME_CLASS( ABasicArmor ));
+				targetInfoMsg.AppendFormat( "%d" TEXTCOLOR_GREEN " / %d", pTargetActor->health, armor ? armor->Amount : 0 );
+			}
+
+			if ( pTargetActor->player )
+			{
+				// [AK] Print this player's current weapon if they have one.
+				if (( cl_identifytarget >= IDENTIFY_TARGET_WEAPON ) && ( pTargetActor->player->ReadyWeapon ))
+				{
+					targetInfoMsg += '\n';
+					targetInfoMsg.AppendFormat( TEXTCOLOR_GREEN "%s", pTargetActor->player->ReadyWeapon->GetTag( ));
+
+					// [AK] If this weapon uses ammo, print the amount as well.
+					if ( pTargetActor->player->ReadyWeapon->Ammo1 )
+					{
+						targetInfoMsg.AppendFormat( TEXTCOLOR_GOLD " %d", pTargetActor->player->ReadyWeapon->Ammo1->Amount );
+
+						// [AK] If this weapon also has a secondary ammo type, print that amount too.
+						if ( pTargetActor->player->ReadyWeapon->Ammo2 )
+							targetInfoMsg.AppendFormat( " %d", pTargetActor->player->ReadyWeapon->Ammo2->Amount );
+					}
+				}
+
+				// [AK] Print this player's class.
+				if ( cl_identifytarget >= IDENTIFY_TARGET_CLASS )
+				{
+					FString classString;
+
+					// [AK] Display the name of the class the player is current playing as.
+					// If they're supposed to be morphed, don't print the name of their skin.
+					if ( pTargetActor->player->MorphedPlayerClass )
+					{
+						classString = pTargetActor->player->MorphedPlayerClass->TypeName.GetChars( );
+					}
+					else
+					{
+						FString skinString;
+
+						if ( PlayerClasses.Size( ) > 1 )
+							classString = GetPrintableDisplayName( pTargetActor->player->cls );
+
+						if ( classString.IsNotEmpty( ))
+							classString += " - ";
+
+						// [AK] Get the name of the player's current skin, if skins are enabled.
+						// Their skin should only be displayed if they're playing the class meant
+						// for it. Otherwise, print "base" instead.
+						if ( cl_skins )
+						{
+							const int skin = pTargetActor->player->userinfo.GetSkin( );
+
+							for ( unsigned int i = 0; i < PlayerClasses.Size( ); i++ )
+							{
+								if (( pTargetActor->player->cls == PlayerClasses[i].Type ) && ( PlayerClasses[i].CheckSkin( skin )))
+								{
+									skinString += skins[skin].name;
+									break;
+								}
+							}
+						}
+
+						classString += skinString.IsNotEmpty( ) ? skinString : "Base";
+					}
+
+					targetInfoMsg += '\n';
+					targetInfoMsg.AppendFormat( TEXTCOLOR_GREEN "%s", classString.GetChars( ));
+				}
+			}
+		}
+
+		if ( pTargetActor->flags3 & MF3_ISMONSTER )
+		{
+			// [AK] Print a list of this monster's drop items if we want to.
+			if ( cl_identifymonsters >= IDENTIFY_MONSTERS_DROPITEMS )
+			{
+				FDropItem *pDropItems = pTargetActor->GetDropItems( );
+				FString dropItemList;
+
+				while ( pDropItems )
+				{
+					const PClass *pClass = PClass::FindClass( pDropItems->Name );
+
+					// [AK] Ignore items that are invalid or have no chance of spawning.
+					if (( pClass != NULL ) && ( pDropItems->probability > -1 ))
+					{
+						if ( dropItemList.IsNotEmpty( ))
+							dropItemList += ", ";
+
+						dropItemList += pDropItems->Name.GetChars( );
+
+						// [AK] Include this item's probability if applicable.
+						if ( pDropItems->probability < 255 )
+						{
+							float fProbabilityPercentage = clamp( static_cast<float>(( pDropItems->probability + 1 ) * 100 ) / 256.f, 0.f, 100.f );
+
+							// [AK] When the probability is less than 1%, display it with two decimals.
+							// Otherwise, display it with one decimal.
+							if ( fProbabilityPercentage < 1.f )
+								dropItemList.AppendFormat( " (%.2f%%)", fProbabilityPercentage );
+							else
+								dropItemList.AppendFormat( " (%.1f%%)", fProbabilityPercentage );
+						}
+					}
+
+					pDropItems = pDropItems->Next;
+				}
+
+				if ( dropItemList.IsNotEmpty( ))
+				{
+					targetInfoMsg += '\n';
+					targetInfoMsg.AppendFormat( TEXTCOLOR_BLACK "%s", dropItemList.GetChars( ));
+				}
+			}
+
+			// [AK] Indicate if this monster is a ghost.
+			if (( cl_identifymonsters >= IDENTIFY_MONSTERS_GHOST ) && ( pTargetActor->flags3 & MF3_GHOST ))
+				targetInfoMsg += "\n" TEXTCOLOR_DARKGRAY "Is a ghost";
+		}
+
+		if ( pTargetActor->IsFriend( camera ))
+		{
+			targetInfoMsg += "\n" TEXTCOLOR_DARKGREEN "Ally";
+		}
+		else
+		{
+			targetInfoMsg += "\n" TEXTCOLOR_DARKRED "Enemy";
+
+			// If this player is carrying the terminator artifact, display his name in red.
+			if (( terminator ) && ( pTargetActor->player ) && ( pTargetActor->player->cheats2 & CF2_TERMINATORARTIFACT ))
+				color = CR_RED;
+		}
+
+		DHUDMessageFadeOut *pMsg = new DHUDMessageFadeOut( SmallFont, targetInfoMsg, 1.5f, gameinfo.gametype == GAME_Doom ? 0.96f : 0.95f, 0, 0, color, 2.f, 0.35f );
+		StatusBar->AttachMessage( pMsg, MAKE_ID( 'P', 'N', 'A', 'M' ));
+	}
 }
 
 //*****************************************************************************
@@ -387,7 +712,6 @@ void HUD_DrawCoopInfo( void )
 
 		// [BB] Draw player name.
 		drawString = players[i].userinfo.GetName();
-		V_ColorizeString( drawString );
 		EColorRange nameColor = CR_GREY;
 		// [BB] If the player is on a team, use the team's text color.
 		if ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSONTEAMS )
@@ -414,8 +738,8 @@ void HUD_DrawCoopInfo( void )
 			int healthPercentage = ( 100 * players[i].mo->health ) / players[i].mo->GetMaxHealth();
 
 			AInventory* pArmor = players[i].mo->FindInventory(RUNTIME_CLASS(ABasicArmor));
-			drawString.Format( "%d \\cD/ %d", players[i].mo->health, pArmor ? pArmor->Amount : 0 );
-			V_ColorizeString( drawString );
+			drawString.Format( "%d" TEXTCOLOR_GREEN " / %d", players[i].mo->health, pArmor ? pArmor->Amount : 0 );
+
 			if ( healthPercentage > 75 )
 				healthColor = CR_GREEN;
 			else if ( healthPercentage > 50 )
@@ -434,12 +758,12 @@ void HUD_DrawCoopInfo( void )
 		{
 			drawString = players[i].ReadyWeapon->GetTag();
 			if ( players[i].ReadyWeapon->Ammo1 && ( ( dmflags & DF_INFINITE_AMMO ) == false ) )
-				drawString.AppendFormat( " \\cf%d", players[i].ReadyWeapon->Ammo1->Amount );
+				drawString.AppendFormat( TEXTCOLOR_GOLD " %d", players[i].ReadyWeapon->Ammo1->Amount );
 			else
-				drawString += " \\cg-";
+				drawString += TEXTCOLOR_RED " -";
 			if ( players[i].ReadyWeapon->Ammo2 && ( ( dmflags & DF_INFINITE_AMMO ) == false ) )
-				drawString.AppendFormat( " \\cf%d", players[i].ReadyWeapon->Ammo2->Amount );
-			V_ColorizeString( drawString );
+				drawString.AppendFormat( TEXTCOLOR_GOLD " %d", players[i].ReadyWeapon->Ammo2->Amount );
+
 			HUD_DrawTextAligned ( CR_GREEN, curYPos, drawString.GetChars(), drawLeft, g_bScale );
 		}
 
@@ -452,6 +776,16 @@ void HUD_DrawCoopInfo( void )
 static void HUD_DrawBottomString( ULONG ulDisplayPlayer )
 {
 	FString bottomString;
+
+	// [AK] Show how much time is left before we can respawn if we had to wait for more than one second.
+	if (( r_drawrespawnstring ) && ( players[consoleplayer].bSpectating == false ) && ( players[consoleplayer].playerstate == PST_DEAD ))
+	{
+		if ( g_lRespawnGametic > level.time )
+		{
+			float fTimeLeft = MIN( g_fRespawnDelay, static_cast<float>( g_lRespawnGametic - level.time ) / TICRATE );
+			bottomString.AppendFormat( TEXTCOLOR_GREEN "Ready to respawn in %.1f seconds\n", fTimeLeft );
+		}
+	}
 
 	// [BB] Draw a message to show that the free spectate mode is active.
 	if ( CLIENTDEMO_IsInFreeSpectateMode( ))
@@ -476,21 +810,16 @@ static void HUD_DrawBottomString( ULONG ulDisplayPlayer )
 	if (( players[ulDisplayPlayer].bSpectating == false ) && (( GAMEMODE_GetCurrentFlags( ) & GMF_DONTPRINTPLAYERSLEFT ) == false ))
 	{
 		GAMESTATE_e gamestate = GAMEMODE_GetState( );
+		FString playersLeftString;
 
 		// [AK] Draw a message showing that we're waiting for players if we are.
 		if ( gamestate == GAMESTATE_WAITFORPLAYERS )
 		{
-			if ( ulDisplayPlayer != static_cast<ULONG>( consoleplayer ))
-				bottomString += " - ";
-
-			bottomString += TEXTCOLOR_RED "Waiting for players";
+			playersLeftString = TEXTCOLOR_RED "Waiting for players";
 		}
 		// Print the totals for living and dead allies/enemies.
 		else if (( gamestate == GAMESTATE_INPROGRESS ) && ( GAMEMODE_GetCurrentFlags( ) & GMF_DEADSPECTATORS ))
 		{
-			if ( ulDisplayPlayer != static_cast<ULONG>( consoleplayer ))
-				bottomString += " - ";
-
 			// Survival, Survival Invasion, etc
 			// [AK] Only print how many allies are left if we had any to begin with.
 			if ( GAMEMODE_GetCurrentFlags( ) & GMF_COOPERATIVE )
@@ -499,51 +828,47 @@ static void HUD_DrawBottomString( ULONG ulDisplayPlayer )
 				{
 					if ( g_lNumAlliesLeft < 1 )
 					{
-						bottomString += TEXTCOLOR_RED "Last Player Alive"; // Uh-oh.
+						playersLeftString = TEXTCOLOR_RED "Last Player Alive"; // Uh-oh.
 					}
 					else
 					{
-						bottomString.AppendFormat( TEXTCOLOR_GRAY "%d ", static_cast<int>( g_lNumAlliesLeft ));
-						bottomString.AppendFormat( TEXTCOLOR_RED "all%s left", g_lNumAlliesLeft != 1 ? "ies" : "y" );
+						playersLeftString.Format( TEXTCOLOR_GRAY "%d ", static_cast<int>( g_lNumAlliesLeft ));
+						playersLeftString.AppendFormat( TEXTCOLOR_RED "all%s left", g_lNumAlliesLeft != 1 ? "ies" : "y" );
 					}
 				}
 			}
 			// Last Man Standing, TLMS, etc
 			else
 			{
-				bottomString.AppendFormat( TEXTCOLOR_GRAY "%d ", static_cast<int>( g_lNumOpponentsLeft ));
-				bottomString.AppendFormat( TEXTCOLOR_RED "opponent%s", g_lNumOpponentsLeft != 1 ? "s" : "" );
+				playersLeftString.Format( TEXTCOLOR_GRAY "%d ", static_cast<int>( g_lNumOpponentsLeft ));
+				playersLeftString.AppendFormat( TEXTCOLOR_RED "opponent%s", g_lNumOpponentsLeft != 1 ? "s" : "" );
 
 				// [AK] Only print how many teammates are left if we actually have any.
 				if (( GAMEMODE_GetCurrentFlags( ) & GMF_PLAYERSONTEAMS ) && ( g_bHasAllies ))
 				{
 					if ( g_lNumAlliesLeft < 1 )
 					{
-						bottomString += " left - allies dead";
+						playersLeftString += " left - allies dead";
 					}
 					else
 					{
-						bottomString.AppendFormat( ", " TEXTCOLOR_GRAY "%d ", static_cast<int>( g_lNumAlliesLeft ));
-						bottomString.AppendFormat( TEXTCOLOR_RED "all%s left", g_lNumAlliesLeft != 1 ? "ies" : "y" );
+						playersLeftString.AppendFormat( ", " TEXTCOLOR_GRAY "%d ", static_cast<int>( g_lNumAlliesLeft ));
+						playersLeftString.AppendFormat( TEXTCOLOR_RED "all%s left", g_lNumAlliesLeft != 1 ? "ies" : "y" );
 					}
 				}
 				else
 				{
-					bottomString += " left";
+					playersLeftString += " left";
 				}
 			}
 		}
-	}
 
-	// [AK] Show how much time is left before we can respawn if we had to wait for more than one second.
-	if (( players[consoleplayer].bSpectating == false ) && ( players[consoleplayer].playerstate == PST_DEAD ))
-	{
-		if ( g_lRespawnGametic > level.time )
+		if ( playersLeftString.Len( ) > 0 )
 		{
-			ULONG ulTimeLeft = MIN( g_lRespawnDelay, 1 + ( g_lRespawnGametic - level.time ) / TICRATE );
+			if (( CLIENTDEMO_IsInFreeSpectateMode( )) || ( ulDisplayPlayer != static_cast<ULONG>( consoleplayer )))
+				bottomString += " - ";
 
-			bottomString += "\n" TEXTCOLOR_GREEN;
-			bottomString.AppendFormat( "Ready to respawn in %lu second%s", ulTimeLeft, ulTimeLeft != 1 ? "s" : "" );
+			bottomString += playersLeftString;
 		}
 	}
 
@@ -718,7 +1043,7 @@ static void HUD_RenderTeamScores( void )
 		if ( ulFlags & GMF_PLAYERSEARNWINS )
 			lTeamScore = TEAM_GetWinCount( ulTeam );
 		else if ( ulFlags & GMF_PLAYERSEARNPOINTS )
-			lTeamScore = TEAM_GetScore( ulTeam );
+			lTeamScore = TEAM_GetPointCount( ulTeam );
 		else
 			lTeamScore = TEAM_GetFragCount( ulTeam );
 
@@ -810,7 +1135,10 @@ static void HUD_RenderCountdown( ULONG ulTimeLeft )
 	else
 	{
 		// [AK] TLMS and team possession should still keep "team" in the title for consistency.
-		text = invasion ? INVASION_GetCurrentWaveString( ) : GAMEMODE_GetCurrentName( );
+		if ( invasion )
+			text = INVASION_GetCurrentWaveString( );
+		else
+			text = GAMEMODE_GetCurrentName( );
 
 		// [AK] Append "co-op" to the end of "survival".
 		if (( survival ) && ( text.CompareNoCase( "Survival" ) == 0 ))
@@ -832,9 +1160,9 @@ static void HUD_RenderCountdown( ULONG ulTimeLeft )
 
 //*****************************************************************************
 //
-void HUD_DrawFragMessage( player_t *pPlayer, bool bFraggedBy )
+static void HUD_DrawFragMessage( void )
 {
-	FString message = GStrings( bFraggedBy ? "GM_YOUWEREFRAGGED" : "GM_YOUFRAGGED" );
+	FString message = GStrings( g_bFraggedBy ? "GM_YOUWEREFRAGGED" : "GM_YOUFRAGGED" );
 	message.StripLeftRight( );
 
 	// [AK] Don't print the message if the string is empty.
@@ -842,7 +1170,7 @@ void HUD_DrawFragMessage( player_t *pPlayer, bool bFraggedBy )
 		return;
 
 	// [AK] Substitute the fragged/fragging player's name into the message if we can.
-	message.Substitute( "%s", pPlayer->userinfo.GetName( ));
+	message.Substitute( "%s", g_pFragMessagePlayer->userinfo.GetName( ));
 
 	// Print the frag message out in the console.
 	Printf( "%s\n", message.GetChars( ));
@@ -853,7 +1181,7 @@ void HUD_DrawFragMessage( player_t *pPlayer, bool bFraggedBy )
 	// [AK] Build the place string.
 	message = HUD_BuildPlaceString( consoleplayer );
 
-	if ( bFraggedBy == false )
+	if ( g_bFraggedBy == false )
 	{
 		ULONG ulMenLeftStanding = 0;
 
@@ -881,6 +1209,141 @@ void HUD_DrawFragMessage( player_t *pPlayer, bool bFraggedBy )
 	// [AK] Changed the subtext color to grey to make it more neutral.
 	pMsg = new DHUDMessageFadeOut( SmallFont, message.GetChars( ), 1.5f, 0.375f, 0, 0, CR_GREY, 2.5f, 0.5f );
 	StatusBar->AttachMessage( pMsg, MAKE_ID( 'P', 'L', 'A', 'C' ));
+}
+
+//*****************************************************************************
+//
+void HUD_DrawStandardMessage( const char *pszMessage, EColorRange color, const bool bClearScreen, float fHoldTime, float fOutTime, const bool bInformClients )
+{
+	const LONG lId = MAKE_ID( 'C', 'N', 'T', 'R' );
+
+	if ( NETWORK_GetState( ) != NETSTATE_SERVER )
+	{
+		// [EP] Clear all the HUD messages.
+		if ( bClearScreen )
+			StatusBar->DetachAllMessages( );
+
+		// Display the HUD message.
+		DHUDMessageFadeOut *pMsg = new DHUDMessageFadeOut( BigFont, pszMessage, 160.4f, 75.0f, 320, 200, color, fHoldTime, fOutTime );
+		StatusBar->AttachMessage( pMsg, lId );
+	}
+	// If necessary, send it to clients.
+	else if ( bInformClients )
+	{
+		SERVERCOMMANDS_PrintHUDMessage( pszMessage, 160.4f, 75.0f, 320, 200, HUDMESSAGETYPE_FADEOUT, color, fHoldTime, 0.0f, fOutTime, "BigFont", lId );
+	}
+}
+
+//*****************************************************************************
+// [BB] Expects pszMessage already to be colorized with V_ColorizeString.
+void HUD_DrawCNTRMessage( const char *pszMessage, EColorRange color, float fHoldTime, float fOutTime, const bool bInformClients, const ULONG ulPlayerExtra, const ULONG ulFlags )
+{
+	const LONG lId = MAKE_ID( 'C', 'N', 'T', 'R' );
+
+	if ( NETWORK_GetState( ) != NETSTATE_SERVER )
+	{
+		// Display the HUD message.
+		DHUDMessageFadeOut *pMsg = new DHUDMessageFadeOut( BigFont, pszMessage, 1.5f, TEAM_MESSAGE_Y_AXIS, 0, 0, color, fHoldTime, fOutTime );
+		StatusBar->AttachMessage( pMsg, lId );
+	}
+	// If necessary, send it to clients.
+	else if ( bInformClients )
+	{
+		SERVERCOMMANDS_PrintHUDMessage( pszMessage, 1.5f, TEAM_MESSAGE_Y_AXIS, 0, 0, HUDMESSAGETYPE_FADEOUT, color, fHoldTime, 0.0f, fOutTime, "BigFont", lId, ulPlayerExtra, ServerCommandFlags::FromInt( ulFlags ));
+	}
+}
+
+//*****************************************************************************
+// [BB] Expects pszMessage already to be colorized with V_ColorizeString.
+void HUD_DrawSUBSMessage( const char *pszMessage, EColorRange color, float fHoldTime, float fOutTime, const bool bInformClients, const ULONG ulPlayerExtra, const ULONG ulFlags )
+{
+	const LONG lId = MAKE_ID( 'S', 'U', 'B', 'S' );
+
+	if ( NETWORK_GetState( ) != NETSTATE_SERVER )
+	{
+		// Display the HUD message.
+		DHUDMessageFadeOut *pMsg = new DHUDMessageFadeOut( SmallFont, pszMessage, 1.5f, TEAM_MESSAGE_Y_AXIS_SUB, 0, 0, color, fHoldTime, fOutTime );
+		StatusBar->AttachMessage( pMsg, lId );
+	}
+	// If necessary, send it to clients.
+	else if ( bInformClients )
+	{
+		SERVERCOMMANDS_PrintHUDMessage( pszMessage, 1.5f, TEAM_MESSAGE_Y_AXIS_SUB, 0, 0, HUDMESSAGETYPE_FADEOUT, color, fHoldTime, 0.0f, fOutTime, "SmallFont", lId, ulPlayerExtra, ServerCommandFlags::FromInt( ulFlags ));
+	}
+}
+
+//*****************************************************************************
+//
+void HUD_PrepareToDrawFragMessage( player_t *pPlayer, AActor *pSource, int MeansOfDeath )
+{
+	// [AK] Don't display large frag messages in a cooperative games.
+	if ( GAMEMODE_GetCurrentFlags( ) & GMF_COOPERATIVE )
+		return;
+
+	// [AK] Make sure that the target and source are valid players, who aren't the same player either.
+	// Large frag messages also don't display when the player dies from a spawn telefrag.
+	if (( pPlayer == NULL ) || ( pSource == NULL ) || ( pSource->player == NULL ) || ( pPlayer == pSource->player ) || ( MeansOfDeath == NAME_SpawnTelefrag ))
+		return;
+
+	// [AK] Large frag messages should only be displayed when the game's in progress.
+	if ( GAMEMODE_IsGameInProgress( ) == false )
+		return;
+
+	const ULONG ulGameModeFlags = GAMEMODE_GetCurrentFlags( );
+
+	if (((( ulGameModeFlags & GMF_PLAYERSEARNFRAGS ) == false ) || (( fraglimit == 0 ) || ( pSource->player->fragcount < fraglimit ))) &&
+		(((( ulGameModeFlags & GMF_PLAYERSEARNWINS ) && !( ulGameModeFlags & GMF_PLAYERSONTEAMS )) == false ) || (( winlimit == 0 ) || ( pSource->player->ulWins < static_cast<ULONG>( winlimit )))) &&
+		(((( ulGameModeFlags & GMF_PLAYERSEARNWINS ) && ( ulGameModeFlags & GMF_PLAYERSONTEAMS )) == false ) || (( winlimit == 0 ) || ( TEAM_GetWinCount( pSource->player->Team ) < winlimit ))))
+	{
+		// Prepare a large "You were fragged by <name>." message in the middle of the screen.
+		if ( pPlayer == &players[consoleplayer] )
+		{
+			if ( cl_showlargefragmessages )
+			{
+				g_pFragMessagePlayer = pSource->player;
+				g_bFraggedBy = true;
+			}
+
+			// [RC] Also show the message on the Logitech G15 (if enabled).
+			if ( G15_IsReady( ))
+				G15_ShowLargeFragMessage( pSource->player->userinfo.GetName( ), false );
+		}
+		// Prepare a large "You fragged <name>!" message in the middle of the screen.
+		else if ( static_cast<int>( pSource->player - players ) == consoleplayer )
+		{
+			if ( cl_showlargefragmessages )
+			{
+				g_pFragMessagePlayer = pPlayer;
+				g_bFraggedBy = false;
+			}
+
+			// [RC] Also show the message on the Logitech G15 (if enabled).
+			if ( G15_IsReady( ))
+				G15_ShowLargeFragMessage( pPlayer->userinfo.GetName( ), true );
+		}
+	}
+}
+
+//*****************************************************************************
+//
+void HUD_ClearFragAndPlaceMessages( const bool bInformClients )
+{
+	const LONG lFragId = MAKE_ID( 'F', 'R', 'A', 'G' );
+	const LONG lPlaceId = MAKE_ID( 'P', 'L', 'A', 'C' );
+
+	// [AK] If we're not the server, we can just detach the messages. Otherwise, we'll send the clients
+	// two empty HUD messages to override the corresponding IDs. Note that due to several optimizations,
+	// the width/height and font ("SmallFont" is the default) aren't sent to conserve bandwidth.
+	if ( NETWORK_GetState( ) != NETSTATE_SERVER )
+	{
+		StatusBar->DetachMessage( lFragId );
+		StatusBar->DetachMessage( lPlaceId );
+	}
+	else if ( bInformClients )
+	{
+		SERVERCOMMANDS_PrintHUDMessage( "", 0.0f, 0.0f, 0, 0, HUDMESSAGETYPE_NORMAL, CR_UNTRANSLATED, 0.0f, 0.0f, 0.0f, "SmallFont", lFragId );
+		SERVERCOMMANDS_PrintHUDMessage( "", 0.0f, 0.0f, 0, 0, HUDMESSAGETYPE_NORMAL, CR_UNTRANSLATED, 0.0f, 0.0f, 0.0f, "SmallFont", lPlaceId );
+	}
 }
 
 //*****************************************************************************
@@ -971,14 +1434,14 @@ LONG HUD_GetSpread( void )
 
 //*****************************************************************************
 //
-void HUD_SetRespawnTimeLeft( LONG lRespawnTime )
+void HUD_SetRespawnTimeLeft( float fRespawnTime )
 {
 	// [AK] The server shouldn't execute this.
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 		return;
 
-	g_lRespawnDelay = lRespawnTime;
-	g_lRespawnGametic = level.time + g_lRespawnDelay * TICRATE;
+	g_fRespawnDelay = fRespawnTime;
+	g_lRespawnGametic = level.time + static_cast<LONG>( g_fRespawnDelay * TICRATE );
 }
 
 //*****************************************************************************
@@ -1061,7 +1524,7 @@ FString HUD_BuildPointString( void )
 	else if ( ulFlags & GMF_PLAYERSEARNPOINTS )
 	{
 		scoreName = "point";
-		scoreFunction = &TEAM_GetScore;
+		scoreFunction = &TEAM_GetPointCount;
 	}
 	else if ( ulFlags & GMF_PLAYERSEARNFRAGS )
 	{

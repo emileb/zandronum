@@ -734,8 +734,16 @@ void CHAT_Render( void )
 	// [AK] Also blink the cursor between dark gray and white.
 	if ( g_ulChatTicker >= C_BLINKRATE )
 	{
-		cursor.Insert( 0, g_ChatBuffer.IsInArchive() ? TEXTCOLOR_BLACK : TEXTCOLOR_DARKGRAY );
-		cursor += TEXTCOLOR_GRAY;
+		if ( g_ChatBuffer.IsInArchive() )
+		{
+			cursor.Insert( 0, TEXTCOLOR_BLACK );
+			cursor += TEXTCOLOR_DARKGRAY;
+		}
+		else
+		{
+			cursor.Insert( 0, TEXTCOLOR_DARKGRAY );
+			cursor += TEXTCOLOR_GRAY;
+		}
 	}
 
 	// Build the message that we will display to clients.
@@ -925,6 +933,14 @@ void CHAT_SerializeMessages( FArchive &arc )
 
 //*****************************************************************************
 //
+void CHAT_StripASCIIControlCharacters( FString &ChatString )
+{
+	static const char strips[] = { 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,29,30,31,127,0 };
+	ChatString.StripChars( strips );
+}
+
+//*****************************************************************************
+//
 void CHAT_PrintChatString( ULONG ulPlayer, ULONG ulMode, const char *pszString )
 {
 	ULONG		ulChatLevel = 0;
@@ -1043,30 +1059,48 @@ void CHAT_PrintChatString( ULONG ulPlayer, ULONG ulMode, const char *pszString )
 	// [BB] Remove invalid color codes, those can confuse the printing and create new lines.
 	V_RemoveInvalidColorCodes( ChatString );
 
+	// [AK] We need to make a copy of the chat string that we're going to save right here, since
+	// we don't want con_colorinmessages to remove the color codes.
+	FString ChatStringToSave = ChatString;
+
 	// [RC] ...if the user wants them.
 	if ( con_colorinmessages == 2)
 		V_RemoveColorCodes( ChatString );
 
 	// [BB] Remove any kind of trailing crap.
+	// [AK] Temporarily uncolorize the chat string so that V_RemoveTrailingCrapFromFString removes trailing color codes.
+	V_UnColorizeString ( ChatString );
 	V_RemoveTrailingCrapFromFString ( ChatString );
+
+	// [AK] Also remove any unwanted ASCII control characters (except TEXTCOLOR_ESCAPE).
+	CHAT_StripASCIIControlCharacters ( ChatString );
 
 	// [BB] If the chat string is empty now, it only contained crap and is ignored.
 	if ( ChatString.IsEmpty() )
 		return;
 
+	V_ColorizeString ( ChatString );
 	OutString += ChatString;
 
 	// [AK] Only save chat messages for non-private chat messages.
 	if (( ulMode != CHATMODE_PRIVATE_SEND ) && ( ulMode != CHATMODE_PRIVATE_RECEIVE ))
 	{
-		// [AK] Remove any color codes that may still be in the chat message.
+		// [AK] Remove any color codes that may still be in the original string.
 		V_RemoveColorCodes( ChatString );
 
-		g_SavedChatMessages[ulPlayer].put( ChatString );
+		// [AK] Remove any kind of trailing crap in the copy string and then save it. We shouldn't
+		// have to check if it's empty because we already did so in the original string. The only
+		// difference is that the copy is guaranteed to still have its color codes.
+		V_UnColorizeString( ChatStringToSave );
+		V_RemoveTrailingCrapFromFString( ChatStringToSave );
+		CHAT_StripASCIIControlCharacters( ChatStringToSave );
+
+		V_ColorizeString( ChatStringToSave );
+		g_SavedChatMessages[ulPlayer].put( ChatStringToSave );
 
 		// [AK] Trigger an event script indicating that a chat message was received.
 		// If the event returns 0, then don't print the message.
-		if ( GAMEMODE_HandleEvent( GAMEEVENT_CHAT, NULL, ulPlayer != MAXPLAYERS ? ulPlayer : -1, ulMode - CHATMODE_GLOBAL ) == 0 )
+		if ( GAMEMODE_HandleEvent( GAMEEVENT_CHAT, NULL, ulPlayer != MAXPLAYERS ? ulPlayer : -1, ulMode - CHATMODE_GLOBAL, true ) == 0 )
 			return;
 
 		BOTCMD_SetLastChatString( ChatString );
@@ -1355,10 +1389,16 @@ CCMD( say )
 
 		// Send the server's chat string out to clients, and print it in the console.
 		if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+		{
+			// [AK] Make sure that color codes can appear in the message.
+			V_ColorizeString( ChatString );
 			SERVER_SendChatMessage( MAXPLAYERS, CHATMODE_GLOBAL, ChatString.GetChars( ));
+		}
 		else
+		{
 			// We typed out our message in the console or with a macro. Go ahead and send the message now.
 			chat_SendMessage( CHATMODE_GLOBAL, ChatString.GetChars( ));
+		}
 	}
 }
 
@@ -1564,10 +1604,16 @@ void chat_PrivateMessage( FCommandLine &argv, const ULONG ulReceiver )
 
 			// Send the server's chat string out to clients, and print it in the console.
 			if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+			{
+				// [AK] Make sure that color codes can appear in the message.
+				V_ColorizeString( ChatString );
 				SERVER_SendChatMessage( MAXPLAYERS, CHATMODE_PRIVATE_SEND, ChatString.GetChars( ), g_ulChatPlayer );
+			}
 			else
+			{
 				// We typed out our message in the console or with a macro. Go ahead and send the message now.
 				chat_SendMessage( CHATMODE_PRIVATE_SEND, ChatString.GetChars( ) );
+			}
 
 			return;
 		}

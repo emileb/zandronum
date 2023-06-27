@@ -67,11 +67,6 @@
 #include "team.h"
 #include "v_video.h"
 
-//*****************************************************************************
-//	MISC CRAP THAT SHOULDN'T BE HERE BUT HAS TO BE BECAUSE OF SLOPPY CODING
-
-void	SERVERCONSOLE_UpdateScoreboard( );
-
 EXTERN_CVAR( Int,  cl_respawninvuleffect )
 
 //*****************************************************************************
@@ -196,8 +191,6 @@ void DUEL_StartCountdown( ULONG ulTicks )
 //
 void DUEL_DoFight( void )
 {
-	DHUDMessageFadeOut	*pMsg;
-
 	// No longer waiting to duel.
 	if ( NETWORK_InClientMode() == false )
 	{
@@ -220,20 +213,8 @@ void DUEL_DoFight( void )
 		// Play fight sound.
 		ANNOUNCER_PlayEntry( cl_announcer, "Fight" );
 
-		// [EP] Clear all the HUD messages.
-		StatusBar->DetachAllMessages();
-
 		// Display "FIGHT!" HUD message.
-		pMsg = new DHUDMessageFadeOut( BigFont, "FIGHT!",
-			160.4f,
-			75.0f,
-			320,
-			200,
-			CR_RED,
-			2.0f,
-			1.0f );
-
-		StatusBar->AttachMessage( pMsg, MAKE_ID('C','N','T','R') );
+		HUD_DrawStandardMessage( "FIGHT!", CR_RED, true, 2.0f, 1.0f );
 	}
 	// Display a little thing in the server window so servers can know when matches begin.
 	else
@@ -243,7 +224,7 @@ void DUEL_DoFight( void )
 	GAME_ResetMap( );
 	GAMEMODE_RespawnAllPlayers( BOTEVENT_DUEL_FIGHT );
 
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 }
 
 //*****************************************************************************
@@ -264,42 +245,18 @@ void DUEL_DoWinSequence( ULONG ulPlayer )
 
 	if ( NETWORK_GetState( ) != NETSTATE_SERVER )
 	{
-		char				szString[64];
-		DHUDMessageFadeOut	*pMsg;
-
-		sprintf( szString, "%s \\c-WINS!", players[ulPlayer].userinfo.GetName() );
-		V_ColorizeString( szString );
+		FString message;
+		message.Format( "%s WINS!", players[ulPlayer].userinfo.GetName( ));
 
 		// Display "%s WINS!" HUD message.
-		pMsg = new DHUDMessageFadeOut( BigFont, szString,
-			160.4f,
-			75.0f,
-			320,
-			200,
-			CR_RED,
-			3.0f,
-			2.0f );
-
-		StatusBar->AttachMessage( pMsg, MAKE_ID('C','N','T','R') );
+		HUD_DrawStandardMessage( message, CR_RED );
 	}
 
 	// Award a victory or perfect medal to the winner.
-	if ( NETWORK_InClientMode() == false )
-	{
-		LONG	lMedal;
-
-		// If the duel loser doesn't have any frags, give the winner a "Perfect!".
-		if ( players[g_ulDuelLoser].fragcount <= 0 )
-			lMedal = MEDAL_PERFECT;
-		else
-			lMedal = MEDAL_VICTORY;
-
-		// Give the player the medal.
-		MEDAL_GiveMedal( ulPlayer, lMedal );
-		if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-			SERVERCOMMANDS_GivePlayerMedal( ulPlayer, lMedal );
-	}
-
+	// If the duel loser doesn't have any frags, give the winner a "Perfect!".
+	if ( NETWORK_InClientMode( ) == false )
+		MEDAL_GiveMedal( ulPlayer, players[g_ulDuelLoser].fragcount <= 0 ? MEDAL_PERFECT : MEDAL_VICTORY );
+	
 	for ( ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
 	{
 		if (( playeringame[ulIdx] ) && ( players[ulIdx].pSkullBot ))
@@ -342,8 +299,6 @@ void DUEL_TimeExpired( void )
 	LONG				lWinner = -1;
 	LONG				lLoser = -1;
 	ULONG				ulIdx;
-	DHUDMessageFadeOut	*pMsg;
-	char				szString[64];
 
 	// Don't end the level if we're not in a duel.
 	if ( DUEL_GetState( ) != DS_INDUEL )
@@ -373,30 +328,8 @@ void DUEL_TimeExpired( void )
 	if (( players[lDueler1].fragcount ) == ( players[lDueler2].fragcount ))
 	{
 		// Only print the message the instant we reach sudden death.
-		if ( level.time == (int)( timelimit * TICRATE * 60 ))
-		{
-			sprintf( szString, "\\cdSUDDEN DEATH!" );
-			V_ColorizeString( szString );
-
-			if ( NETWORK_GetState( ) != NETSTATE_SERVER )
-			{
-				// Display the HUD message.
-				pMsg = new DHUDMessageFadeOut( BigFont, szString,
-					160.4f,
-					75.0f,
-					320,
-					200,
-					CR_RED,
-					3.0f,
-					2.0f );
-
-				StatusBar->AttachMessage( pMsg, MAKE_ID('C','N','T','R') );
-			}
-			else
-			{
-				SERVERCOMMANDS_PrintHUDMessage( szString, 160.4f, 75.0f, 320, 200, HUDMESSAGETYPE_FADEOUT, CR_RED, 3.0f, 0.0f, 2.0f, "BigFont", MAKE_ID( 'C', 'N', 'T', 'R' ) );
-			}
-		}
+		if ( level.time == static_cast<int>( timelimit * TICRATE * 60 ))
+			HUD_DrawStandardMessage( "SUDDEN DEATH!", CR_GREEN, false, 3.0f, 2.0f, true );
 
 		return;
 	}
@@ -526,20 +459,14 @@ void DUEL_SetStartNextDuelOnLevelLoad( bool bStart )
 //*****************************************************************************
 //	CONSOLE COMMANDS/VARIABLES
 
-CVAR( Int, sv_duelcountdowntime, 10, CVAR_ARCHIVE );
-CUSTOM_CVAR( Int, duellimit, 0, CVAR_CAMPAIGNLOCK )
+CVAR( Int, sv_duelcountdowntime, 10, CVAR_ARCHIVE | CVAR_GAMEPLAYSETTING );
+CUSTOM_CVAR( Int, duellimit, 0, CVAR_CAMPAIGNLOCK | CVAR_GAMEPLAYSETTING )
 {
 	if ( self >= 256 )
 		self = 255;
 	if ( self < 0 )
 		self = 0;
 
-	if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( gamestate != GS_STARTUP ))
-	{
-		SERVER_Printf( "%s changed to: %d\n", self.GetName( ), (int)self );
-		SERVERCOMMANDS_SetGameModeLimits( );
-
-		// Update the scoreboard.
-		SERVERCONSOLE_UpdateScoreboard( );
-	}
+	// [AK] Update the clients and update the server console.
+	SERVER_SettingChanged( self, true );
 }

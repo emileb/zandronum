@@ -443,6 +443,12 @@ enum
 	// or sv_dontpushallies are enabled.
 	STFL_FORCEALLYCOLLISION		= 0x10000000,
 
+	// [AK] A projectile/puff will give an attacking player a "fisting" medal when they frag another player
+	// or a "spam" medal when they frag more than one player in a single tic. If the former is applied to
+	// a weapon, then a melee attack (i.e. A_Punch or A_CustomPunch) from that weapon awards the medal.
+	STFL_GIVEFISTINGMEDAL		= 0x20000000,
+	STFL_GIVESPAMMEDAL			= 0x40000000,
+
 // More flags for Skulltag... these having to do with the network.
 
 	// This object does not have a network ID.
@@ -676,6 +682,7 @@ enum
 	AMETA_BloodType,		// Blood replacement type
 	AMETA_BloodType2,		// Bloodsplatter replacement type
 	AMETA_BloodType3,		// AxeBlood replacement type
+	AMETA_SelfObituary,		// [SB] Used when a player kills themselves with this actor
 };
 
 struct FDropItem 

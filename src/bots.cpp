@@ -664,7 +664,7 @@ void BOTS_RemoveBot( ULONG ulPlayerIdx, bool bExitMsg )
 	}
 
 	// Refresh the HUD since the number of players in the game is potentially changing.
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 
 	// [K6] If there are no more bots left, clear the bot nodes.
 	if ( BOTS_CountBots( ) == 0 && ASTAR_IsInitialized( ) )
@@ -1977,7 +1977,7 @@ CSkullBot::CSkullBot( char *pszName, char *pszTeamName, ULONG ulPlayerNum )
 	GAMEMODE_HandleEvent( GAMEEVENT_PLAYERCONNECT, NULL, ulPlayerNum );
 
 	// Refresh the HUD since a new player is now here (this affects the number of players in the game).
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 }
 
 //*****************************************************************************
@@ -3911,8 +3911,8 @@ CCMD( addbot )
 //
 CCMD( removebot )
 {
-	ULONG	ulIdx;
-	char	szName[64];
+	ULONG		ulIdx;
+	FString		playerName;
 
 	// Don't allow removing of bots in campaign mode.
 	if (( CAMPAIGN_InCampaign( )) && ( sv_cheats == false ))
@@ -3960,9 +3960,9 @@ CCMD( removebot )
 			if (( playeringame[ulIdx] == false ) || ( players[ulIdx].pSkullBot == NULL ))
 				continue;
 
-			sprintf( szName, "%s", players[ulIdx].userinfo.GetName() );
-			V_RemoveColorCodes( szName );
-			if ( stricmp( szName, argv[1] ) == 0 )
+			playerName = players[ulIdx].userinfo.GetName( );
+			V_RemoveColorCodes( playerName );
+			if ( playerName.CompareNoCase( argv[1] ) == 0 )
 			{
 				// Now that we've found a valid bot, remove it.
 				BOTS_RemoveBot( ulIdx, true );

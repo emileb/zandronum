@@ -325,7 +325,7 @@ player_t::player_t()
   ulDeathCount( 0 ),
   ulLastFragTick( 0 ),
   ulLastExcellentTick( 0 ),
-  ulLastBFGFragTick( 0 ),
+  ulLastSpamTick( 0 ),
   ulConsecutiveHits( 0 ),
   ulConsecutiveRailgunHits( 0 ),
   ulFragsWithoutDeath( 0 ),
@@ -489,7 +489,7 @@ player_t &player_t::operator=(const player_t &p)
 	ulDeathCount = p.ulDeathCount;
 	ulLastFragTick = p.ulLastFragTick;
 	ulLastExcellentTick = p.ulLastExcellentTick;
-	ulLastBFGFragTick = p.ulLastBFGFragTick;
+	ulLastSpamTick = p.ulLastSpamTick;
 	ulConsecutiveHits = p.ulConsecutiveHits;
 	ulConsecutiveRailgunHits = p.ulConsecutiveRailgunHits;
 	ulFragsWithoutDeath = p.ulFragsWithoutDeath;
@@ -522,12 +522,12 @@ player_t &player_t::operator=(const player_t &p)
 	bSpawnTelefragged = p.bSpawnTelefragged;
 	ulTime = p.ulTime;
 	bUnarmed = p.bUnarmed;
-	memcpy(unlaggedX, &p.unlaggedX, sizeof( unlaggedX ));
-	memcpy(unlaggedY, &p.unlaggedY, sizeof( unlaggedY ));
-	memcpy(unlaggedZ, &p.unlaggedZ, sizeof( unlaggedZ ));
-	restoreX = p.restoreX;
-	restoreY = p.restoreY;
-	restoreZ = p.restoreZ;
+
+	// [AK] Copy the old positions for the unlagged.
+	for ( unsigned int i = 0; i < UNLAGGEDTICS; i++ )
+		unlaggedPos[i] = p.unlaggedPos[i];
+
+	restorePos = p.restorePos;
 	restoreFloorZ = p.restoreFloorZ;
 	restoreCeilingZ = p.restoreCeilingZ;
 
@@ -2102,7 +2102,7 @@ void APlayerPawn::DropImportantItems( bool bLeavingGame, AActor *pSource )
 				if (( bLeavingGame == false ) && ( NETWORK_GetState( ) == NETSTATE_SERVER ))
 					SERVERCOMMANDS_TakeInventory( player - players, TEAM_GetItem( i ), 0 );
 				if ( NETWORK_GetState( ) != NETSTATE_SERVER )
-					HUD_Refresh( );
+					HUD_ShouldRefreshBeforeRendering( );
 
 				// Spawn a new flag.
 				pTeamItem = Spawn( TEAM_GetItem( i ), x, y, z, NO_REPLACE );
@@ -2137,11 +2137,7 @@ void APlayerPawn::DropImportantItems( bool bLeavingGame, AActor *pSource )
 				// Award a "Defense!" medal to the player who fragged this flag carrier.
 				// [BB] but only if the flag belongs to the team of the fragger.
 				if (( pSource ) && ( pSource->player ) && ( pSource->IsTeammate( this ) == false ) && ( pSource->player->Team == i ))
-				{
 					MEDAL_GiveMedal( pSource->player - players, MEDAL_DEFENSE );
-					if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-						SERVERCOMMANDS_GivePlayerMedal( pSource->player - players, MEDAL_DEFENSE );
-				}
 			}
 		}
 
@@ -2155,7 +2151,7 @@ void APlayerPawn::DropImportantItems( bool bLeavingGame, AActor *pSource )
 			if (( bLeavingGame == false ) && ( NETWORK_GetState( ) == NETSTATE_SERVER ))
 				SERVERCOMMANDS_TakeInventory( player - players, pInventory->GetClass( ), 0 );
 			if ( NETWORK_GetState( ) != NETSTATE_SERVER )
-				HUD_Refresh( );
+				HUD_ShouldRefreshBeforeRendering( );
 
 			// Spawn a new flag.
 			pTeamItem = Spawn( PClass::FindClass( "WhiteFlag" ), x, y, z, ALLOW_REPLACE );
@@ -2185,11 +2181,7 @@ void APlayerPawn::DropImportantItems( bool bLeavingGame, AActor *pSource )
 
 			// Award a "Defense!" medal to the player who fragged this flag carrier.
 			if ( pSource && pSource->player && ( pSource->IsTeammate( this ) == false ))
-			{
 				MEDAL_GiveMedal( pSource->player - players, MEDAL_DEFENSE );
-				if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-					SERVERCOMMANDS_GivePlayerMedal( pSource->player - players, MEDAL_DEFENSE );
-			}
 		}
 	}
 
@@ -2205,7 +2197,7 @@ void APlayerPawn::DropImportantItems( bool bLeavingGame, AActor *pSource )
 			if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 				SERVERCOMMANDS_TakeInventory( player - players, PClass::FindClass( "PowerTerminatorArtifact" ), 0 );
 			else
-				HUD_Refresh( );
+				HUD_ShouldRefreshBeforeRendering( );
 		}
 	}
 
@@ -2221,7 +2213,7 @@ void APlayerPawn::DropImportantItems( bool bLeavingGame, AActor *pSource )
 			if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 				SERVERCOMMANDS_TakeInventory( player - players, PClass::FindClass( "PowerPossessionArtifact" ), 0 );
 			else
-				HUD_Refresh( );
+				HUD_ShouldRefreshBeforeRendering( );
 
 			// Tell the possession module that the artifact has been dropped.
 			if ( possession || teampossession )
@@ -2520,6 +2512,7 @@ void P_CheckPlayerSprite(AActor *actor, int &spritenum, fixed_t &scalex, fixed_t
 	LONG	lSkin;
 
 	player_t *player = actor->player;
+	const bool bUsingWeaponSkin = PLAYER_IsUsingWeaponSkin( actor ); // [AK]
 
 	int crouchspriteno;
 
@@ -2536,7 +2529,7 @@ void P_CheckPlayerSprite(AActor *actor, int &spritenum, fixed_t &scalex, fixed_t
 		lSkin = R_FindSkin( "base", player->CurrentPlayerClass );
 
 	// [BB] If the weapon has a PreferredSkin defined, make the player use it here.
-	if ( player->ReadyWeapon && ( player->ReadyWeapon->PreferredSkin != NAME_None ) )
+	if ( bUsingWeaponSkin )
 	{
 		LONG lDesiredSkin = R_FindSkin( player->ReadyWeapon->PreferredSkin.GetChars(), player->CurrentPlayerClass );
 		if ( lDesiredSkin != lSkin )
@@ -2554,7 +2547,7 @@ void P_CheckPlayerSprite(AActor *actor, int &spritenum, fixed_t &scalex, fixed_t
 	}
 
 	// [BB] PreferredSkin overrides NOSKIN.
-	if (lSkin != 0 && ( !(player->mo->flags4 & MF4_NOSKIN) || ( player->ReadyWeapon && ( player->ReadyWeapon->PreferredSkin != NAME_None ) ) ) )
+	if (lSkin != 0 && ( !(player->mo->flags4 & MF4_NOSKIN) || ( bUsingWeaponSkin ) ) )
 	{
 		// Convert from default scale to skin scale.
 		fixed_t defscaleY = actor->GetDefault()->scaleY;
@@ -2571,7 +2564,7 @@ void P_CheckPlayerSprite(AActor *actor, int &spritenum, fixed_t &scalex, fixed_t
 			crouchspriteno = player->mo->crouchsprite;
 		}
 		// [BB] PreferredSkin overrides NOSKIN.
-		else if ( ( !(actor->flags4 & MF4_NOSKIN) || ( player->ReadyWeapon && ( player->ReadyWeapon->PreferredSkin != NAME_None ) ) ) &&
+		else if ( ( !(actor->flags4 & MF4_NOSKIN) || ( bUsingWeaponSkin ) ) &&
 				(spritenum == skins[lSkin].sprite ||
 				 spritenum == skins[lSkin].crouchsprite))
 		{
@@ -2812,17 +2805,15 @@ void P_CalcHeight (player_t *player)
 =
 =================
 */
-CUSTOM_CVAR (Float, sv_aircontrol, 0.00390625f, CVAR_SERVERINFO|CVAR_NOSAVE)
+
+// [AK] Added CVAR_GAMEPLAYSETTING.
+CUSTOM_CVAR (Float, sv_aircontrol, 0.00390625f, CVAR_SERVERINFO|CVAR_NOSAVE|CVAR_GAMEPLAYSETTING)
 {
 	level.aircontrol = (fixed_t)(self * 65536.f);
 	G_AirControlChanged ();
 
 	// [BB] Let the clients know about the change.
-	if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( gamestate != GS_STARTUP ))
-	{
-		SERVER_Printf( "%s changed to: %f\n", self.GetName( ), (float)self );
-		SERVERCOMMANDS_SetGameModeLimits( );
-	}
+	SERVER_SettingChanged( self, false );
 }
 
 void P_MovePlayer (player_t *player)
@@ -3268,7 +3259,8 @@ void P_DeathThink (player_t *player)
 			return;
 	}
 
-	if ( level.time >= player->respawn_time )
+	// [AK] Don't allow players to respawn during the result sequence, in case sv_forcerespawn is on.
+	if ( level.time >= player->respawn_time && GAMEMODE_IsGameInResultSequence( ) == false )
 	{
 		if (((( player->cmd.ucmd.buttons & BT_USE ) || ( ( player->userinfo.GetClientFlags() & CLIENTFLAGS_RESPAWNONFIRE ) && ( player->cmd.ucmd.buttons & BT_ATTACK ) && (( player->oldbuttons & BT_ATTACK ) == false ))) || 
 			(( deathmatch || teamgame || alwaysapplydmflags ) &&

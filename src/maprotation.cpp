@@ -523,14 +523,22 @@ CCMD( maplist )
 		Printf( "Map rotation list: \n" );
 		for ( ULONG ulIdx = 0; ulIdx < g_MapRotationEntries.size( ); ulIdx++ )
 		{
-			message.Format( "%lu. %s - %s", ulIdx + 1, g_MapRotationEntries[ulIdx].pMap->mapname, g_MapRotationEntries[ulIdx].pMap->LookupLevelName( ).GetChars( ));
+			message.Format( "%lu. ", ulIdx + 1 );
 
 			// [AK] Highlight the current position in the map rotation in green, but only if we're actually playing on that map.
 			// Otherwise, maps that have already been played will be highlighted in red.
 			if (( g_ulCurMapInList == ulIdx ) && ( stricmp( level.mapname, g_MapRotationEntries[g_ulCurMapInList].pMap->mapname ) == 0 ))
+			{
 				message.Insert( 0, TEXTCOLOR_GREEN );
+				message += "(Current) ";
+			}
 			else if ( g_MapRotationEntries[ulIdx].bUsed )
+			{
 				message.Insert( 0, TEXTCOLOR_RED );
+				message += "(Used) ";
+			}
+
+			message.AppendFormat( "%s - %s", g_MapRotationEntries[ulIdx].pMap->mapname, g_MapRotationEntries[ulIdx].pMap->LookupLevelName( ).GetChars( ));
 
 			// [AK] Also print the min and max player limits if they're different from the default values.
 			if (( g_MapRotationEntries[ulIdx].ulMinPlayers > 0 ) || ( g_MapRotationEntries[ulIdx].ulMaxPlayers < MAXPLAYERS ))
@@ -560,6 +568,10 @@ CCMD( maplist )
 //
 CCMD( clearmaplist )
 {
+	// [AK] Don't let clients clear the map rotation list for themselves.
+	if ( NETWORK_InClientMode( ))
+		return;
+
 	// Reset the map list.
 	MAPROTATION_Construct( );
 
@@ -624,5 +636,5 @@ CCMD (insertmapsilent) {
 //*****************************************************************************
 //	CONSOLE VARIABLES
 
-CVAR( Bool, sv_maprotation, true, CVAR_ARCHIVE );
-CVAR( Bool, sv_randommaprotation, false, CVAR_ARCHIVE );
+CVAR( Bool, sv_maprotation, true, CVAR_ARCHIVE | CVAR_GAMEPLAYSETTING );
+CVAR( Bool, sv_randommaprotation, false, CVAR_ARCHIVE | CVAR_GAMEPLAYSETTING );

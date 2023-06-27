@@ -267,7 +267,7 @@ CVAR( String, sv_motd, "", CVAR_ARCHIVE )
 CVAR( Bool, sv_defaultdmflags, false, 0 )
 CVAR( Bool, sv_forcepassword, false, CVAR_ARCHIVE|CVAR_NOSETBYACS|CVAR_SERVERINFO )
 CVAR( Bool, sv_forcejoinpassword, false, CVAR_ARCHIVE|CVAR_NOSETBYACS|CVAR_SERVERINFO )
-CVAR( Int, sv_forcerespawntime, 0, CVAR_ARCHIVE|CVAR_SERVERINFO ) // [RK]
+CVAR( Int, sv_forcerespawntime, 0, CVAR_ARCHIVE|CVAR_SERVERINFO|CVAR_GAMEPLAYSETTING ) // [RK]
 CVAR( Bool, sv_showlauncherqueries, false, CVAR_ARCHIVE )
 CVAR( Bool, sv_timestamp, false, CVAR_ARCHIVE|CVAR_NOSETBYACS )
 CVAR( Int, sv_timestampformat, 0, CVAR_ARCHIVE|CVAR_NOSETBYACS )
@@ -286,7 +286,7 @@ CVAR( Int, sv_smoothplayers_debuginfo, 0, CVAR_ARCHIVE|CVAR_DEBUGONLY ) // [AK]
 
 //*****************************************************************************
 // [AK] Smooths the movement of lagging players using extrapolation and correction.
-CUSTOM_CVAR( Int, sv_smoothplayers, 0, CVAR_ARCHIVE|CVAR_NOSETBYACS|CVAR_SERVERINFO ) 
+CUSTOM_CVAR( Int, sv_smoothplayers, 0, CVAR_ARCHIVE|CVAR_NOSETBYACS|CVAR_SERVERINFO|CVAR_DEBUGONLY )
 {
 	// [AK] We can't extrapolate for a negative number of tics.
 	if ( self < 0 )
@@ -359,7 +359,7 @@ CUSTOM_CVAR( Int, sv_maxclients, MIN ( MAXPLAYERS, 32 ), CVAR_ARCHIVE | CVAR_SER
 
 //*****************************************************************************
 // [BB] To stay compatible with old mods, the default value is at most 32.
-CUSTOM_CVAR( Int, sv_maxplayers, MIN ( MAXPLAYERS, 32 ), CVAR_ARCHIVE | CVAR_SERVERINFO )
+CUSTOM_CVAR( Int, sv_maxplayers, MIN ( MAXPLAYERS, 32 ), CVAR_ARCHIVE | CVAR_SERVERINFO | CVAR_GAMEPLAYSETTING )
 {
 	if ( self < 0 )
 		self = 0;
@@ -448,34 +448,22 @@ CUSTOM_CVAR( Int, sv_allowprivatechat, PRIVATECHAT_EVERYONE, CVAR_ARCHIVE | CVAR
 	}
 
 	// [AK] Notify the clients about the change.
-	if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( gamestate != GS_STARTUP ))
-	{
-		SERVER_Printf( "%s changed to: %d\n", self.GetName( ), self.GetGenericRep( CVAR_Int ).Int );
-		SERVERCOMMANDS_SetGameModeLimits( );
-	}
+	SERVER_SettingChanged( self, false );
 }
 
 //*****************************************************************************
 //
-CUSTOM_CVAR( Int, sv_respawndelaytime, 1, CVAR_ARCHIVE | CVAR_SERVERINFO )
+CUSTOM_CVAR( Float, sv_respawndelaytime, 1.0f, CVAR_ARCHIVE | CVAR_SERVERINFO | CVAR_GAMEPLAYSETTING )
 {
-	if ( self < 1 )
+	// [AK] The respawn delay time should always be at least a tic long.
+	if ( self <= 0.0f )
 	{
-		self = 1;
-		return;
-	}
-	else if ( self > 255 )
-	{
-		self = 255;
+		self = 1.0f / TICRATE;
 		return;
 	}
 
 	// [AK] Notify the clients about the change.
-	if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( gamestate != GS_STARTUP ))
-	{
-		SERVER_Printf( "%s changed to: %d\n", self.GetName( ), self.GetGenericRep( CVAR_Int ).Int );
-		SERVERCOMMANDS_SetGameModeLimits( );
-	}
+	SERVER_SettingChanged( self, false, 1 );
 }
 
 //*****************************************************************************
@@ -1076,19 +1064,20 @@ void SERVER_CheckTimeouts( void )
 			continue;
 		}
 
+		const int lastCommandTicDiff = gametic - g_aClients[ulIdx].ulLastCommandTic;
+
 		// If we haven't gotten a packet from this client in CLIENT_TIMEOUT seconds,
 		// disconnect him.
-		if (( gametic - g_aClients[ulIdx].ulLastCommandTic ) >= ( CLIENT_TIMEOUT * TICRATE ))
+		if ( lastCommandTicDiff >= CLIENT_TIMEOUT * TICRATE )
 		{
 		    SERVER_DisconnectClient( ulIdx, true, true );
 			continue;
 		}
 
-		if ( players[ulIdx].bSpectating )
-			continue;
-
 		// Also check to see if the client is lagging.
-		if (( gametic - g_aClients[ulIdx].ulLastCommandTic ) >= TICRATE )
+		// [AK] Spectators don't send updates as often as in-game players do, so give
+		// them more time before marking them as lagging.
+		if ( lastCommandTicDiff >= ( players[ulIdx].bSpectating ? TICRATE * 5 : TICRATE ))
 		{
 			// Have not heard from the client in at least one second; mark him as
 			// lagging and tell clients.
@@ -1192,16 +1181,19 @@ void SERVER_SendChatMessage( ULONG ulPlayer, ULONG ulMode, const char *pszString
 	FString cleanedChatString = pszString;
 
 	// [BB] Remove any kind of trailing crap.
+	// [AK] Temporarily uncolorize the chat string so that V_RemoveTrailingCrapFromFString removes trailing color codes.
+	V_UnColorizeString ( cleanedChatString );
 	V_RemoveTrailingCrapFromFString ( cleanedChatString );
 
 	// [K6] Idk why is this part processed as FString, but let me join in on the fun and possibly strip ascii control characters.
 	// ...except 28 which is TEXTCOLOR_ESCAPE.
-	static const char strips[] = { 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,29,30,31,127,0 };
-	cleanedChatString.StripChars ( strips );
+	CHAT_StripASCIIControlCharacters ( cleanedChatString );
 
 	// [BB] If the chat string is empty now, it only contained crap and is ignored.
 	if ( cleanedChatString.IsEmpty() )
 		return;
+
+	V_ColorizeString ( cleanedChatString );
 
 	// [BB] Replace the pointer to the chat string, with the cleaned version.
 	// This way the code below doesn't need to be altered.
@@ -1214,15 +1206,11 @@ void SERVER_SendChatMessage( ULONG ulPlayer, ULONG ulMode, const char *pszString
 	}
 	else
 	{
-		// [AK] Remove any color codes that may still be in the chat message.
-		FString cleanedStringWithoutColor = cleanedChatString;
-		V_RemoveColorCodes( cleanedStringWithoutColor );
-
-		CHAT_AddChatMessage( ulPlayer, cleanedStringWithoutColor );
+		CHAT_AddChatMessage( ulPlayer, pszString );
 
 		// [AK] Trigger an event script indicating that a chat message was received.
 		// If the event returns 0, then don't print the message or send it to the clients.
-		if ( GAMEMODE_HandleEvent( GAMEEVENT_CHAT, NULL, ulPlayer != MAXPLAYERS ? ulPlayer : -1, ulMode - CHATMODE_GLOBAL ) == 0 )
+		if ( GAMEMODE_HandleEvent( GAMEEVENT_CHAT, NULL, ulPlayer != MAXPLAYERS ? ulPlayer : -1, ulMode - CHATMODE_GLOBAL, true ) == 0 )
 			return;
 
 		SERVERCOMMANDS_PlayerSay( ulPlayer, pszString, ulMode, bForbidChatToPlayers );
@@ -1257,6 +1245,8 @@ void SERVER_SendChatMessage( ULONG ulPlayer, ULONG ulMode, const char *pszString
 				message.Format( "<From %s> ", players[ulPlayer].userinfo.GetName() );
 		}
 
+		// [AK] Don't print the same message twice for the current RCON client.
+		CONSOLE_ShouldPrintToRCONPlayer( false );
 		message.AppendFormat( "* %s%s", ulPlayer != MAXPLAYERS ? players[ulPlayer].userinfo.GetName() : "<Server>", pszString );
 		Printf( "%s\n", message.GetChars() );
 	}
@@ -1271,6 +1261,8 @@ void SERVER_SendChatMessage( ULONG ulPlayer, ULONG ulMode, const char *pszString
 		}
 		else
 		{
+			// [AK] Don't print the same message twice for the current RCON client.
+			CONSOLE_ShouldPrintToRCONPlayer( false );
 			Printf( "%s: %s\n", ulPlayer != MAXPLAYERS ? players[ulPlayer].userinfo.GetName() : "<Server>", pszString );
 		}
 	}
@@ -1422,7 +1414,7 @@ void SERVER_ConnectNewPlayer( BYTESTREAM_s *pByteStream )
 	SERVERCOMMANDS_SetCVar( sv_hostname, g_lCurrentClient, SVCF_ONLYTHISCLIENT );
 
 	// [AK] Send the current state of the skip correction.
-	SERVERCOMMANDS_SetCVar( sv_smoothplayers, g_lCurrentClient, SVCF_ONLYTHISCLIENT );
+	// SERVERCOMMANDS_SetCVar( sv_smoothplayers, g_lCurrentClient, SVCF_ONLYTHISCLIENT );
 
 	// Send dmflags.
 	SERVERCOMMANDS_SetGameDMFlags( g_lCurrentClient, SVCF_ONLYTHISCLIENT );
@@ -1800,7 +1792,7 @@ void SERVER_DetermineConnectionType( BYTESTREAM_s *pByteStream )
 
 			Printf( "Unknown challenge (%d) from %s. Ignoring IP for 10 seconds.\n", static_cast<int> (lCommand), NETWORK_GetFromAddress().ToString() );
 			// [BB] Block all further challenges of this IP for ten seconds to prevent log flooding.
-			g_floodProtectionIPQueue.addAddress ( NETWORK_GetFromAddress( ), g_lGameTime / 1000 );
+			SERVER_IgnoreIP( NETWORK_GetFromAddress( ));
 
 #ifdef CREATE_PACKET_LOG
 			server_LogPacket(pByteStream,  NETWORK_GetFromAddress( ), "Unknown connection challenge.");
@@ -2025,6 +2017,7 @@ void SERVER_SetupNewConnection( BYTESTREAM_s *pByteStream, bool bNewPlayer )
 	g_aClients[lClient].lLastPacketLossTick = 0;
 	g_aClients[lClient].lLastMoveTick = 0;
 	g_aClients[lClient].lLastMoveTickProcess = 0;
+	g_aClients[lClient].usLastWeaponNetworkIndex = 0;
 	g_aClients[lClient].lOverMovementLevel = 0;
 	g_aClients[lClient].bRunEnterScripts = false;
 	g_aClients[lClient].bSuspicious = false;
@@ -2396,7 +2389,7 @@ void SERVER_ClientError( ULONG ulClient, ULONG ulErrorCode )
 	Printf( "%s disconnected. Ignoring IP for 10 seconds.\n", g_aClients[ulClient].Address.ToString() );
 
 	// [BB] Block this IP for ten seconds to prevent log flooding.
-	g_floodProtectionIPQueue.addAddress ( g_aClients[ulClient].Address, g_lGameTime / 1000 );
+	SERVER_IgnoreIP( g_aClients[ulClient].Address );
 
 	// [BB] Be sure to properly disconnect the client.
 	SERVER_DisconnectClient( ulClient, false, false );
@@ -2510,9 +2503,12 @@ void SERVER_SendFullUpdate( ULONG ulClient )
 		SERVERCOMMANDS_SetPlayerLivesLeft( ulIdx, ulClient, SVCF_ONLYTHISCLIENT );
 
 		// [BB] Also tell this player's chat / console status to the new client.
+		// [AK] Tell the client whether this player is lagging or not. This prevents the client from
+		// seeing players with the lag icon over their head indefinitely after a level change.
 		SERVERCOMMANDS_SetPlayerStatus( ulIdx, PLAYERSTATUS_CHATTING, ulClient, SVCF_ONLYTHISCLIENT );
 		SERVERCOMMANDS_SetPlayerStatus( ulIdx, PLAYERSTATUS_INCONSOLE, ulClient, SVCF_ONLYTHISCLIENT );
 		SERVERCOMMANDS_SetPlayerStatus( ulIdx, PLAYERSTATUS_INMENU, ulClient, SVCF_ONLYTHISCLIENT );
+		SERVERCOMMANDS_SetPlayerStatus( ulIdx, PLAYERSTATUS_LAGGING, ulClient, SVCF_ONLYTHISCLIENT );
 
 		// [BB] If this player has any cheats, also inform the new client.
 		if( players[ulIdx].cheats )
@@ -3109,7 +3105,7 @@ void SERVER_DisconnectClient( ULONG ulClient, bool bBroadcast, bool bSaveInfo )
 	{
 		for ( ULONG i = 0; i < teams.Size( ); i++ )
 		{
-			TEAM_SetScore( i, 0, false );
+			TEAM_SetPointCount( i, 0, false );
 			TEAM_SetFragCount( i, 0, false );
 			TEAM_SetDeathCount( i, 0 );
 			TEAM_SetWinCount( i, 0, false );
@@ -3654,23 +3650,23 @@ void SERVER_KickAllPlayers( const char *pszReason )
 //
 void SERVER_KickPlayer( ULONG ulPlayer, const char *pszReason )
 {
-	ULONG	ulIdx;
-	char	szKickString[512];
-	char	szName[64];
+	ULONG		ulIdx;
+	FString		kickString;
+	FString		playerName;
 
 	// Make sure the target is valid and applicable.
 	if (( ulPlayer >= MAXPLAYERS ) || ( !playeringame[ulPlayer] ))
 		return;
 
-	sprintf( szName, "%s", players[ulPlayer].userinfo.GetName() );
-	V_RemoveColorCodes( szName );
+	playerName = players[ulPlayer].userinfo.GetName();
+	V_RemoveColorCodes( playerName );
 
 	// Build the full kick string.
-	sprintf( szKickString, TEXTCOLOR_ORANGE "%s" TEXTCOLOR_ORANGE " was kicked from the server! Reason: %s\n", szName, pszReason );
-	Printf( "%s", szKickString );
+	kickString.Format( TEXTCOLOR_ORANGE "%s was kicked from the server! Reason: %s\n", playerName.GetChars(), pszReason );
+	Printf( "%s", kickString.GetChars() );
 
 	// Rebuild the string that will be displayed to clients. This time, color codes are allowed.
-	sprintf( szKickString, TEXTCOLOR_ORANGE "%s" TEXTCOLOR_ORANGE " was kicked from the server! Reason: %s\n", players[ulPlayer].userinfo.GetName(), pszReason );
+	kickString.Format( TEXTCOLOR_ORANGE "%s" TEXTCOLOR_ORANGE " was kicked from the server! Reason: %s\n", players[ulPlayer].userinfo.GetName(), pszReason );
 
 	// Send the message out to all clients.
 	for ( ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
@@ -3678,7 +3674,7 @@ void SERVER_KickPlayer( ULONG ulPlayer, const char *pszReason )
 		if ( SERVER_IsValidClient( ulIdx ) == false )
 			continue;
 
-		SERVER_PrintfPlayer( PRINT_HIGH, ulIdx, "%s", szKickString );
+		SERVER_PrintfPlayer( PRINT_HIGH, ulIdx, "%s", kickString.GetChars() );
 	}
 
 	// If we're kicking a bot, just remove him.
@@ -3835,7 +3831,8 @@ bool SERVER_IsPlayerAllowedToKnowHealth( ULONG ulPlayer, ULONG ulPlayer2 )
 		return ( false );
 
 	// If these players's are not teammates, then disallow knowledge of health.
-	if ( players[ulPlayer].mo->IsTeammate( players[ulPlayer2].mo ) == false )
+	// [JS] Unless ZADF_DONT_HIDE_STATS is enabled.
+	if (( players[ulPlayer].mo->IsTeammate( players[ulPlayer2].mo ) == false ) && (( zadmflags & ZADF_DONT_HIDE_STATS ) == false ))
 		return ( false );
 
 	// Passed all checks!
@@ -4431,6 +4428,10 @@ void SERVER_FlagsetChanged( FIntCVar& flagset, int maxflags )
 	if (( NETWORK_GetState( ) != NETSTATE_SERVER ) || ( gamestate == GS_STARTUP ) || ( value == oldValue ))
 		return;
 
+	// [AK] Don't do anything with lmsallowedweapons unless we're playing (T)LMS.
+	if (( &flagset == &lmsallowedweapons ) && ( lastmanstanding == false ) && ( teamlms == false ))
+		return;
+
 	FString result;
 	int flagsChanged = 0;
 
@@ -4471,22 +4472,58 @@ void SERVER_FlagsetChanged( FIntCVar& flagset, int maxflags )
 	if ( flagsChanged > maxflags )
 		result.Format( "%d flags changed", flagsChanged );
 
-	SERVER_Printf( "%s changed to: %d (%s)\n", flagset.GetName( ), value, result.GetChars() );
+	if ( result.IsNotEmpty( ))
+		SERVER_Printf( "%s changed to: %d (%s)\n", flagset.GetName( ), value, result.GetChars( ));
+	else
+		SERVER_Printf( "%s changed to: %d\n", flagset.GetName( ), value );
 
 	// [AK] We also need to tell the clients to update the changed flagset.
-	if ( flagset == *lmsspectatorsettings )
-	{
+	if ( &flagset == &lmsspectatorsettings )
 		SERVERCOMMANDS_SetLMSSpectatorSettings( );
-	}
-	else if ( flagset == *lmsallowedweapons )
-	{
-		if (( lastmanstanding ) || ( teamlms ))
-			SERVERCOMMANDS_SetLMSAllowedWeapons( );
-	}
+	else if ( &flagset == &lmsallowedweapons )
+		SERVERCOMMANDS_SetLMSAllowedWeapons( );
 	else
-	{
 		SERVERCOMMANDS_SetGameDMFlags( );
+}
+
+//*****************************************************************************
+//
+// [AK] Prints the name of a CVar and its new value to the console, sends an update
+// to the clients, and possibly updates the server console's scoreboard.
+//
+void SERVER_SettingChanged( FBaseCVar &cvar, bool bUpdateConsole, int maxDecimals )
+{
+	// [AK] Only continue if we're the server.
+	if (( NETWORK_GetState( ) != NETSTATE_SERVER ) || ( gamestate == GS_STARTUP ))
+		return;
+
+	FString result;
+
+	// [AK] Store the CVar's value into a string so that we can print it.
+	switch ( cvar.GetRealType( ))
+	{
+		case CVAR_Float:
+			if ( maxDecimals <= 0 )
+				result.Format( "%f", cvar.GetGenericRep( CVAR_Float ).Float );
+			else
+				result.Format( "%.*f", maxDecimals, cvar.GetGenericRep( CVAR_Float ).Float );
+			break;
+
+		case CVAR_String:
+			result = cvar.GetGenericRep( CVAR_String ).String;
+			break;
+
+		default:
+			result.Format( "%d", cvar.GetGenericRep( CVAR_Int ).Int );
+			break;
 	}
+
+	SERVER_Printf( "%s changed to: %s\n", cvar.GetName( ), result.GetChars( ));
+	SERVERCOMMANDS_SetGameModeLimits( );
+
+	// [AK] Update the server console's score if necessary.
+	if ( bUpdateConsole )
+		SERVERCONSOLE_UpdateScoreboard( );
 }
 
 //*****************************************************************************
@@ -4821,7 +4858,7 @@ bool SERVER_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 
 		// Client wishes to join the game after spectating.
 		return ( server_RequestJoin( pByteStream ));
-	case CLC_REQUESTRCON:
+	case CLC_CHANGERCONSTATUS:
 
 		// Client is attempting to gain remote control access to the server.
 		return ( server_RequestRCON( pByteStream ));
@@ -5078,7 +5115,7 @@ bool SERVER_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 // [RC] Finds the first player (or, optionally, bot) with the given name; returns MAXPLAYERS if none were found.
 ULONG SERVER_GetPlayerIndexFromName( const char *pszName, bool bIgnoreColors, bool bReturnBots )
 {
-	char	szPlayerName[64];
+	FString		playerName;
 
 	for ( ULONG ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
 	{
@@ -5088,11 +5125,11 @@ ULONG SERVER_GetPlayerIndexFromName( const char *pszName, bool bIgnoreColors, bo
 		// Optionally remove the color codes from the player name.
 		if ( bIgnoreColors )
 		{
-			sprintf( szPlayerName, "%s", players[ulIdx].userinfo.GetName() );
-			V_RemoveColorCodes( szPlayerName );
+			playerName = players[ulIdx].userinfo.GetName( );
+			V_RemoveColorCodes( playerName );
 		}
 
-		if ( stricmp( bIgnoreColors ? szPlayerName : players[ulIdx].userinfo.GetName(), pszName ) == 0 )
+		if ( stricmp( bIgnoreColors ? playerName.GetChars( ) : players[ulIdx].userinfo.GetName( ), pszName ) == 0 )
 		{
 			if ( !players[ulIdx].bIsBot || bReturnBots )
 				return ulIdx;
@@ -5218,14 +5255,23 @@ static bool server_ParseBufferedCommand ( BYTESTREAM_s *pByteStream )
 		{
 			if ( recentCMDs->getOldestEntry( i ) == ulClientTic )
 			{
-				delete cmd;
-				return false;
+				// [AK] Non-move (i.e. weapon select) commands with the same client gametic but
+				// different weapon net ids are not duplicates, so don't delete them.
+				if (( bIsMoveCMD ) || ( cmd->getWeaponNetworkIndex( ) == g_aClients[g_lCurrentClient].usLastWeaponNetworkIndex ))
+				{
+					delete cmd;
+					return false;
+				}
 			}
 		}
 
 		// [AK] Save this gametic into the ring buffer for later use.
 		recentCMDs->put( ulClientTic );
 	}
+
+	// [AK] Save the net id of the weapon sent last if this is a non-move (i.e. weapon select) command.
+	if ( bIsMoveCMD == false )
+		g_aClients[g_lCurrentClient].usLastWeaponNetworkIndex = cmd->getWeaponNetworkIndex( );
 
 	if ( sv_useticbuffer )
 	{
@@ -6099,16 +6145,14 @@ static bool server_MissingPacket( BYTESTREAM_s *pByteStream )
 //
 static bool server_UpdateClientPing( BYTESTREAM_s *pByteStream )
 {
-	ULONG	ulPing;
-
-	ulPing = pByteStream->ReadLong();
-
+	const unsigned int oldTime = pByteStream->ReadLong( );
 	const unsigned int nowTime = I_MSTime( );
+
 	// [BB] This ping information from the client doesn't make sense.
-	if ( ulPing > nowTime )
+	if ( oldTime > nowTime )
 		return false;
 
-	ULONG currentPing = (nowTime - ulPing);
+	ULONG currentPing = nowTime - oldTime;
 	const ULONG ticLength = 1000 / TICRATE;
 	player_t *p = &players[g_lCurrentClient];
 	// [BB] Lag spike, reset the averaging.
@@ -6119,8 +6163,6 @@ static bool server_UpdateClientPing( BYTESTREAM_s *pByteStream )
 	}
 	else
 	{
-		ULONG oldPing = p->ulPing;
-		ULONG ulPingAverages = p->ulPingAverages;
 		p->ulPing = ( p->ulPingAverages * p->ulPing + currentPing ) / ( 1 + p->ulPingAverages );
 		// [BB] The most recent ping measurement should always have a noticeable influence on the average ping.
 		if ( p->ulPingAverages < 20 )
@@ -6358,29 +6400,54 @@ static bool server_RequestJoin( BYTESTREAM_s *pByteStream )
 static bool server_RequestRCON( BYTESTREAM_s *pByteStream )
 {
 	const char	*pszUserPassword;
-
-	// If the user password matches our PW, and we have a PW set, give him RCON access.
-	pszUserPassword = pByteStream->ReadString();
+	const bool bIsLoggingIn = !!pByteStream->ReadByte(); // [AK]
 
 	// [BB] If the client is flooding the server with commands, the client is
 	// kicked and we don't need to handle the command.
 	if ( server_CheckForClientCommandFlood ( g_lCurrentClient ) == true )
 		return ( true );
 
-	if (( strlen( sv_rconpassword ) > 0 ) && ( strcmp( sv_rconpassword, pszUserPassword ) == 0 ))
+	if ( bIsLoggingIn )
 	{
-		g_aClients[g_lCurrentClient].bRCONAccess = true;
-		SERVER_PrintfPlayer( g_lCurrentClient, "RCON access granted.\n" );
-		Printf( "RCON access for %s is granted!\n", players[g_lCurrentClient].userinfo.GetName() );
+		// If the user password matches our PW, and we have a PW set, give him RCON access.
+		pszUserPassword = pByteStream->ReadString();
+
+		if ( g_aClients[g_lCurrentClient].bRCONAccess )
+		{
+			SERVER_PrintfPlayer( g_lCurrentClient, "You already have RCON access.\n" );
+			return ( false );
+		}
+
+		if (( strlen( sv_rconpassword ) > 0 ) && ( strcmp( sv_rconpassword, pszUserPassword ) == 0 ))
+		{
+			g_aClients[g_lCurrentClient].bRCONAccess = true;
+			SERVER_PrintfPlayer( g_lCurrentClient, "RCON access granted.\n" );
+			Printf( "RCON access for %s is granted!\n", players[g_lCurrentClient].userinfo.GetName() );
+
+			SERVERCOMMANDS_RCONAccess( g_lCurrentClient );
+		}
+		else
+		{
+			g_aClients[g_lCurrentClient].bRCONAccess = false;
+			SERVER_PrintfPlayer( g_lCurrentClient, "Incorrect RCON password.\n" );
+			Printf( "Incorrect RCON password attempt from %s.\n", players[g_lCurrentClient].userinfo.GetName() );
+		}
 	}
 	else
 	{
+		if ( g_aClients[g_lCurrentClient].bRCONAccess == false )
+		{
+			SERVER_PrintfPlayer( g_lCurrentClient, "You don't have RCON access.\n" );
+			return ( false );
+		}
+
 		g_aClients[g_lCurrentClient].bRCONAccess = false;
-		SERVER_PrintfPlayer( g_lCurrentClient, "Incorrect RCON password.\n" );
-		Printf( "Incorrect RCON password attempt from %s.\n", players[g_lCurrentClient].userinfo.GetName() );
+		SERVER_PrintfPlayer( g_lCurrentClient, "You have logged out of RCON.\n" );
+		Printf( "%s has logged out of RCON.\n", players[g_lCurrentClient].userinfo.GetName() );
+
+		SERVERCOMMANDS_RCONAccess( g_lCurrentClient );
 	}
 
-	SERVERCOMMANDS_RCONAccess( g_lCurrentClient );
 	return ( false );
 }
 
@@ -6547,6 +6614,21 @@ static bool server_ChangeTeam( BYTESTREAM_s *pByteStream )
 
 	// Set the new team.
 	PLAYER_SetTeam( &players[g_lCurrentClient], lDesiredTeam, true );
+
+	// [AK] Now that they're on the new team, send the client the current health and armor of their new teammates.
+	// These commands invoke SERVER_IsPlayerAllowedToKnowHealth, so only their teammates' stats are updated.
+	// This isn't necessary if ZADF_DONT_HIDE_STATS is enabled because the stats of all players should already be synced.
+	if (( zadmflags & ZADF_DONT_HIDE_STATS ) == false )
+	{
+		for ( ULONG ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
+		{
+			if ( ulIdx != static_cast<ULONG>( g_lCurrentClient ))
+			{
+				SERVERCOMMANDS_SetPlayerHealth( ulIdx, g_lCurrentClient, SVCF_ONLYTHISCLIENT );
+				SERVERCOMMANDS_SetPlayerArmor( ulIdx, g_lCurrentClient, SVCF_ONLYTHISCLIENT );
+			}
+		}
+	}
 
 	// [AK] Set the client's gametic so that it doesn't think it's lagging.
 	g_aClients[g_lCurrentClient].ulClientGameTic = ulGametic;
@@ -7158,6 +7240,11 @@ static bool server_CallVote( BYTESTREAM_s *pByteStream )
 		bVoteAllowed = !sv_nonextsecretvote;
 		sprintf( szCommand, "nextsecret" );
 		break;
+	case VOTECMD_RESETMAP:
+
+		bVoteAllowed = !sv_noresetmapvote;
+		sprintf( szCommand, "resetmap" );
+		break;
 	default:
 
 		return ( false );
@@ -7691,8 +7778,8 @@ CCMD( kick_ip )
 
 CCMD( kick )
 {
-	ULONG	ulIdx;
-	char	szPlayerName[64];
+	ULONG		ulIdx;
+	FString		playerName;
 
 	// [AK] This function may not be used by ConsoleCommand.
 	if ( ACS_IsCalledFromConsoleCommand( ))
@@ -7715,10 +7802,10 @@ CCMD( kick )
 			continue;
 
 		// Removes the color codes from the player name so it appears as the server sees it in the window.
-		sprintf( szPlayerName, "%s", players[ulIdx].userinfo.GetName() );
-		V_RemoveColorCodes( szPlayerName );
+		playerName = players[ulIdx].userinfo.GetName( );
+		V_RemoveColorCodes( playerName );
 
-		if ( stricmp( szPlayerName, argv[1] ) == 0 )
+		if ( playerName.CompareNoCase( argv[1] ) == 0 )
 		{
 			// If we provided a reason, give it.
 			if ( argv.argc( ) >= 3 )
@@ -7983,10 +8070,10 @@ static void	server_LogPacket( BYTESTREAM_s *pByteStream, NETADDRESS_s Address, c
 	if ( !g_HackerIPList.isIPInList( Address ) )
 	{
 		IPStringArray szAddress;
-		Address.ToIPStringArray ( szAddress );
+		szAddress.SetFrom( Address );
 		std::string reason;
 		reason = "Hacker";
-		g_HackerIPList.addEntry( szAddress[0], szAddress[1], szAddress[2],  szAddress[3], "", pszReason, reason, SERVERBAN_ParseBanLength ( "perm" ) );
+		g_HackerIPList.addEntry( szAddress, "", pszReason, reason, SERVERBAN_ParseBanLength ( "perm" ) );
 	}
 
 	// Write the start of the log entry.

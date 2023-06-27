@@ -66,18 +66,16 @@
 
 // [SO] 1=Weapons states are all 1 tick
 //		2=states with a function 1 tick, others 0 ticks.
-CUSTOM_CVAR( Int, sv_fastweapons, 0, CVAR_SERVERINFO )
+// [AK] Added CVAR_GAMEPLAYSETTING.
+CUSTOM_CVAR( Int, sv_fastweapons, 0, CVAR_SERVERINFO | CVAR_GAMEPLAYSETTING )
 {
 	if ( self >= 3 )
 		self = 2;
 	if ( self < 0 )
 		self = 0;
 
-	if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( gamestate != GS_STARTUP ))
-	{
-		SERVER_Printf( "%s changed to: %d\n", self.GetName( ), (int)self );
-		SERVERCOMMANDS_SetGameModeLimits( );
-	}
+	// [AK] Notify the clients about the change.
+	SERVER_SettingChanged( self, false );
 }
 
 // [AK] CVars that control how the weapon bobs, sways, or offsets based on the player's pitch. 

@@ -1058,21 +1058,24 @@ static bool callvote_CheckValidity( FString &Command, FString &Parameters )
 			// [AK] Don't accept compatibility flags, only server hosts should be messing with these flags.
 			if (( flagset == &compatflags ) || ( flagset == &compatflags2 ) || ( flagset == &zacompatflags ))
 			{
-				SERVER_PrintfPlayer( SERVER_GetCurrentClient( ), "compatibility flags cannot be changed in a vote.\n" );
+				if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+					SERVER_PrintfPlayer( SERVER_GetCurrentClient( ), "compatibility flags cannot be changed in a vote.\n" );
 				return ( false );
 			}
 
 			// [AK] Don't call the vote if this flag is supposed to be locked in the current game mode.
-			if ( flag->GetBitVal() & GAMEMODE_GetCurrentFlagsetMask( flag->GetValueVar(), true ))
+			if ( GAMEMODE_IsGameplaySettingLocked( flag ))
 			{
-				SERVER_PrintfPlayer( SERVER_GetCurrentClient( ), "%s cannot be changed in this game mode.\n", flag->GetName() );
+				if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+					SERVER_PrintfPlayer( SERVER_GetCurrentClient( ), "%s cannot be changed in this game mode.\n", flag->GetName() );
 				return ( false );
 			}
 
 			// [AK] Don't call the vote if this flag is already set to the parameter's value. 
 			if ( flag->GetGenericRep( CVAR_Int ).Int == parameterInt )
 			{
-				SERVER_PrintfPlayer( SERVER_GetCurrentClient( ), "%s is already set to %s.\n", flag->GetName(), Parameters.GetChars() );
+				if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+					SERVER_PrintfPlayer( SERVER_GetCurrentClient( ), "%s is already set to %s.\n", flag->GetName(), Parameters.GetChars() );
 				return ( false );
 			}
 
@@ -1081,6 +1084,10 @@ static bool callvote_CheckValidity( FString &Command, FString &Parameters )
 		break;
 	case VOTECMD_NEXTMAP:
 	case VOTECMD_NEXTSECRET:
+
+		// [AK] Only let the server check if there's a (secret) exit map. If it's valid on the server's
+		// end, then it should automatically be valid for the clients.
+		if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 		{
 			const char *next = ( ulVoteCmd == VOTECMD_NEXTSECRET ? G_GetSecretExitMap() : G_GetExitMap() );
 
@@ -1091,6 +1098,15 @@ static bool callvote_CheckValidity( FString &Command, FString &Parameters )
 			}
 		}
 		break;
+	case VOTECMD_RESETMAP:
+		{
+			if ( !( GAMEMODE_GetCurrentFlags() & GMF_MAPRESETS ) )
+			{
+				SERVER_PrintfPlayer( SERVER_GetCurrentClient(), "ResetMap votes can only be called in game modes that support map resets.\n" );
+				return ( false );
+			}
+		}
+	    break;
 
 	default:
 
@@ -1127,6 +1143,8 @@ static ULONG callvote_GetVoteType( const char *pszCommand )
 		return VOTECMD_NEXTMAP;
 	else if ( stricmp( "nextsecret", pszCommand ) == 0 )
 		return VOTECMD_NEXTSECRET;
+	else if ( stricmp( "resetmap", pszCommand ) == 0 )
+		return VOTECMD_RESETMAP;
 	else if ( callvote_IsFlagValid( pszCommand ))
 		return VOTECMD_FLAG;
 
@@ -1148,6 +1166,7 @@ static bool callvote_VoteRequiresParameter( const ULONG ulVoteType )
 	{
 		case VOTECMD_NEXTMAP:
 		case VOTECMD_NEXTSECRET:
+		case VOTECMD_RESETMAP:
 			return ( false );
 
 		default:
@@ -1212,6 +1231,7 @@ CVAR( Bool, sv_nopointlimitvote, false, CVAR_ARCHIVE | CVAR_SERVERINFO );
 CVAR( Bool, sv_noflagvote, true, CVAR_ARCHIVE | CVAR_SERVERINFO );
 CVAR( Bool, sv_nonextmapvote, false, CVAR_ARCHIVE | CVAR_SERVERINFO );
 CVAR( Bool, sv_nonextsecretvote, false, CVAR_ARCHIVE | CVAR_SERVERINFO );
+CVAR( Bool, sv_noresetmapvote, false, CVAR_ARCHIVE | CVAR_SERVERINFO );
 CVAR( Int, sv_votecooldown, 5, CVAR_ARCHIVE | CVAR_SERVERINFO );
 CVAR( Int, sv_voteconnectwait, 0, CVAR_ARCHIVE | CVAR_SERVERINFO );  // [RK] The amount of seconds after client connect to wait before voting
 CVAR( Bool, cl_showfullscreenvote, false, CVAR_ARCHIVE );

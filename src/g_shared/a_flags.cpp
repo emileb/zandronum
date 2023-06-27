@@ -183,7 +183,7 @@ bool ATeamItem::TryPickup( AActor *&pToucher )
 			SERVERCOMMANDS_TeamFlagReturned( TEAM_GetTeamFromItem( this ) );
 		}
 		else
-			HUD_Refresh( );
+			HUD_ShouldRefreshBeforeRendering( );
 
 		return ( false );
 	}
@@ -213,7 +213,7 @@ bool ATeamItem::TryPickup( AActor *&pToucher )
 		ResetReturnTicks( );
 
 		// Also, refresh the HUD.
-		HUD_Refresh( );
+		HUD_ShouldRefreshBeforeRendering( );
 	}
 
 	pCopy = CreateCopy( pToucher );
@@ -298,7 +298,7 @@ LONG ATeamItem::AllowFlagPickup( AActor *pToucher )
 		else
 			message += "skull";
 		message += "\nof a team with no players!";
-		GAMEMODE_DisplaySUBSMessage( message.GetChars(), true, static_cast<ULONG>(pToucher->player - players), SVCF_ONLYTHISCLIENT );
+		HUD_DrawSUBSMessage( message.GetChars(), CR_UNTRANSLATED, 3.0f, 0.25f, true, static_cast<ULONG>(pToucher->player - players), SVCF_ONLYTHISCLIENT );
 		return ( DENY_PICKUP );
 	}
 
@@ -347,6 +347,7 @@ void ATeamItem::DisplayFlagTaken( AActor *pToucher )
 
 void ATeamItem::MarkFlagTaken( bool bTaken )
 {
+	// [AK] For the white flag, TEAM_GetTeamFromItem should return teams.size( ).
 	TEAM_SetItemTaken( TEAM_GetTeamFromItem( this ), bTaken );
 }
 
@@ -360,6 +361,8 @@ void ATeamItem::MarkFlagTaken( bool bTaken )
 
 void ATeamItem::ResetReturnTicks( void )
 {
+	// [AK] For the white flag, TEAM_GetTeamFromItem should return teams.size( ).
+	TEAM_SetReturnTicks( TEAM_GetTeamFromItem( this ), 0 );
 }
 
 //===========================================================================
@@ -435,15 +438,11 @@ bool AFlag::HandlePickup( AInventory *pItem )
 		if (( TEAM_GetSimpleCTFSTMode( )) && ( NETWORK_InClientMode() == false ))
 		{
 			// Give his team a point.
-			TEAM_SetScore( Owner->player->Team, TEAM_GetScore( Owner->player->Team ) + 1, true );
+			TEAM_SetPointCount( Owner->player->Team, TEAM_GetPointCount( Owner->player->Team ) + 1, true );
 			PLAYER_SetPoints ( Owner->player, Owner->player->lPointCount + 1 );
 
 			// Award the scorer with a "Capture!" medal.
 			MEDAL_GiveMedal( ULONG( Owner->player - players ), MEDAL_CAPTURE );
-
-			// Tell clients about the medal that been given.
-			if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-				SERVERCOMMANDS_GivePlayerMedal( ULONG( Owner->player - players ), MEDAL_CAPTURE );
 
 			// [RC] Clear the 'returned automatically' message. A bit hackish, but leaves the flag structure unchanged.
 			this->ReturnFlag( NULL );
@@ -528,12 +527,7 @@ bool AFlag::HandlePickup( AInventory *pItem )
 				// [CK] Mark the assisting player
 				playerAssistNumber = TEAM_GetAssistPlayer( Owner->player->Team );
 
-				MEDAL_GiveMedal( TEAM_GetAssistPlayer( Owner->player->Team ), MEDAL_ASSIST );
-
-				// Tell clients about the medal that been given.
-				if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-					SERVERCOMMANDS_GivePlayerMedal( TEAM_GetAssistPlayer( Owner->player->Team ), MEDAL_ASSIST );
-
+				MEDAL_GiveMedal( playerAssistNumber, MEDAL_ASSIST );
 				TEAM_SetAssistPlayer( Owner->player->Team, MAXPLAYERS );
 			}
 
@@ -552,7 +546,7 @@ bool AFlag::HandlePickup( AInventory *pItem )
 
 
 			// Also, refresh the HUD.
-			HUD_Refresh( );
+			HUD_ShouldRefreshBeforeRendering( );
 		}
 
 		return ( true );
@@ -680,32 +674,6 @@ void AFlag::DisplayFlagTaken( AActor *pToucher )
 
 //===========================================================================
 //
-// AFlag :: MarkFlagTaken
-//
-// Signal to the team module whether or not this flag has been taken.
-//
-//===========================================================================
-
-void AFlag::MarkFlagTaken( bool bTaken )
-{
-	Super::MarkFlagTaken ( bTaken );
-}
-
-//===========================================================================
-//
-// AFlag :: ResetReturnTicks
-//
-// Reset the return ticks for the team associated with this flag.
-//
-//===========================================================================
-
-void AFlag::ResetReturnTicks( void )
-{
-	TEAM_SetReturnTicks( TEAM_GetTeamFromItem( this ), 0 );
-}
-
-//===========================================================================
-//
 // AFlag :: ReturnFlag
 //
 // Spawn a new flag at its original location.
@@ -769,7 +737,7 @@ void AFlag::ReturnFlag( AActor *pReturner )
 	}
 
 	V_ColorizeString( szString );
-	GAMEMODE_DisplaySUBSMessage( szString, true );
+	HUD_DrawSUBSMessage( szString, CR_UNTRANSLATED, 3.0f, 0.25f, true );
 
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 	{
@@ -817,7 +785,7 @@ void AFlag::DisplayFlagReturn( void )
 
 	V_ColorizeString( szString );
 
-	GAMEMODE_DisplayCNTRMessage( szString, false );
+	HUD_DrawCNTRMessage( szString, CR_UNTRANSLATED );
 }
 
 // White flag ---------------------------------------------------------------
@@ -831,8 +799,6 @@ protected:
 	virtual LONG AllowFlagPickup( AActor *pToucher );
 	virtual void AnnounceFlagPickup( AActor *pToucher );
 	virtual void DisplayFlagTaken( AActor *pToucher );
-	virtual void MarkFlagTaken( bool bTaken );
-	virtual void ResetReturnTicks( void );
 	virtual void ReturnFlag( AActor *pReturner );
 	virtual void AnnounceFlagReturn( void );
 	virtual void DisplayFlagReturn( void );
@@ -879,26 +845,18 @@ bool AWhiteFlag::HandlePickup( AInventory *pItem )
 	if (( TEAM_GetSimpleCTFSTMode( )) && ( NETWORK_InClientMode() == false ))
 	{
 		// Give his team a point.
-		TEAM_SetScore( Owner->player->Team, TEAM_GetScore( Owner->player->Team ) + 1, true );
+		TEAM_SetPointCount( Owner->player->Team, TEAM_GetPointCount( Owner->player->Team ) + 1, true );
 		PLAYER_SetPoints ( Owner->player, Owner->player->lPointCount + 1 );
 
 		// Award the scorer with a "Capture!" medal.
 		MEDAL_GiveMedal( ULONG( Owner->player - players ), MEDAL_CAPTURE );
-
-		// Tell clients about the medal that been given.
-		if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-			SERVERCOMMANDS_GivePlayerMedal( ULONG( Owner->player - players ), MEDAL_CAPTURE );
 
 		// If someone just recently returned the flag, award him with an "Assist!" medal.
 		if ( TEAM_GetAssistPlayer( Owner->player->Team ) != MAXPLAYERS )
 		{
 			// [AK] Mark the assisting player.
 			playerAssistNumber = TEAM_GetAssistPlayer( Owner->player->Team );
-			MEDAL_GiveMedal( TEAM_GetAssistPlayer( Owner->player->Team ), MEDAL_ASSIST );
-
-			// Tell clients about the medal that been given.
-			if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-				SERVERCOMMANDS_GivePlayerMedal( TEAM_GetAssistPlayer( Owner->player->Team ), MEDAL_ASSIST );
+			MEDAL_GiveMedal( playerAssistNumber, MEDAL_ASSIST );
 
 			TEAM_SetAssistPlayer( Owner->player->Team, MAXPLAYERS );
 		}
@@ -960,7 +918,7 @@ bool AWhiteFlag::HandlePickup( AInventory *pItem )
 		this->ReturnFlag( NULL );
 
 		// Also, refresh the HUD.
-		HUD_Refresh( );
+		HUD_ShouldRefreshBeforeRendering( );
 	
 		return ( true );
 	}
@@ -1091,32 +1049,6 @@ void AWhiteFlag::DisplayFlagTaken( AActor *pToucher )
 
 //===========================================================================
 //
-// AWhiteFlag :: MarkFlagTaken
-//
-// Signal to the team module whether or not this flag has been taken.
-//
-//===========================================================================
-
-void AWhiteFlag::MarkFlagTaken( bool bTaken )
-{
-	TEAM_SetWhiteFlagTaken( bTaken );
-}
-
-//===========================================================================
-//
-// AWhiteFlag :: ResetReturnTicks
-//
-// Reset the return ticks for the team associated with this flag.
-//
-//===========================================================================
-
-void AWhiteFlag::ResetReturnTicks( void )
-{
-	TEAM_SetReturnTicks( teams.Size( ), 0 );
-}
-
-//===========================================================================
-//
 // AWhiteFlag :: ReturnFlag
 //
 // Spawn a new flag at its original location.
@@ -1129,7 +1061,7 @@ void AWhiteFlag::ReturnFlag( AActor *pReturner )
 	AActor	*pActor;
 
 	// Respawn the white flag.
-	WhiteFlagOrigin = TEAM_GetWhiteFlagOrigin( );
+	WhiteFlagOrigin = TEAM_GetItemOrigin( teams.Size( ));
 	pActor = Spawn( this->GetClass( ), WhiteFlagOrigin.x, WhiteFlagOrigin.y, WhiteFlagOrigin.z, NO_REPLACE );
 
 	// If we're the server, tell clients to spawn the new skull.
@@ -1141,7 +1073,7 @@ void AWhiteFlag::ReturnFlag( AActor *pReturner )
 		pActor->flags &= ~MF_DROPPED;
 
 	// Mark the white flag as no longer being taken.
-	TEAM_SetWhiteFlagTaken( false );
+	TEAM_SetItemTaken( teams.Size( ), false );
 
 	// [AK] Trigger an event script. Since the white flag doesn't belong to any team, don't pass any team's ID.
 	GAMEMODE_HandleEvent( GAMEEVENT_RETURNS, NULL, teams.Size() );
@@ -1176,7 +1108,7 @@ void AWhiteFlag::DisplayFlagReturn( void )
 	sprintf( szString, "\\cCWhite flag returned" );
 	V_ColorizeString( szString );
 
-	GAMEMODE_DisplayCNTRMessage( szString, false );
+	HUD_DrawCNTRMessage( szString, CR_UNTRANSLATED );
 }
 
 // Skulltag skull -----------------------------------------------------------
@@ -1298,32 +1230,6 @@ void ASkull::DisplayFlagTaken( AActor *pToucher )
 
 //===========================================================================
 //
-// ASkull :: MarkFlagTaken
-//
-// Signal to the team module whether or not this flag has been taken.
-//
-//===========================================================================
-
-void ASkull::MarkFlagTaken( bool bTaken )
-{
-	Super::MarkFlagTaken ( bTaken );
-}
-
-//===========================================================================
-//
-// ASkull :: ResetReturnTicks
-//
-// Reset the return ticks for the team associated with this flag.
-//
-//===========================================================================
-
-void ASkull::ResetReturnTicks( void )
-{
-	TEAM_SetReturnTicks( TEAM_GetTeamFromItem( this ), 0 );
-}
-
-//===========================================================================
-//
 // ASkull :: ReturnFlag
 //
 // Spawn a new flag at its original location.
@@ -1386,7 +1292,7 @@ void ASkull::ReturnFlag( AActor *pReturner )
 	}
 
 	V_ColorizeString( szString );
-	GAMEMODE_DisplaySUBSMessage( szString, true );
+	HUD_DrawSUBSMessage( szString, CR_UNTRANSLATED, true );
 
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 	{
@@ -1434,5 +1340,5 @@ void ASkull::DisplayFlagReturn( void )
 
 	V_ColorizeString( szString );
 
-	GAMEMODE_DisplayCNTRMessage( szString, false );
+	HUD_DrawCNTRMessage( szString, CR_UNTRANSLATED );
 }

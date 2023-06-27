@@ -145,10 +145,9 @@ void	medal_PopQueue( ULONG ulPlayer );
 ULONG	medal_GetDesiredIcon( player_t *pPlayer, AInventory *&pTeamItem );
 void	medal_TriggerMedal( ULONG ulPlayer, ULONG ulMedal );
 void	medal_SelectIcon( ULONG ulPlayer );
-void	medal_GiveMedal( ULONG ulPlayer, ULONG ulMedal );
 void	medal_CheckForFirstFrag( ULONG ulPlayer );
 void	medal_CheckForDomination( ULONG ulPlayer );
-void	medal_CheckForFisting( ULONG ulPlayer );
+void	medal_CheckForFistingOrSpam( ULONG ulPlayer, int dmgflags );
 void	medal_CheckForExcellent( ULONG ulPlayer );
 void	medal_CheckForTermination( ULONG ulDeadPlayer, ULONG ulPlayer );
 void	medal_CheckForLlama( ULONG ulDeadPlayer, ULONG ulPlayer );
@@ -247,10 +246,7 @@ void MEDAL_Render( void )
 
 	ULONG ulMedal = g_MedalQueue[ulPlayer][0].ulMedal;
 	ULONG ulTick = g_MedalQueue[ulPlayer][0].ulTick;
-	LONG lAlpha = OPAQUE;
-
-	if ( ulTick > TICRATE )
-		lAlpha = static_cast<LONG>( OPAQUE * (static_cast<float>( ulTick ) / TICRATE ));
+	const LONG lAlpha = ulTick > TICRATE ? OPAQUE : static_cast<LONG>( OPAQUE * ( static_cast<float>( ulTick ) / TICRATE ));
 
 	// Get the graphic and text name from the global array.
 	FString patchName = g_Medals[ulMedal].szLumpName;
@@ -307,7 +303,7 @@ void MEDAL_GiveMedal( ULONG ulPlayer, ULONG ulMedal )
 	if (( ulPlayer >= MAXPLAYERS ) ||
 		(( deathmatch || teamgame ) == false ) ||
 		( players[ulPlayer].mo == NULL ) ||
-		( cl_medals == false ) ||
+		(( NETWORK_GetState( ) != NETSTATE_SERVER ) && ( cl_medals == false )) ||
 		( zadmflags & ZADF_NO_MEDALS ) ||
 		( ulMedal >= NUM_MEDALS ))
 	{
@@ -317,7 +313,9 @@ void MEDAL_GiveMedal( ULONG ulPlayer, ULONG ulMedal )
 	pPlayer = &players[ulPlayer];
 
 	// [CK] Trigger events if a medal is received
-	GAMEMODE_HandleEvent ( GAMEEVENT_MEDALS, pPlayer->mo, ACS_PushAndReturnDynamicString ( g_Medals[ulMedal].szAnnouncerEntry ) );
+	// [AK] If the event returns 0, then the player doesn't receive the medal.
+	if ( GAMEMODE_HandleEvent( GAMEEVENT_MEDALS, pPlayer->mo, ACS_PushAndReturnDynamicString( g_Medals[ulMedal].szAnnouncerEntry ), 0, true ) == 0 )
+		return;
 
 	// Increase the player's count of this type of medal.
 	pPlayer->ulMedalCount[ulMedal]++;
@@ -381,6 +379,10 @@ void MEDAL_GiveMedal( ULONG ulPlayer, ULONG ulMedal )
 		players[ulPlayer].pSkullBot->m_ulLastMedalReceived = ulMedal;
 		players[ulPlayer].pSkullBot->PostEvent( BOTEVENT_RECEIVEDMEDAL );
 	}
+
+	// [AK] If we're the server, tell clients that this player earned a medal.
+	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+		SERVERCOMMANDS_GivePlayerMedal( ulPlayer, ulMedal );
 }
 
 //*****************************************************************************
@@ -544,7 +546,7 @@ void MEDAL_ClearMedalQueue( ULONG ulPlayer )
 
 //*****************************************************************************
 //
-void MEDAL_PlayerDied( ULONG ulPlayer, ULONG ulSourcePlayer )
+void MEDAL_PlayerDied( ULONG ulPlayer, ULONG ulSourcePlayer, int dmgflags )
 {
 	if ( PLAYER_IsValidPlayerWithMo ( ulPlayer ) == false )
 		return;
@@ -560,7 +562,7 @@ void MEDAL_PlayerDied( ULONG ulPlayer, ULONG ulSourcePlayer )
 
 		medal_CheckForFirstFrag( ulSourcePlayer );
 		medal_CheckForDomination( ulSourcePlayer );
-		medal_CheckForFisting( ulSourcePlayer );
+		medal_CheckForFistingOrSpam( ulSourcePlayer, dmgflags );
 		medal_CheckForExcellent( ulSourcePlayer );
 		medal_CheckForTermination( ulPlayer, ulSourcePlayer );
 		medal_CheckForLlama( ulPlayer, ulSourcePlayer );
@@ -568,7 +570,6 @@ void MEDAL_PlayerDied( ULONG ulPlayer, ULONG ulSourcePlayer )
 		players[ulSourcePlayer].ulLastFragTick = level.time;
 	}
 
-	players[ulPlayer].ulDeathCount++;
 	players[ulPlayer].ulFragsWithoutDeath = 0;
 
 	// [BB] Don't punish being killed by a teammate (except if a player kills himself).
@@ -1141,20 +1142,6 @@ void medal_SelectIcon( ULONG ulPlayer )
 
 //*****************************************************************************
 //
-void medal_GiveMedal( ULONG ulPlayer, ULONG ulMedal )
-{
-	// [CK] Clients do not need to know if they got a medal during countdown
-	if ( GAMEMODE_IsGameInCountdown() )
-		return;
-
-	// Give the player the medal, and if we're the server, tell clients.
-	MEDAL_GiveMedal( ulPlayer, ulMedal );
-	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-		SERVERCOMMANDS_GivePlayerMedal( ulPlayer, ulMedal );
-}
-
-//*****************************************************************************
-//
 void medal_CheckForFirstFrag( ULONG ulPlayer )
 {
 	// Only award it once.
@@ -1168,7 +1155,7 @@ void medal_CheckForFirstFrag( ULONG ulPlayer )
 		( teampossession == false ) &&
 		(( duel == false ) || ( DUEL_GetState( ) == DS_INDUEL )))
 	{
-		medal_GiveMedal( ulPlayer, MEDAL_FIRSTFRAG );
+		MEDAL_GiveMedal( ulPlayer, MEDAL_FIRSTFRAG );
 
 		// It's been given.
 		g_bFirstFragAwarded = true;
@@ -1180,47 +1167,34 @@ void medal_CheckForFirstFrag( ULONG ulPlayer )
 void medal_CheckForDomination( ULONG ulPlayer )
 {
 	// If the player has gotten 5 straight frags without dying, award a medal.
+	// Award a "Total Domination" medal if they get 10+ straight frags without dying. Otherwise, award a "Domination" medal.
 	if (( players[ulPlayer].ulFragsWithoutDeath % 5 ) == 0 )
-	{
-		// If the player gets 10+ straight frags without dying, award a "Total Domination" medal.
-		if ( players[ulPlayer].ulFragsWithoutDeath >= 10 )
-			medal_GiveMedal( ulPlayer, MEDAL_TOTALDOMINATION );
-		// Otherwise, award a "Domination" medal.
-		else
-			medal_GiveMedal( ulPlayer, MEDAL_DOMINATION );
-	}
+		MEDAL_GiveMedal( ulPlayer, players[ulPlayer].ulFragsWithoutDeath >= 10 ? MEDAL_TOTALDOMINATION : MEDAL_DOMINATION );
 }
 
 //*****************************************************************************
 //
-void medal_CheckForFisting( ULONG ulPlayer )
+void medal_CheckForFistingOrSpam( ULONG ulPlayer, int dmgflags )
 {
-	if ( players[ulPlayer].ReadyWeapon == NULL )
-		return;
+	// [AK] Check if we should award the player with a "fisting" medal.
+	if ( dmgflags & DMG_GIVE_FISTING_MEDAL_ON_FRAG )
+		MEDAL_GiveMedal( ulPlayer, MEDAL_FISTING );
 
-	// [BB/K6] Neither Fist nor BFG9000 will cause this MeansOfDeath.
-	if ( MeansOfDeath == NAME_Telefrag )
-		return;
-
-	// If the player killed him with this fist, award him a "Fisting!" medal.
-	if ( players[ulPlayer].ReadyWeapon->GetClass( ) == PClass::FindClass( "Fist" ))
-		medal_GiveMedal( ulPlayer, MEDAL_FISTING );
-
-	// If this is the second frag this player has gotten THIS TICK with the
-	// BFG9000, award him a "SPAM!" medal.
-	if ( players[ulPlayer].ReadyWeapon->GetClass( ) == PClass::FindClass( "BFG9000" ))
+	// [AK] Check if we should award the player with a "spam" medal if this is the second
+	// frag this player has gotten THIS TICK with a projectile or puff that awards one.
+	if ( dmgflags & DMG_GIVE_SPAM_MEDAL_ON_FRAG )
 	{
-		if ( players[ulPlayer].ulLastBFGFragTick == static_cast<unsigned> (level.time) )
+		if ( players[ulPlayer].ulLastSpamTick == static_cast<unsigned> (level.time) )
 		{
 			// Award the medal.
-			medal_GiveMedal( ulPlayer, MEDAL_SPAM );
+			MEDAL_GiveMedal( ulPlayer, MEDAL_SPAM );
 
 			// Also, cancel out the possibility of getting an Excellent/Incredible medal.
 			players[ulPlayer].ulLastExcellentTick = 0;
 			players[ulPlayer].ulLastFragTick = 0;
 		}
 		else
-			players[ulPlayer].ulLastBFGFragTick = level.time;
+			players[ulPlayer].ulLastSpamTick = level.time;
 	}
 }
 
@@ -1233,7 +1207,7 @@ void medal_CheckForExcellent( ULONG ulPlayer )
 	if ( ( ( players[ulPlayer].ulLastExcellentTick + ( 2 * TICRATE )) > (ULONG)level.time ) && players[ulPlayer].ulLastExcellentTick )
 	{
 		// Award the incredible.
-		medal_GiveMedal( ulPlayer, MEDAL_INCREDIBLE );
+		MEDAL_GiveMedal( ulPlayer, MEDAL_INCREDIBLE );
 
 		players[ulPlayer].ulLastExcellentTick = level.time;
 		players[ulPlayer].ulLastFragTick = level.time;
@@ -1243,7 +1217,7 @@ void medal_CheckForExcellent( ULONG ulPlayer )
 	else if ( ( ( players[ulPlayer].ulLastFragTick + ( 2 * TICRATE )) > (ULONG)level.time ) && players[ulPlayer].ulLastFragTick )
 	{
 		// Award the excellent.
-		medal_GiveMedal( ulPlayer, MEDAL_EXCELLENT );
+		MEDAL_GiveMedal( ulPlayer, MEDAL_EXCELLENT );
 
 		players[ulPlayer].ulLastExcellentTick = level.time;
 		players[ulPlayer].ulLastFragTick = level.time;
@@ -1256,7 +1230,7 @@ void medal_CheckForTermination( ULONG ulDeadPlayer, ULONG ulPlayer )
 {
 	// If the target player is the terminatior, award a "termination" medal.
 	if ( players[ulDeadPlayer].cheats2 & CF2_TERMINATORARTIFACT )
-		medal_GiveMedal( ulPlayer, MEDAL_TERMINATION );
+		MEDAL_GiveMedal( ulPlayer, MEDAL_TERMINATION );
 }
 
 //*****************************************************************************
@@ -1265,7 +1239,7 @@ void medal_CheckForLlama( ULONG ulDeadPlayer, ULONG ulPlayer )
 {
 	// Award a "llama" medal if the victim had been typing, lagging, or in the console.
 	if ( players[ulDeadPlayer].bChatting ||	players[ulDeadPlayer].bLagging || players[ulDeadPlayer].bInConsole || players[ulDeadPlayer].bInMenu )
-		medal_GiveMedal( ulPlayer, MEDAL_LLAMA );
+		MEDAL_GiveMedal( ulPlayer, MEDAL_LLAMA );
 }
 
 //*****************************************************************************
@@ -1274,10 +1248,10 @@ void medal_CheckForYouFailIt( ULONG ulPlayer )
 {
 	// If the player dies TEN times without getting a frag, award a "Your skill is not enough" medal.
 	if (( players[ulPlayer].ulDeathsWithoutFrag % 10 ) == 0 )
-		medal_GiveMedal( ulPlayer, MEDAL_YOURSKILLISNOTENOUGH );
+		MEDAL_GiveMedal( ulPlayer, MEDAL_YOURSKILLISNOTENOUGH );
 	// If the player dies five times without getting a frag, award a "You fail it" medal.
 	else if (( players[ulPlayer].ulDeathsWithoutFrag % 5 ) == 0 )
-		medal_GiveMedal( ulPlayer, MEDAL_YOUFAILIT );
+		MEDAL_GiveMedal( ulPlayer, MEDAL_YOUFAILIT );
 }
 
 #ifdef	_DEBUG

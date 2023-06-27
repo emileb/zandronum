@@ -4533,9 +4533,9 @@ void P_SetupLevel (char *lumpname, int position)
 					if ( players[i].bOnTeam && ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSONTEAMS ) )
 						PLAYER_SetTeam( &players[i], teams.Size( ), true );
 
-					// [BB] In duel the players should keep their position in line after a "changemap"
-					// map change.
-					if ( duel == false )
+					// [AK] Players only keep their position in line after a "changemap" map change
+					// if ZADF_DONT_KEEP_JOIN_QUEUE isn't enabled.
+					if ( zadmflags & ZADF_DONT_KEEP_JOIN_QUEUE )
 					{
 						// [BB] If the player was in the join queue, remove him.
 						JOINQUEUE_RemovePlayerFromQueue ( i );
@@ -4574,7 +4574,16 @@ void P_SetupLevel (char *lumpname, int position)
 		}
 
 		if ( NETWORK_GetState( ) != NETSTATE_SINGLE )
+		{
+			// [AK] When a client changes their class (i.e. when the server gets their userinfo), cls is reset
+			// to NULL. We don't want them to change their class when travelling from one map to the next
+			// because a travelling player gets its inventory (from the previous class) from the last map.
+			// Unless they died and need to respawn with the new class, reset cls back to their current class.
+			if (( players[i].cls == NULL ) && ( players[i].playerstate == PST_LIVE ))
+				players[i].cls = PlayerClasses[players[i].CurrentPlayerClass].Type;
+
 			G_CooperativeSpawnPlayer( i, false );
+		}
 	}
 
 	// set up world state

@@ -704,6 +704,23 @@ static void M_CallNextMapVote()
 	M_ClearMenus();
 }
 
+// =================================================================================================
+//
+//
+//
+//
+//
+// =================================================================================================
+
+static void M_CallResetMapVote()
+{
+	FString command;
+	command.Format( "callvote resetmap \"%s\"",
+		*menu_callvotereason );
+	C_DoCommand( command );
+	M_ClearMenus();
+}
+
 //=================================================================================================
 //
 // [TP] M_ExecuteIgnore
@@ -871,10 +888,11 @@ CCMD ( menu_joingame )
 
 CCMD ( menu_joingamewithclass )
 {
+	// [SB] The random option isn't valid when NoRandomPlayerClass is enabled in MAPINFO.
 	if ( menu_joinclassidx >= 0
-		&& static_cast<unsigned>( menu_joinclassidx ) < PlayerClasses.Size() + 1 )
+		&& static_cast<unsigned>( menu_joinclassidx ) < PlayerClasses.Size() + ( gameinfo.norandomplayerclass ? 0 : 1 ) )
 	{
-		if ( static_cast<unsigned>( menu_joinclassidx ) == PlayerClasses.Size() )
+		if ( !gameinfo.norandomplayerclass && static_cast<unsigned>( menu_joinclassidx ) == PlayerClasses.Size() )
 			playerclass = "Random";
 		else
 			playerclass = GetPrintableDisplayName( PlayerClasses[menu_joinclassidx].Type );
@@ -943,6 +961,11 @@ CCMD ( menu_callflagvote )
 CCMD ( menu_callnextmapvote )
 {
 	M_CallNextMapVote();
+}
+
+CCMD ( menu_callresetmapvote )
+{
+	M_CallResetMapVote();
 }
 
 CCMD ( menu_autoselect )

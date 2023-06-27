@@ -389,6 +389,15 @@ enum
 
 	// [AK] Players aren't pushed by attacks caused by their teammates (e.g. BFG tracers).
 	ZADF_DONT_PUSH_ALLIES = 1 << 22,
+
+	// [AK] If enabled, the join queue is cleared between level changes.
+	ZADF_DONT_KEEP_JOIN_QUEUE = 1 << 23,
+
+	// [JS] Players can spy other players' stats in PVP gamemodes.
+	ZADF_DONT_HIDE_STATS = 1 << 24,
+
+	// [AK] Prevents player colors from being overriden.
+	ZADF_DONT_OVERRIDE_PLAYER_COLORS = 1 << 25,
 };
 
 // [RH] Compatibility flags.

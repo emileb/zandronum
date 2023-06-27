@@ -418,10 +418,10 @@ CCMD (turn180)
 }
 
 // [BB] If possible use team starts in deathmatch game modes with teams, e.g. TDM, TLMS.
-CVAR( Bool, sv_useteamstartsindm, false, CVAR_SERVERINFO )
+CVAR( Bool, sv_useteamstartsindm, false, CVAR_SERVERINFO | CVAR_GAMEPLAYSETTING )
 
 // [BB] In cooperative game modes players are spawned at random player starts instead of the one designated for them.
-CVAR( Bool, sv_randomcoopstarts, false, CVAR_SERVERINFO )
+CVAR( Bool, sv_randomcoopstarts, false, CVAR_SERVERINFO | CVAR_GAMEPLAYSETTING )
 
 CCMD (weapnext)
 {
@@ -1116,9 +1116,13 @@ static void ChangeSpy (int changespy)
 			{
 				if ( CLIENTDEMO_IsPlaying( ) == false )
 				{
-					// [AK] We can still spy on enemy players as a dead spectator if LMS_SPF_VIEW is enabled.
-					if (( players[consoleplayer].bDeadSpectator == false ) || ( lmsspectatorsettings & LMS_SPF_VIEW ) == false )
-						bFoundValidPlayer = false;
+					// [AK] We're allowed to spy on enemy players in singleplayer games, but only in game modes that don't support teams.
+					if (( NETWORK_GetState( ) == NETSTATE_CLIENT ) || ( GAMEMODE_GetCurrentFlags( ) & GMF_PLAYERSONTEAMS ))
+					{
+						// [AK] We can still spy on enemy players as a dead spectator if LMS_SPF_VIEW is enabled.
+						if (( players[consoleplayer].bDeadSpectator == false ) || ( lmsspectatorsettings & LMS_SPF_VIEW ) == false )
+							bFoundValidPlayer = false;
+					}
 				}
 			}
 
@@ -1143,18 +1147,25 @@ void G_FinishChangeSpy( ULONG ulPlayer )
 {
 	// [AK] If we're a spectator and want to teleport ourselves to the player we just
 	// spied on, do it when we switch back to our own view.
-	if (( cl_telespy ) && ( ulPlayer == consoleplayer ) && ( players[consoleplayer].bSpectating ) && ( players[consoleplayer].camera ))
+	if (( cl_telespy ) && ( ulPlayer == consoleplayer ) && ( players[consoleplayer].bSpectating ))
 	{
-		P_TeleportMove( players[consoleplayer].mo, players[consoleplayer].camera->x,
-			players[consoleplayer].camera->y, players[consoleplayer].camera->z, false );
+		if (( players[consoleplayer].camera ) && ( players[consoleplayer].camera != players[consoleplayer].mo ))
+		{
+			P_TeleportMove( players[consoleplayer].mo, players[consoleplayer].camera->x,
+				players[consoleplayer].camera->y, players[consoleplayer].camera->z, false );
 
-		players[consoleplayer].mo->angle = players[consoleplayer].camera->angle;
-		players[consoleplayer].mo->pitch = players[consoleplayer].camera->pitch;
+			players[consoleplayer].mo->angle = players[consoleplayer].camera->angle;
+			players[consoleplayer].mo->pitch = players[consoleplayer].camera->pitch;
+		}
 	}
 
 	players[consoleplayer].camera = players[ulPlayer].mo;
 	S_UpdateSounds(players[consoleplayer].camera);
 	StatusBar->AttachToPlayer (&players[ulPlayer]);
+
+	// [AK] If we're using the free chasecam, reset the orientation so that it's facing
+	// in the same direction of whoever we're spying.
+	P_ResetFreeChasecamView( );
 
 	// [TP] Rebuild translations if we're overriding player colors, they
 	// may very likely have changed by now.
@@ -1175,7 +1186,7 @@ void G_FinishChangeSpy( ULONG ulPlayer )
 		CLIENTCOMMANDS_ChangeDisplayPlayer( ulPlayer );
 
 	// [BC] Also, refresh the HUD since the display player is changing.
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 }
 
 CCMD (spynext)
@@ -1554,7 +1565,8 @@ void G_Ticker ()
 	}
 
 	// [BB] If we are playing a demo in free spectate mode, hand the player's ticcmd to the free spectator player.
-	if ( CLIENTDEMO_IsInFreeSpectateMode() )
+	// [AK] Also do this if we're using the free chasecam while playing a demo.
+	if ( CLIENTDEMO_ShouldLetFreeSpectatorThink() )
 		CLIENTDEMO_SetFreeSpectatorTiccmd ( &netcmds[0][buf] );
 
 	if ( NETWORK_GetState( ) != NETSTATE_SERVER )
@@ -1773,19 +1785,13 @@ void G_Ticker ()
 		// Tick the medal system.
 		MEDAL_Tick( );
 
-		// Play "Welcome" sounds for teamgame modes.
-		if ( g_ulLevelIntroTicks < TICRATE )
+		// [AK] Play "welcome" sounds for any game modes that have defined one.
+		if (( g_ulLevelIntroTicks < TICRATE ) && ( ++g_ulLevelIntroTicks == TICRATE ))
 		{
-			g_ulLevelIntroTicks++;
-			if ( g_ulLevelIntroTicks == TICRATE )
-			{
-				if ( oneflagctf )
-					ANNOUNCER_PlayEntry( cl_announcer, "WelcomeToOneFlagCTF" );
-				else if ( ctf )
-					ANNOUNCER_PlayEntry( cl_announcer, "WelcomeToCTF" );
-				else if ( skulltag )
-					ANNOUNCER_PlayEntry( cl_announcer, "WelcomeToST" );
-			}
+			const char *pszWelcomeSound = GAMEMODE_GetWelcomeSound( GAMEMODE_GetCurrentMode( ));
+
+			if ( pszWelcomeSound != NULL )
+				ANNOUNCER_PlayEntry( cl_announcer, pszWelcomeSound );
 		}
 
 		// Apply end level delay.
@@ -1901,7 +1907,7 @@ void G_Ticker ()
 						}
 						else
 						{
-							if ( TEAM_GetHighestScoreCount( ) >= pointlimit)
+							if ( TEAM_GetHighestPointCount( ) >= pointlimit)
 								bLimitHit = true;
 						}
 
@@ -2772,17 +2778,8 @@ FPlayerStart *G_PickPlayerStart(int playernum, int flags)
 		translationtables[TRANSLATION_PlayerCorpses][modslot]->UpdateNative();
 	}
 
-	const int skinidx = body->player->userinfo.GetSkin();
-
-	if (0 != skinidx && !(body->flags4 & MF4_NOSKIN))
-	{
-		// Apply skin's scale to actor's scale, it will be lost otherwise
-		const AActor *const defaultActor = body->GetDefault();
-		const FPlayerSkin &skin = skins[skinidx];
-
-		body->scaleX = Scale(body->scaleX, skin.ScaleX, defaultActor->scaleX);
-		body->scaleY = Scale(body->scaleY, skin.ScaleY, defaultActor->scaleY);
-	}
+	// [AK] Apply skin's scale to actor's scale, it will be lost otherwise.
+	PLAYER_ApplySkinScaleToBody( body->player, body, body->player->ReadyWeapon );
 
 	bodyqueslot++;
 }
@@ -2914,6 +2911,22 @@ void GAME_SetDefaultDMFlags()
 }
 
 //*****************************************************************************
+// [AK] Counts the number of a particular team item class in the level.
+//
+template <class TeamItem>
+ULONG GAME_CountTeamItem( void )
+{
+	TeamItem *pItem;
+	TThinkerIterator<TeamItem> iterator;
+	ULONG ulCounted = 0;
+
+	while ( pItem = iterator.Next( ))
+		ulCounted++;
+
+	return ulCounted;
+}
+
+//*****************************************************************************
 // Determine is a level is a deathmatch, CTF, etc. level by items that are placed on it.
 //
 void GAME_CheckMode( void )
@@ -2922,8 +2935,6 @@ void GAME_CheckMode( void )
 	ULONG						ulFlags2 = (ULONG)dmflags2;
 	UCVarValue					Val;
 	ULONG						ulIdx;
-	ULONG						ulNumFlags;
-	ULONG						ulNumSkulls;
 	bool						bPlayerStarts = false;
 	bool						bTeamStarts = false;
 	AActor						*pItem;
@@ -2990,10 +3001,8 @@ void GAME_CheckMode( void )
 		// there are skulls or flags placed on the level.
 //		if ( oneflagctf == false )
 		{
-			TThinkerIterator<AActor>	iterator;
-
-			ulNumFlags = TEAM_CountFlags( );
-			ulNumSkulls = TEAM_CountSkulls( );
+			ULONG ulNumFlags = GAME_CountTeamItem<AFlag>( );
+			ULONG ulNumSkulls = GAME_CountTeamItem<ASkull>( );
 
 			// We found flags but no skulls. Set CTF mode.
 			if ( ulNumFlags && ( ulNumSkulls == 0 ))
@@ -3093,6 +3102,7 @@ void GAME_CheckMode( void )
 		{
 			if ( GAMEMODE_GetCurrentFlags() & GMF_USEFLAGASTEAMITEM )
 			{
+				POS_t Origin;
 				TEAM_SetSimpleCTFSTMode( true );
 
 				while ( (pItem = iterator.Next( )))
@@ -3101,8 +3111,6 @@ void GAME_CheckMode( void )
 					{
 						if ( pItem->GetClass( ) == TEAM_GetItem( i ))
 						{
-							POS_t	Origin;
-
 							Origin.x = pItem->x;
 							Origin.y = pItem->y;
 							Origin.z = pItem->z;
@@ -3113,13 +3121,11 @@ void GAME_CheckMode( void )
 
 					if ( pItem->IsKindOf( PClass::FindClass( "WhiteFlag" )))
 					{
-						POS_t	Origin;
-
 						Origin.x = pItem->x;
 						Origin.y = pItem->y;
 						Origin.z = pItem->z;
 
-						TEAM_SetWhiteFlagOrigin( Origin );
+						TEAM_SetTeamItemOrigin( teams.Size( ), Origin );
 					}
 				}
 			}
@@ -3391,6 +3397,9 @@ void GAME_ResetMap( bool bRunEnterScripts )
 	// [AK] Stop any unattached sounds that are still playing. The server doesn't need to do this.
 	if ( NETWORK_GetState( ) != NETSTATE_SERVER )
 		S_StopAllUnattachedSounds( );
+
+	// [AK] Also make sure that the game isn't frozen.
+	level.flags2 &= ~LEVEL2_FROZEN;
 
 	// [BB] We are going to reset the map now, so any request for a reset is fulfilled.
 	g_bResetMap = false;
@@ -4278,6 +4287,18 @@ AActor* GAME_SelectRandomSpotForArtifact ( const PClass *pArtifactType, const TA
 		const int i = pr_dmspawn() % Spots.Size();
 
 		pArtifact = Spawn( pArtifactType, Spots[i].x, Spots[i].y, ONFLOORZ, ALLOW_REPLACE );
+
+		// [AK] Sanity check: if the artifact didn't spawn, move onto the next spot.
+		if ( pArtifact == NULL )
+			continue;
+
+		// [AK] If useplayerstartz is enabled, make sure the artifact is also on whatever 3D floor the spot is located at.
+		if ( level.flags & LEVEL_USEPLAYERSTARTZ )
+		{
+			pArtifact->z += Spots[i].z;
+			P_FindFloorCeiling( pArtifact, FFCF_SAMESECTOR | FFCF_ONLY3DFLOORS | FFCF_3DRESTRICT );
+		}
+
 		const DWORD spawnFlags = pArtifact->flags;
 		// [BB] Ensure that the artifact is solid, otherwise P_TestMobjLocation won't complain if a player already is at the proposed position.
 		pArtifact->flags |= MF_SOLID;
@@ -4294,7 +4315,16 @@ AActor* GAME_SelectRandomSpotForArtifact ( const PClass *pArtifactType, const TA
 
 	// [BB] If there is no free spot, just select one and spawn the artifact there.
 	const int spotNum = pr_dmspawn() % Spots.Size();
-	return Spawn( pArtifactType, Spots[spotNum].x, Spots[spotNum].y, ONFLOORZ, ALLOW_REPLACE );
+	pArtifact = Spawn( pArtifactType, Spots[spotNum].x, Spots[spotNum].y, ONFLOORZ, ALLOW_REPLACE );
+
+	// [AK] Again, if useplayerstartz is enabled, move the artifact to whatever 3D floor the spot is located at.
+	if (( pArtifact != NULL ) && ( level.flags & LEVEL_USEPLAYERSTARTZ ))
+	{
+		pArtifact->z += Spots[spotNum].z;
+		P_FindFloorCeiling( pArtifact, FFCF_SAMESECTOR | FFCF_ONLY3DFLOORS | FFCF_3DRESTRICT );
+	}
+
+	return pArtifact;
 }
 
 //*****************************************************************************

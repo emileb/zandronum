@@ -148,16 +148,13 @@ static	cycle_t	g_StaleSpawnCycles;
 
 FRandom pr_spawnmobj ("SpawnActor");
 
-CUSTOM_CVAR (Float, sv_gravity, 800.f, CVAR_SERVERINFO|CVAR_NOSAVE)
+// [AK] Added CVAR_GAMEPLAYSETTING.
+CUSTOM_CVAR (Float, sv_gravity, 800.f, CVAR_SERVERINFO|CVAR_NOSAVE|CVAR_GAMEPLAYSETTING)
 {
 	level.gravity = self;
 
 	// [BB] Notify the clients about the change.
-	if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( gamestate != GS_STARTUP ))
-	{
-		SERVER_Printf( "%s changed to: %f\n", self.GetName( ), self.GetGenericRep( CVAR_Float ).Float );
-		SERVERCOMMANDS_SetGameModeLimits( );
-	}
+	SERVER_SettingChanged( self, false );
 }
 
 
@@ -553,7 +550,9 @@ bool AActor::SetState (FState *newstate, bool nofunction)
 			}
 			if (newsprite != SPR_NOCHANGE)
 			{ // okay to change sprite
-				if (!(flags4 & MF4_NOSKIN) && newsprite == SpawnState->sprite)
+				// [AK] Check if the player is using a weapon with its own preferred skin, which overrides NOSKIN.
+				const bool bUsingWeaponSkin = PLAYER_IsUsingWeaponSkin( this );
+				if ((!(flags4 & MF4_NOSKIN) || bUsingWeaponSkin) && newsprite == SpawnState->sprite)
 				{ // [RH] If the new sprite is the same as the original sprite, and
 				// this actor is attached to a player, use the player's skin's
 				// sprite. If a player is not attached, do not change the sprite
@@ -563,7 +562,11 @@ bool AActor::SetState (FState *newstate, bool nofunction)
 				// for Dehacked, I would move sprite changing out of the states
 				// altogether, since actors rarely change their sprites after
 				// spawning.
-					if (player != NULL && ( skins.Size() > static_cast<unsigned int> ( player->userinfo.GetSkin() ) ) ) // [BB] Adapted the skins check
+					if ( bUsingWeaponSkin ) // [AK] Show a weapon's preferred skin first if valid.
+					{
+						sprite = skins[R_FindSkin( player->ReadyWeapon->PreferredSkin, player->CurrentPlayerClass )].sprite;
+					}
+					else if (player != NULL && ( skins.Size() > static_cast<unsigned int> ( player->userinfo.GetSkin() ) ) ) // [BB] Adapted the skins check
 					{
 						sprite = skins[player->userinfo.GetSkin()].sprite;
 					}
@@ -5188,12 +5191,18 @@ void AActor::PostBeginPlay ()
 	// script types like ENTER, RETURN, and RESPAWN.
 	if (( player == NULL ) && (( STFlags & STFL_NOSPAWNEVENTSCRIPT ) == false ))
 	{
-		bool bNotImportant = (( flags & ( MF_NOBLOCKMAP|MF_NOSECTOR )) || IsKindOf( RUNTIME_CLASS( AHexenArmor )));
+		bool bNotImportant = false;
+
+		// [AK] Projectiles and BulletPuffs can have NOBLOCKMAP enabled but that doesn't make them unimportant.
+		if (( flags & MF_NOBLOCKMAP ) && ((( flags & MF_MISSILE ) == false ) && ( IsKindOf( PClass::FindClass( NAME_BulletPuff )) == false )))
+			bNotImportant = true;
+		else if (( flags & MF_NOSECTOR ) || ( IsKindOf( RUNTIME_CLASS( AHexenArmor ))))
+			bNotImportant = true;
 
 		// [AK] If we want to force GAMEEVENT_ACTOR_SPAWNED on every actor, then at least ignore 
 		// the less imporant actors unless they have the USESPAWNEVENTSCRIPT flag enabled.
 		if (( STFlags & STFL_USESPAWNEVENTSCRIPT ) || (( gameinfo.bForceSpawnEventScripts ) && ( bNotImportant == false )))
-			GAMEMODE_HandleEvent( GAMEEVENT_ACTOR_SPAWNED, this );
+			GAMEMODE_HandleEvent( GAMEEVENT_ACTOR_SPAWNED, this, !!( STFlags & STFL_LEVELSPAWNED ), 0, true );
 	}
 }
 
@@ -5402,6 +5411,9 @@ APlayerPawn *P_SpawnPlayer (FPlayerStart *mthing, int playernum, int flags)
 	if ( !(flags & SPF_TEMPPLAYER) )
 		TEAM_EnsurePlayerHasValidClass ( p );
 
+	// [AK] Remember the actor that this player was spying on before respawning them.
+	AActor *pOldCamera = p->camera;
+
 	// [BB] We may not filter coop inventory if the player changed the player class.
 	// Thus we need to keep track of the old class.
 	const BYTE oldPlayerClass = p->CurrentPlayerClass;
@@ -5590,6 +5602,11 @@ APlayerPawn *P_SpawnPlayer (FPlayerStart *mthing, int playernum, int flags)
 
 	if ( NETWORK_GetState( ) != NETSTATE_SERVER )
 	{
+		// [AK] If the local player just turned into a dead spectator and were looking through another
+		// actor's eyes other than their own, let them continue viewing from that actor.
+		if (( p == &players[consoleplayer] ) && ( pOldCamera != NULL ) && ( pOldCamera != oldactor ) && ( p->bDeadSpectator ))
+			p->camera = pOldCamera;
+
 		// [AK] Only check if the local player is looking at the player being spawned.
 		if (( playeringame[consoleplayer] ) && ( players[consoleplayer].camera == oldactor ))
 		{
@@ -5621,7 +5638,8 @@ APlayerPawn *P_SpawnPlayer (FPlayerStart *mthing, int playernum, int flags)
 			p->pSkullBot->PostEvent( BOTEVENT_SPECTATING );
 	}
 	// [BB] If this not a coop game and cheats are not allowed, remove the chasecam.
-	else if ( !( GAMEMODE_GetCurrentFlags() & GMF_COOPERATIVE ) && ( sv_cheats == false ) )
+	// [AK] Also remove it if the chasecam is disallowed.
+	else if (( !( GAMEMODE_GetCurrentFlags() & GMF_COOPERATIVE ) || !( dmflags2 & DF2_CHASECAM )) && ( sv_cheats == false ))
 	{
 		p->cheats &= ~(CF_CHASECAM);
 	}
@@ -5655,10 +5673,11 @@ APlayerPawn *P_SpawnPlayer (FPlayerStart *mthing, int playernum, int flags)
 		}
 
 		// [Dusk] If we are sharing keys, give this player the keys that have been found.
+		// [AK] Make sure to give them the keys if they changed their class.
 		if (( flags & SPF_CLIENTUPDATE ) &&
 			( zadmflags & ZADF_SHARE_KEYS ) &&
 			( NETWORK_GetState( ) == NETSTATE_SERVER ) &&
-			( state == PST_ENTER || state == PST_ENTERNOINVENTORY ))
+			( state == PST_ENTER || state == PST_ENTERNOINVENTORY || oldPlayerClass != p->CurrentPlayerClass ))
 		{
 			SERVER_SyncSharedKeys( p - players, true );
 		}
@@ -5860,16 +5879,10 @@ APlayerPawn *P_SpawnPlayer (FPlayerStart *mthing, int playernum, int flags)
 		D_UpdatePlayerColors( joinedgame ? MAXPLAYERS : p - players );
 	}
 
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 
 	// [Spleen] Reset reconciliation buffer when player gets spawned
 	UNLAGGED_ResetPlayer( p );
-
-	// [AK] If the player is supposed to be a dead spectator, disassociate them
-	// from the old body. This prevents the old body from being frozen and not
-	// finishing their animation when they become a spectator.
-	if (( p->bDeadSpectator ) && ( oldactor != NULL ) && ( oldactor->player == p ))
-		oldactor->player = NULL;
 
 	// [AK] We've spawned now, so we don't need to remember our corpse anymore.
 	p->pCorpse = NULL;
@@ -6417,6 +6430,13 @@ AActor *P_SpawnPuff (AActor *source, const PClass *pufftype, fixed_t x, fixed_t 
 	}
 	else if ((flags & PF_HITTHINGBLEED) && (crashstate = puff->FindState(NAME_Death, NAME_Extreme, true)) != NULL)
 	{
+		// [AK] The server needs to tell the state to the clients later.
+		ulState = STATE_XDEATH;
+		// [AK] When spawning the puff, the server won't tell the clients the
+		// netID. This needs special handling, otherwise sound won't work.
+		// Freeing the ID needs to be done before setting the state!
+		puff->FreeNetID();
+
 		puff->SetState (crashstate);
 	}
 	else if ((flags & PF_MELEERANGE) && puff->MeleeState != NULL)

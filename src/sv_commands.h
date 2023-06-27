@@ -71,7 +71,8 @@ enum ServerCommandFlag
 	SVCF_SKIPTHISCLIENT			= ( 1 << 0 ),
 	SVCF_ONLYTHISCLIENT			= ( 1 << 1 ),
 	SVCF_ONLY_CONNECTIONTYPE_0	= ( 1 << 2 ),
-	SVCF_ONLY_CONNECTIONTYPE_1	= ( 1 << 3 )
+	SVCF_ONLY_CONNECTIONTYPE_1	= ( 1 << 3 ),
+	SVCF_SKIP_CLIENTS_WITHOUT_FULLUPDATE	= ( 1 << 4 )
 };
 
 typedef TFlags<ServerCommandFlag, unsigned int> ServerCommandFlags;
@@ -81,7 +82,7 @@ DEFINE_TFLAGS_OPERATORS (ServerCommandFlags)
 //	PROTOTYPES
 
 // General protocol commands. These handle connecting to and being part of the server.
-void	SERVERCOMMANDS_Ping( ULONG ulTime );
+void	SERVERCOMMANDS_Ping( unsigned int time );
 void	SERVERCOMMANDS_Nothing( ULONG ulPlayer, bool bReliable = false );
 void	SERVERCOMMANDS_BeginSnapshot( ULONG ulPlayer );
 void	SERVERCOMMANDS_EndSnapshot( ULONG ulPlayer );
@@ -90,6 +91,7 @@ void	SERVERCOMMANDS_EndSnapshot( ULONG ulPlayer );
 void	SERVERCOMMANDS_SpawnPlayer( ULONG ulPlayer, LONG lPlayerState, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0, bool bMorph = false );
 void	SERVERCOMMANDS_MovePlayer( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_DamagePlayer( ULONG ulPlayer );
+void	SERVERCOMMANDS_DamagePlayerWithType( ULONG ulPlayer, ULONG ulArmorPoints, ULONG ulPlayerExtra );
 void	SERVERCOMMANDS_KillPlayer( ULONG ulPlayer, AActor *pSource, AActor *pInflictor, FName MOD );
 void	SERVERCOMMANDS_SetPlayerHealth( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_SetPlayerArmor( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );

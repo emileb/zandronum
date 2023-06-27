@@ -1199,20 +1199,11 @@ void CLIENT_CheckForMissingPackets( void )
 				// [Leo] Print how many packets we missed.
 				if ( cl_showpacketloss )
 				{
-					char szString[64];
-					DHUDMessageFadeOut *pMsg;
-					sprintf( szString, "Client missed %d packets.", static_cast<int>( g_lHighestReceivedSequence - g_lLastParsedSequence ) );
+					FString message;
+					message.Format( "Client missed %d packets.", static_cast<int>( g_lHighestReceivedSequence - g_lLastParsedSequence ));
 
-					pMsg = new DHUDMessageFadeOut( SmallFont, szString,
-						1.5f,
-						0.9f,
-						0,
-						0,
-						(EColorRange)CR_GREEN,
-						2.f,
-						0.35f );
-
-					StatusBar->AttachMessage( pMsg, MAKE_ID('P','C','K','T') );
+					DHUDMessageFadeOut *pMsg = new DHUDMessageFadeOut( SmallFont, message, 1.5f, 0.9f, 0, 0, CR_GREEN, 2.f, 0.35f );
+					StatusBar->AttachMessage( pMsg, MAKE_ID( 'P', 'C', 'K', 'T' ));
 				}
 			}
 		}
@@ -1397,17 +1388,12 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 			// [BB] Setting the game mode is necessary to decide whether 3D floors should be spawned or not.
 			GAMEMODE_SetCurrentMode ( static_cast<GAMEMODE_e>(pByteStream->ReadByte()) );
 
-			bool	bPlaying;
-
 			// Print a status message.
 			Printf( "Level authenticated!\n" );
 
 			// Check to see if we have the map.
 			if ( P_CheckIfMapExists( g_szMapName ))
 			{
-				// Save our demo recording status since G_InitNew resets it.
-				bPlaying = CLIENTDEMO_IsPlaying( );
-
 				// Start new level.
 				G_InitNew( g_szMapName, false );
 
@@ -1418,9 +1404,6 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 				viewactive = false;
 
 				g_ulLastConsolePlayerUpdateTick = 0;
-
-				// Restore our demo recording status.
-				CLIENTDEMO_SetPlaying( bPlaying );
 			}
 			// [BB] If we don't have the map, something went horribly wrong.
 			else
@@ -2289,6 +2272,10 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 				}
 				else
 				{
+					// [AK] Close the server setup menu if we're still in it.
+					if ( M_InServerSetupMenu( ))
+						M_ClearMenus( );
+
 					g_HasRCONAccess = false;
 				}
 				break;
@@ -3441,10 +3428,11 @@ void ServerCommands::SpawnPlayer::Execute()
 
 	// If the console player is being respawned, and watching another player in demo
 	// mode, allow the player to continue watching that player.
+	// [AK] And also if the console player just became a dead spectator.
 	if ((( pPlayer - players ) == consoleplayer ) &&
 		( pPlayer->camera ) &&
 		( pPlayer->camera != pPlayer->mo ) &&
-		( CLIENTDEMO_IsPlaying( )))
+		( CLIENTDEMO_IsPlaying( ) || isDeadSpectator ))
 	{
 		pCameraActor = pPlayer->camera;
 	}
@@ -3494,7 +3482,7 @@ void ServerCommands::SpawnPlayer::Execute()
 	const BYTE oldPlayerClass = pPlayer->CurrentPlayerClass;
 
 	// Set up the player class.
-	pPlayer->CurrentPlayerClass = playerClass;
+	pPlayer->CurrentPlayerClass = clamp<int>( playerClass, 0, PlayerClasses.Size() -1 );
 	pPlayer->cls = PlayerClasses[pPlayer->CurrentPlayerClass].Type;
 
 	if ( isMorphed )
@@ -3516,7 +3504,7 @@ void ServerCommands::SpawnPlayer::Execute()
 
 	pPlayer->mo = pActor;
 	pActor->player = pPlayer;
-	pPlayer->playerstate = playerState;
+	pPlayer->playerstate = PST_LIVE;
 
 	// If we were watching through this player's eyes, reattach the camera.
 	if ( bWasWatchingPlayer )
@@ -3627,11 +3615,11 @@ void ServerCommands::SpawnPlayer::Execute()
 	pPlayer->DesiredFOV = pPlayer->FOV = 90.f;
 	// If the console player was watching another player in demo mode, continue to follow
 	// that other player.
+	// [AK] And also if the console player just became a dead spectator.
 	if ( pCameraActor )
 		pPlayer->camera = pCameraActor;
 	else
 		pPlayer->camera = pActor;
-	pPlayer->playerstate = PST_LIVE;
 	pPlayer->refire = 0;
 	pPlayer->damagecount = 0;
 	pPlayer->bonuscount = 0;
@@ -3695,8 +3683,6 @@ void ServerCommands::SpawnPlayer::Execute()
 				pActor->y + 20 * finesine[an],
 				pActor->z + TELEFOGHEIGHT, ALLOW_REPLACE );
 	}
-
-	pPlayer->playerstate = PST_LIVE;
 
 	// [BB] If the player is reborn, we have to substitute all pointers
 	// to the old body to the new one. Otherwise (among other things) CLIENTSIDE
@@ -3773,7 +3759,7 @@ void ServerCommands::SpawnPlayer::Execute()
 	}
 
 	// Refresh the HUD because this is potentially a new player.
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 }
 
 //*****************************************************************************
@@ -3802,6 +3788,19 @@ void ServerCommands::MovePlayer::Execute()
 	// [BB] But don't just set the position, but also properly set floorz and ceilingz, etc.
 	CLIENT_MoveThing( player->mo, x, y, z );
 
+	// [AK] Did the server tell us this player is supposed to be on a moving lift? If so, move
+	// them to the floor of whatever sector they're in.
+	if ( flags & PLAYER_ONLIFT )
+	{
+		// [AK] When the player is standing on the edge of a moving lift, their floorz might be
+		// messed up and lower than it actually is, so we have to fix it.
+		player->mo->floorz = player->mo->Sector->floorplane.ZatPoint( player->mo->x, player->mo->y );
+		player->mo->ceilingz = player->mo->Sector->ceilingplane.ZatPoint( player->mo->x, player->mo->y );
+		P_FindFloorCeiling( player->mo, false );
+
+		player->mo->z = player->mo->floorz;
+	}
+
 	// [AK] Calculate how much this player's angle changed.
 	player->mo->AngleDelta = angle - player->mo->angle;
 
@@ -3809,12 +3808,13 @@ void ServerCommands::MovePlayer::Execute()
 	player->mo->angle = angle;
 
 	// Set the player's XYZ momentum.
-	player->mo->velx = velx;
-	player->mo->vely = vely;
-	player->mo->velz = velz;
+	// [AK] Check if the server sent us this player's velocity on each axis.
+	player->mo->velx = IsMovingX() ? velx : 0;
+	player->mo->vely = IsMovingY() ? vely : 0;
+	player->mo->velz = IsMovingZ() ? velz : 0;
 
 	// Is the player crouching?
-	player->crouchdir = ( isCrouching ) ? 1 : -1;
+	player->crouchdir = ( flags & PLAYER_CROUCHING ) ? 1 : -1;
 
 	if (( player->crouchdir == 1 ) &&
 		( player->crouchfactor < FRACUNIT ) &&
@@ -3843,7 +3843,7 @@ void ServerCommands::MovePlayer::Execute()
 
 //*****************************************************************************
 //
-void ServerCommands::DamagePlayer::Execute()
+static void client_DamagePlayer( player_t *player, int health, int armor, AActor *attacker )
 {
 	// Level not loaded, ignore...
 	if ( gamestate != GS_LEVEL )
@@ -3866,6 +3866,11 @@ void ServerCommands::DamagePlayer::Execute()
 	// [BB] Set the inflictor of the damage (necessary to let the HUD mugshot look in direction of the inflictor).
 	player->attacker = attacker;
 
+	// [AK] In case blood_fade_usemaxhealth is enabled and we want to scale the intensity
+	// of the blood based on the player's max health, we scale the incoming damage using
+	// the max health. By default, the damagecount is based on a max health of 100.
+	PLAYER_ScaleDamageCountWithMaxHealth( player, damage );
+
 	// Set the damagecount, for blood on the screen.
 	player->damagecount += damage;
 	if ( player->damagecount > 100 )
@@ -3884,8 +3889,31 @@ void ServerCommands::DamagePlayer::Execute()
 
 //*****************************************************************************
 //
+void ServerCommands::DamagePlayer::Execute()
+{
+	// [AK] No damage type was sent to us, revert the player's DamageTypeReceived to "none".
+	player->mo->DamageTypeReceived = "None";
+
+	client_DamagePlayer( player, health, armor, attacker );
+}
+
+//*****************************************************************************
+//
+void ServerCommands::DamagePlayerWithType::Execute()
+{
+	// [AK] Set the player's DamageTypeReceived to whatever was sent to us.
+	player->mo->DamageTypeReceived = damageType;
+
+	client_DamagePlayer( player, health, armor, attacker );
+}
+
+//*****************************************************************************
+//
 void ServerCommands::KillPlayer::Execute()
 {
+	// [AK] Check if this player's killer was another valid player.
+	const ULONG ulSourcePlayer = (( source ) && ( source->player ) && ( source->player->mo == source )) ? source->player - players : MAXPLAYERS;
+
 	// Set the player's new health.
 	player->health = player->mo->health = health;
 
@@ -3902,42 +3930,8 @@ void ServerCommands::KillPlayer::Execute()
 	if ( player->health <= 0 )
 		player->health = 0;
 
-	// [TP] FIXME: Wouldn't this be much easier to compute using source->player?
-	ULONG ulSourcePlayer = MAXPLAYERS;
-	for ( ULONG ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
-	{
-		if (( playeringame[ulIdx] == false ) ||
-			( players[ulIdx].mo == NULL ))
-		{
-			continue;
-		}
-
-		if ( players[ulIdx].mo == source )
-		{
-			ulSourcePlayer = ulIdx;
-			break;
-		}
-	}
-
-	if (( (GAMEMODE_GetCurrentFlags() & GMF_COOPERATIVE) == false ) &&
-		( cl_showlargefragmessages ) &&
-		( ulSourcePlayer < MAXPLAYERS ) &&
-		( static_cast<ULONG>( player - players ) != ulSourcePlayer ) &&
-		( MOD != NAME_SpawnTelefrag ) &&
-		( GAMEMODE_IsGameInProgress() ))
-	{
-		if ((( ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNFRAGS ) == false ) || (( fraglimit == 0 ) || ( players[ulSourcePlayer].fragcount < fraglimit ))) &&
-			(( ( ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNWINS ) && !( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSONTEAMS ) ) == false ) || (( winlimit == 0 ) || ( players[ulSourcePlayer].ulWins < static_cast<ULONG>(winlimit) ))) &&
-			(( ( ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNWINS ) && ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSONTEAMS ) ) == false ) || (( winlimit == 0 ) || ( TEAM_GetWinCount( players[ulSourcePlayer].Team ) < winlimit ))))
-		{
-			// Display a large "You were fragged by <name>." message in the middle of the screen.
-			if ( player == &players[consoleplayer] )
-				HUD_DrawFragMessage( &players[ulSourcePlayer], true );
-			// Display a large "You fragged <name>!" message in the middle of the screen.
-			else if ( ulSourcePlayer == static_cast<ULONG>(consoleplayer) )
-				HUD_DrawFragMessage( player, false );
-		}
-	}
+	// [AK] Try to draw a large frag message if we (the consoleplayer) were fragged (by) another player.
+	HUD_PrepareToDrawFragMessage( player, source, MOD );
 
 	// [BB] Temporarily change the ReadyWeapon of ulSourcePlayer to the one the server told us.
 	AWeapon *pSavedReadyWeapon = ( ulSourcePlayer < MAXPLAYERS ) ? players[ulSourcePlayer].ReadyWeapon : NULL;
@@ -3970,19 +3964,22 @@ void ServerCommands::KillPlayer::Execute()
 		ClientObituary( players[ulPlayer].mo, pInflictor, NULL, MOD );
 */
 
-	// [AK] If we died, show how long we must wait before we can respawn if it's more than one second.
-	if ( player - players == consoleplayer )
+	// [AK] If we died and can respawn, show how long we must wait before we can respawn.
+	if (( CLIENTDEMO_IsPlaying( ) == false ) && ( player - players == consoleplayer ))
 	{
 		bool bNoMoreLivesLeft = ( GAMEMODE_AreLivesLimited( ) && GAMEMODE_IsGameInProgress( ) && ( player->ulLivesLeft == 0 ));
+		float fRespawnDelayTime = 1.0f;
 
-		if (( sv_respawndelaytime > 1 ) && ( player->mo->DamageType != NAME_SpawnTelefrag ) && ( bNoMoreLivesLeft == false ))
-			HUD_SetRespawnTimeLeft( sv_respawndelaytime );
-		else
-			HUD_SetRespawnTimeLeft( -1 );
+		if (( player->mo->DamageType != NAME_SpawnTelefrag ) && ( bNoMoreLivesLeft == false ))
+			fRespawnDelayTime = sv_respawndelaytime;
+
+		// [AK] The timer is precise to only one decimal place, so it's not worth showing
+		// the message if it's below 0.1 seconds.
+		HUD_SetRespawnTimeLeft(( bNoMoreLivesLeft == false && fRespawnDelayTime > 0.1f ) ? fRespawnDelayTime : -1.0f );
 	}
 
 	// Refresh the HUD, since this could affect the number of players left in an LMS game.
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 }
 
 //*****************************************************************************
@@ -4158,53 +4155,35 @@ void ServerCommands::SetPlayerAccountName::Execute()
 //
 void ServerCommands::SetPlayerFrags::Execute()
 {
-	if (( g_ConnectionState == CTS_ACTIVE ) &&
-		( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNFRAGS ) &&
-		!( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSONTEAMS ) &&
-		( GAMEMODE_IsGameInProgress() ) &&
-		// [BB] If we are still in the first tic of the level, we are receiving the frag count
-		// as part of the full update (that is not considered as a snapshot after a "changemap"
-		// map change). Thus don't announce anything in this case.
-		( level.time != 0 ))
-	{
-		ANNOUNCER_PlayFragSounds( player - players, player->fragcount, fragCount );
-	}
-
-	// Finally, set the player's frag count, and refresh the HUD.
-	player->fragcount = fragCount;
-	HUD_Refresh( );
+	PLAYER_SetFragcount( player, fragCount, true, false );
 }
 
 //*****************************************************************************
 //
 void ServerCommands::SetPlayerPoints::Execute()
 {
-	player->lPointCount = pointCount;
-	HUD_Refresh( );
+	PLAYER_SetPoints( player, pointCount );
 }
 
 //*****************************************************************************
 //
 void ServerCommands::SetPlayerWins::Execute()
 {
-	player->ulWins = wins;
-	HUD_Refresh( );
+	PLAYER_SetWins( player, wins );
 }
 
 //*****************************************************************************
 //
 void ServerCommands::SetPlayerDeaths::Execute()
 {
-	player->ulDeathCount = deaths;
-	HUD_Refresh( );
+	PLAYER_SetDeaths( player, deaths );
 }
 
 //*****************************************************************************
 //
 void ServerCommands::SetPlayerKillCount::Execute()
 {
-	player->killcount = killCount;
-	HUD_Refresh( );
+	PLAYER_SetKills( player, killCount );
 }
 
 //*****************************************************************************
@@ -4305,7 +4284,7 @@ void ServerCommands::SetPlayerAmmoCapacity::Execute()
 	pAmmo->MaxAmount = maxAmount;
 
 	// Since an item displayed on the HUD may have been given, refresh the HUD.
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 }
 
 //*****************************************************************************
@@ -4416,7 +4395,7 @@ void ServerCommands::SetPlayerMaxHealth::Execute()
 //
 void ServerCommands::SetPlayerLivesLeft::Execute()
 {
-	player->ulLivesLeft = livesLeft;
+	PLAYER_SetLivesLeft( player, livesLeft );
 }
 
 //*****************************************************************************
@@ -4575,7 +4554,7 @@ void ServerCommands::DisconnectPlayer::Execute()
 	PLAYER_ResetPlayerData( player );
 
 	// Refresh the HUD because this affects the number of players in the game.
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 }
 
 //*****************************************************************************
@@ -4668,7 +4647,7 @@ void ServerCommands::PlayerIsSpectator::Execute()
 		g_bClientLagging = false;
 
 	// [EP] Refresh the HUD, since this could affect the number of players left in a dead spectators game.
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 }
 
 //*****************************************************************************
@@ -5657,6 +5636,12 @@ void ServerCommands::SpawnPuffNoNetID::Execute()
 		if ( state )
 			puff->SetState( state );
 		break;
+	case STATE_XDEATH:
+
+		state = puff->FindState( NAME_Death, NAME_Extreme, true );
+		if ( state )
+			puff->SetState( state );
+		break;
 	}
 }
 
@@ -5787,7 +5772,7 @@ static void client_SetGameSkill( BYTESTREAM_s *pByteStream )
 	UCVarValue	Value;
 
 	// Read in the gameskill setting, and set gameskill to this setting.
-	Value.Int = pByteStream->ReadByte();
+	Value.Int = clamp<int>( pByteStream->ReadByte(), 0, AllSkills.Size() - 1);
 	gameskill.ForceSet( Value, CVAR_Int );
 
 	// Do the same for botskill.
@@ -5905,8 +5890,8 @@ static void client_SetGameModeLimits( BYTESTREAM_s *pByteStream )
 	sv_allowprivatechat.ForceSet( Value, CVAR_Int );
 
 	// [AK] Read in, and set the value for sv_respawndelaytime.
-	Value.Int = pByteStream->ReadByte();
-	sv_respawndelaytime.ForceSet( Value, CVAR_Int );
+	Value.Float = pByteStream->ReadFloat();
+	sv_respawndelaytime.ForceSet( Value, CVAR_Float );
 }
 
 //*****************************************************************************
@@ -6206,7 +6191,7 @@ static void client_SetTeamScore( BYTESTREAM_s *pByteStream )
 			break;
 
 		case TEAMSCORE_POINTS:
-			TEAM_SetScore( ulTeam, lScore, bAnnounce );
+			TEAM_SetPointCount( ulTeam, lScore, bAnnounce );
 			break;
 		
 		case TEAMSCORE_WINS:
@@ -6214,7 +6199,7 @@ static void client_SetTeamScore( BYTESTREAM_s *pByteStream )
 			break;
 	}
 
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 }
 
 //*****************************************************************************
@@ -6975,9 +6960,6 @@ void ServerCommands::MapLoad::Execute()
 	// Check to see if we have the map.
 	if ( P_CheckIfMapExists( mapName ))
 	{
-		// Save our demo recording status since G_InitNew resets it.
-		bool playing = CLIENTDEMO_IsPlaying( );
-
 		// Start new level.
 		G_InitNew( mapName, false );
 
@@ -6987,9 +6969,6 @@ void ServerCommands::MapLoad::Execute()
 
 		// [BB] We'll receive a full update for the new map from the server.
 		g_bFullUpdateIncomplete = true;
-
-		// Restore our demo recording status.
-		CLIENTDEMO_SetPlaying( playing );
 
 		// [BB] viewactive is set in G_InitNew
 		// For right now, the view is not active.
@@ -7022,6 +7001,9 @@ void ServerCommands::MapNew::Execute()
 	// [AK] Close the server setup menu if we're still in it.
 	if ( M_InServerSetupMenu( ))
 		M_ClearMenus( );
+
+	// [AK] Reset the map rotation before reconnecting to the server.
+	MAPROTATION_Construct( );
 
 	// Clear out our local buffer.
 	g_LocalBuffer.Clear();
@@ -7267,7 +7249,7 @@ static void client_GiveInventory( BYTESTREAM_s *pByteStream )
 		players[ulPlayer].PendingWeapon = WP_NOCHANGE;
 
 	// Since an item displayed on the HUD may have been given, refresh the HUD.
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 
 	// [BB] If this is not "our" player and this player didn't have a weapon before, we assume
 	// that he was just spawned and didn't tell the server yet which weapon he selected. In this
@@ -7339,7 +7321,7 @@ static void client_TakeInventory( BYTESTREAM_s *pByteStream )
 	}
 
 	// Since an item displayed on the HUD may have been taken away, refresh the HUD.
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 }
 
 //*****************************************************************************
@@ -7412,7 +7394,7 @@ static void client_GivePowerup( BYTESTREAM_s *pByteStream )
 	}
 
 	// Since an item displayed on the HUD may have been given, refresh the HUD.
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 }
 
 //*****************************************************************************
@@ -9294,6 +9276,10 @@ CCMD( connect )
 {
 	const char	*pszDemoName;
 
+	// [AK] This function may not be used by ConsoleCommand.
+	if ( ACS_IsCalledFromConsoleCommand( ))
+		return;
+
 	// Servers can't connect to other servers!
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 		return;
@@ -9347,6 +9333,10 @@ CCMD( connect )
 //
 CCMD( disconnect )
 {
+	// [AK] This function may not be used by ConsoleCommand.
+	if ( ACS_IsCalledFromConsoleCommand( ))
+		return;
+
 	// Nothing to do if we're not in client mode!
 	if ( NETWORK_GetState( ) != NETSTATE_CLIENT )
 		return;
@@ -9378,6 +9368,10 @@ CCMD( timeout )
 //
 CCMD( reconnect )
 {
+	// [AK] This function may not be used by ConsoleCommand.
+	if ( ACS_IsCalledFromConsoleCommand( ))
+		return;
+
 	// If we're in the middle of a game, we first need to disconnect from the server.
 	if ( g_ConnectionState != CTS_DISCONNECTED )
 		CLIENT_QuitNetworkGame( NULL );
@@ -9477,7 +9471,15 @@ CCMD( send_password )
 	}
 
 	if ( g_ConnectionState == CTS_ACTIVE )
-		CLIENTCOMMANDS_RequestRCON( argv[1] );
+		CLIENTCOMMANDS_ChangeRCONStatus( true, argv[1] );
+}
+
+//*****************************************************************************
+//
+CCMD( rcon_logout )
+{
+	if ( g_ConnectionState == CTS_ACTIVE )
+		CLIENTCOMMANDS_ChangeRCONStatus( false, NULL );
 }
 
 //*****************************************************************************

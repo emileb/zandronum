@@ -475,7 +475,7 @@ void CLIENTCOMMANDS_MissingPacket( void )
 
 //*****************************************************************************
 //
-void CLIENTCOMMANDS_Pong( ULONG ulTime )
+void CLIENTCOMMANDS_Pong( unsigned int time )
 {
 	// [BB] CLIENTCOMMANDS_Pong is the only client command function that
 	// immediately launches a network packet. This is something that
@@ -490,7 +490,7 @@ void CLIENTCOMMANDS_Pong( ULONG ulTime )
 	TempBuffer.Init( MAX_UDP_PACKET, BUFFERTYPE_WRITE );
 	TempBuffer.Clear();
 	TempBuffer.ByteStream.WriteByte( CLC_PONG );
-	TempBuffer.ByteStream.WriteLong( ulTime );
+	TempBuffer.ByteStream.WriteLong( time );
 	NETWORK_LaunchPacket( &TempBuffer, NETWORK_GetFromAddress( ) );
 	TempBuffer.Free();
 }
@@ -577,10 +577,14 @@ void CLIENTCOMMANDS_RequestJoin( const char *pszJoinPassword )
 
 //*****************************************************************************
 //
-void CLIENTCOMMANDS_RequestRCON( const char *pszRCONPassword )
+void CLIENTCOMMANDS_ChangeRCONStatus( const bool bIsLoggingIn, const char *pszRCONPassword )
 {
-	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_REQUESTRCON );
-	CLIENT_GetLocalBuffer( )->ByteStream.WriteString( pszRCONPassword );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_CHANGERCONSTATUS );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( bIsLoggingIn );
+
+	// [AK] It's only necessary to send the RCON password if we're trying to log in.
+	if ( bIsLoggingIn )
+		CLIENT_GetLocalBuffer( )->ByteStream.WriteString( pszRCONPassword );
 }
 
 //*****************************************************************************

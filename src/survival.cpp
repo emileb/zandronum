@@ -68,20 +68,6 @@
 #include "sv_commands.h"
 #include "v_video.h"
 
-CUSTOM_CVAR( Int, sv_maxlives, 0, CVAR_SERVERINFO | CVAR_LATCH )
-{
-	if ( self >= 256 )
-		self = 255;
-	if ( self < 0 )
-		self = 0;
-
-	if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( gamestate != GS_STARTUP ))
-	{
-		SERVER_Printf( "%s changed to: %d\n", self.GetName( ), (int)self );
-		SERVERCOMMANDS_SetGameModeLimits( );
-	}
-}
-
 //*****************************************************************************
 //	VARIABLES
 
@@ -202,8 +188,6 @@ void SURVIVAL_StartCountdown( ULONG ulTicks )
 //
 void SURVIVAL_DoFight( void )
 {
-	DHUDMessageFadeOut	*pMsg;
-
 	// The battle is now in progress.
 	if ( NETWORK_InClientMode() == false )
 	{
@@ -225,20 +209,8 @@ void SURVIVAL_DoFight( void )
 		// Play fight sound.
 		ANNOUNCER_PlayEntry( cl_announcer, "Fight" );
 
-		// [EP] Clear all the HUD messages.
-		StatusBar->DetachAllMessages();
-
 		// Display "FIGHT!" HUD message.
-		pMsg = new DHUDMessageFadeOut( BigFont, "FIGHT!",
-			160.4f,
-			75.0f,
-			320,
-			200,
-			CR_RED,
-			2.0f,
-			1.0f );
-
-		StatusBar->AttachMessage( pMsg, MAKE_ID('C','N','T','R') );
+		HUD_DrawStandardMessage( "FIGHT!", CR_RED, true, 2.0f, 1.0f );
 	}
 	// Display a little thing in the server window so servers can know when matches begin.
 	else
@@ -253,7 +225,7 @@ void SURVIVAL_DoFight( void )
 	if ( (NETWORK_GetState( ) == NETSTATE_SINGLE) && sv_maxlives > 0 )
 		NETWORK_SetState( NETSTATE_SINGLE_MULTIPLAYER );
 
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 }
 
 //*****************************************************************************
@@ -363,25 +335,7 @@ void SURVIVAL_SetState( SURVIVALSTATE_e State )
 		g_SurvivalResetMap = !(zadmflags & ZADF_SURVIVAL_NO_MAP_RESET_ON_DEATH); // yay for double-negation
 
 		if ( NETWORK_GetState( ) != NETSTATE_SERVER )
-		{
-			DHUDMessageFadeOut	*pMsg;
-
-			const char *text = "";
-			if ( g_SurvivalResetMap )
-				text = "MISSION FAILED!";
-			else
-				text = "ALL PLAYERS DIED.\nRESPAWNING.";
-			pMsg = new DHUDMessageFadeOut( BigFont, text,
-				160.4f,
-				75.0f,
-				320,
-				200,
-				CR_RED,
-				3.0f,
-				2.0f );
-
-			StatusBar->AttachMessage( pMsg, MAKE_ID('C','N','T','R') );
-		}
+			HUD_DrawStandardMessage( g_SurvivalResetMap ? "MISSION FAILED!" : "ALL PLAYERS DIED.\nRESPAWNING.", CR_RED );
 		break;
 	default:
 		break;
@@ -405,4 +359,4 @@ void SURVIVAL_SetState( SURVIVALSTATE_e State )
 //*****************************************************************************
 //	CONSOLE COMMANDS/VARIABLES
 
-CVAR( Int, sv_survivalcountdowntime, 10, CVAR_ARCHIVE );
+CVAR( Int, sv_survivalcountdowntime, 10, CVAR_ARCHIVE | CVAR_GAMEPLAYSETTING );

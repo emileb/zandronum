@@ -77,8 +77,7 @@
 #include "survival.h"
 #include "gamemode.h"
 #include "farchive.h"
-
-void	SERVERCONSOLE_UpdateScoreboard( );
+#include "st_hud.h"
 
 //*****************************************************************************
 //	PROTOTYPES
@@ -689,6 +688,9 @@ void INVASION_Tick( void )
 						INVASION_StartCountdown(( sv_invasioncountdowntime * TICRATE ) - 1 );
 					else
 						INVASION_StartCountdown(( 10 * TICRATE ) - 1 );
+
+					// [AK] Respawn any dead players and pop the join queue before starting the next wave.
+					GAMEMODE_RespawnDeadSpectatorsAndPopQueue( );
 				}
 			}
 		}
@@ -874,7 +876,6 @@ void INVASION_StartCountdown( ULONG ulTicks )
 //
 void INVASION_BeginWave( ULONG ulWave )
 {
-	DHUDMessageFadeOut							*pMsg;
 	AActor										*pActor;
 	AActor										*pFog;
 	ABaseMonsterInvasionSpot					*pMonsterSpot;
@@ -907,16 +908,7 @@ void INVASION_BeginWave( ULONG ulWave )
 		ANNOUNCER_PlayEntry( cl_announcer, "Fight" );
 
 		// Display "BEGIN!" HUD message.
-		pMsg = new DHUDMessageFadeOut( BigFont, "BEGIN!",
-			160.4f,
-			75.0f,
-			320,
-			200,
-			CR_RED,
-			2.0f,
-			1.0f );
-
-		StatusBar->AttachMessage( pMsg, MAKE_ID('C','N','T','R') );
+		HUD_DrawStandardMessage( "BEGIN!", CR_RED, false, 2.0f, 1.0f );
 	}
 	// Display a little thing in the server window so servers can know when waves begin.
 	else
@@ -1192,26 +1184,15 @@ void INVASION_DoWaveComplete( void )
 
 	if ( NETWORK_GetState( ) != NETSTATE_SERVER )
 	{
-		char				szString[32];
-		DHUDMessageFadeOut	*pMsg;
+		FString message;
 
 		if ( static_cast<LONG>( g_CurrentWave ) == wavelimit )
-			sprintf( szString, "VICTORY!" );
+			message = "VICTORY!";
 		else
-			sprintf( szString, "WAVE %d COMPLETE!", static_cast<unsigned int>( g_CurrentWave ));
-		V_ColorizeString( szString );
+			message.Format( "WAVE %d COMPLETE!", static_cast<unsigned int>( g_CurrentWave ));
 
 		// Display "VICTORY!"/"WAVE %d COMPLETE!" HUD message.
-		pMsg = new DHUDMessageFadeOut( BigFont, szString,
-			160.4f,
-			75.0f,
-			320,
-			200,
-			CR_RED,
-			3.0f,
-			2.0f );
-
-		StatusBar->AttachMessage( pMsg, MAKE_ID('C','N','T','R') );
+		HUD_DrawStandardMessage( message, CR_RED );
 	}
 
 	if ( NETWORK_InClientMode() == false )
@@ -1281,7 +1262,7 @@ void INVASION_SetState( INVASIONSTATE_e State )
 
 		break;
 	case IS_MISSIONFAILED:
-		GAMEMODE_DisplayStandardMessage ( "MISSION FAILED!" );
+		HUD_DrawStandardMessage( "MISSION FAILED!", CR_RED );
 		break;
 	default:
 		break;
@@ -1337,6 +1318,10 @@ ULONG INVASION_GetCurrentWave( void )
 void INVASION_SetCurrentWave( ULONG ulWave )
 {
 	g_CurrentWave = ulWave;
+
+	// [AK] (Re)build the current wave string.
+	if ( NETWORK_GetState( ) != NETSTATE_SERVER )
+		invasion_BuildCurrentWaveString( );
 }
 
 //*****************************************************************************
@@ -1644,21 +1629,15 @@ static void invasion_BuildCurrentWaveString( void )
 //*****************************************************************************
 //	CONSOLE COMMANDS/VARIABLES
 
-CVAR( Int, sv_invasioncountdowntime, 10, CVAR_ARCHIVE );
-CUSTOM_CVAR( Int, wavelimit, 0, CVAR_CAMPAIGNLOCK | CVAR_SERVERINFO )
+CVAR( Int, sv_invasioncountdowntime, 10, CVAR_ARCHIVE | CVAR_GAMEPLAYSETTING );
+CUSTOM_CVAR( Int, wavelimit, 0, CVAR_CAMPAIGNLOCK | CVAR_SERVERINFO | CVAR_GAMEPLAYSETTING )
 {
 	if ( self >= 256 )
 		self = 255;
 	if ( self < 0 )
 		self = 0;
 
-	if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( gamestate != GS_STARTUP ))
-	{
-		SERVER_Printf( "%s changed to: %d\n", self.GetName( ), (int)self );
-		SERVERCOMMANDS_SetGameModeLimits( );
-
-		// Update the scoreboard.
-		SERVERCONSOLE_UpdateScoreboard( );
-	}
+	// [AK] Update the clients and update the server console.
+	SERVER_SettingChanged( self, true );
 }
-CVAR( Bool, sv_usemapsettingswavelimit, true, CVAR_ARCHIVE );
+CVAR( Bool, sv_usemapsettingswavelimit, true, CVAR_ARCHIVE | CVAR_GAMEPLAYSETTING );

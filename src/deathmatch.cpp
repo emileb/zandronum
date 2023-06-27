@@ -69,11 +69,6 @@
 #include "g_level.h"
 
 //*****************************************************************************
-//	MISC CRAP THAT SHOULDN'T BE HERE BUT HAS TO BE BECAUSE OF SLOPPY CODING
-
-void	SERVERCONSOLE_UpdateScoreboard( );
-
-//*****************************************************************************
 //	CONSOLE COMMANDS/VARIABLES
 
 CUSTOM_CVAR( Bool, deathmatch, false, CVAR_SERVERINFO | CVAR_LATCH | CVAR_CAMPAIGNLOCK )
@@ -299,43 +294,10 @@ CUSTOM_CVAR( Bool, teampossession, false, CVAR_SERVERINFO | CVAR_LATCH | CVAR_CA
 }
 
 //*****************************************************************************
-//
-CCMD( spectate )
-{
-	// [BB] When playing a demo enter free spectate mode.
-	if ( CLIENTDEMO_IsPlaying( ) == true )
-	{
-		C_DoCommand( "demo_spectatefreely" );
-		return;
-	}
-
-	// [BB] The server can't use this.
-	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-	{
-		Printf ( "CCMD spectate can't be used on the server\n" );
-		return;
-	}
-
-	// If we're a client, inform the server that we wish to spectate.
-	// [BB] This also serves as way to leave the join queue.
-	if ( NETWORK_GetState( ) == NETSTATE_CLIENT )
-	{
-		CLIENTCOMMANDS_Spectate( );
-		return;
-	}
-
-	// Already a spectator!
-	if ( PLAYER_IsTrueSpectator( &players[consoleplayer] ))
-		return;
-
-	// Make the player a spectator.
-	PLAYER_SetSpectator( &players[consoleplayer], true, false );
-}
-
-//*****************************************************************************
 //*****************************************************************************
 //
-CUSTOM_CVAR( Int, fraglimit, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK )
+// [AK] Added CVAR_GAMEPLAYSETTING.
+CUSTOM_CVAR( Int, fraglimit, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEPLAYSETTING )
 {
 /* [BB] Do we need this in ST?
 	// Check for the fraglimit being hit because the fraglimit is being
@@ -362,19 +324,14 @@ CUSTOM_CVAR( Int, fraglimit, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK )
 		return;
 	}
 
-	if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( gamestate != GS_STARTUP ))
-	{
-		SERVER_Printf( "%s changed to: %d\n", self.GetName( ), (int)self );
-		SERVERCOMMANDS_SetGameModeLimits( );
-
-		// Update the scoreboard.
-		SERVERCONSOLE_UpdateScoreboard( );
-	}
+	// [AK] Update the clients and update the server console.
+	SERVER_SettingChanged( self, true );
 }
 
 //*****************************************************************************
 //
-CUSTOM_CVAR( Float, timelimit, 0.0f, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK )
+// [AK] Added CVAR_GAMEPLAYSETTING.
+CUSTOM_CVAR( Float, timelimit, 0.0f, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEPLAYSETTING )
 {
 	// [BB] SHRT_MAX is a pretty arbitrary limit considering that timelimit is a float,
 	// Nevertheless, we should put some limit here. SHRT_MAX allows for a limit of
@@ -388,54 +345,13 @@ CUSTOM_CVAR( Float, timelimit, 0.0f, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK )
 		return;
 	}
 
-	if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( gamestate != GS_STARTUP ))
-	{
-		SERVER_Printf( "%s changed to: %.2f\n", self.GetName( ), static_cast<float>(self) );
-		SERVERCOMMANDS_SetGameModeLimits( );
-
-		// Update the scoreboard.
-		SERVERCONSOLE_UpdateScoreboard( );
-	}
-}
-
-// [AM] Set or unset a map as being a "lobby" map.
-CUSTOM_CVAR(String, lobby, "", CVAR_SERVERINFO)
-{
-	if (strcmp(*self, "") == 0)
-	{
-		// Lobby map is empty.  Tell the client that if necessary.
-		if ((NETWORK_GetState() == NETSTATE_SERVER) && (gamestate != GS_STARTUP))
-		{
-			SERVER_Printf(PRINT_HIGH, "%s unset\n", self.GetName());
-			SERVERCOMMANDS_SetGameModeLimits();
-		}
-	}
-	else
-	{
-		// Prevent setting a lobby map that doesn't exist.
-		level_info_t *map = FindLevelByName(*self);
-		if (map == NULL)
-		{
-			Printf("map %s doesn't exist.\n", *self);
-			self = "";
-			return;
-		}
-
-		// Update the client about the lobby map if necessary.
-		if ((NETWORK_GetState() == NETSTATE_SERVER) && (gamestate != GS_STARTUP))
-		{
-			SERVER_Printf(PRINT_HIGH, "%s changed to: %s\n", self.GetName(), *self);
-			SERVERCOMMANDS_SetGameModeLimits();
-		}
-	}
+	// [AK] Update the clients and update the server console.
+	SERVER_SettingChanged( self, true, 2 );
 }
 
 // Is this a good place for these variables?
 CVAR( Bool, cl_noammoswitch, true, CVAR_ARCHIVE );
 CVAR( Bool, cl_useoriginalweaponorder, false, CVAR_ARCHIVE );
-
-// Allow the display of large frag messages.
-CVAR( Bool, cl_showlargefragmessages, true, CVAR_ARCHIVE );
 
 /*
 CCMD( showweaponstates )

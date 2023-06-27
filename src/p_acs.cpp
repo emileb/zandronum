@@ -1566,7 +1566,7 @@ static LONG GetTeamScore (ULONG team) {
 		return TEAM_GetFragCount( team );
 	else if ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNWINS )
 		return TEAM_GetWinCount( team );
-	return TEAM_GetScore( team );
+	return TEAM_GetPointCount( team );
 }
 
 //============================================================================
@@ -1611,7 +1611,7 @@ static int GetTeamProperty (unsigned int team, int prop) {
 		case TPROP_WinCount:
 			return TEAM_GetWinCount (team);
 		case TPROP_PointCount:
-			return TEAM_GetScore (team);
+			return TEAM_GetPointCount (team);
 		case TPROP_ReturnTics:
 			return TEAM_GetReturnTicks (team);
 		case TPROP_NumPlayers:
@@ -2927,7 +2927,7 @@ void FBehavior::LoadScriptsDirectory ()
 		int size = LittleLong(scripts.dw[1]);
 		if (size >= 6)
 		{
-			int script_num = LittleShort(scripts.w[4]);
+			int script_num = LittleShort(scripts.sw[4]);
 			ScriptPtr *ptr = const_cast<ScriptPtr *>(FindScript(script_num));
 			if (ptr != NULL)
 			{
@@ -5366,6 +5366,11 @@ enum EACSFunctions
 	ACSF_GetChatMessage,
 	ACSF_GetMapRotationSize,
 	ACSF_GetMapRotationInfo,
+	ACSF_GetCurrentMapPosition,
+	ACSF_GetEventResult,
+	ACSF_GetActorSectorLocation,
+	ACSF_ChangeTeamScore,
+	ACSF_SetGameplaySetting,
 
 	// ZDaemon
 	ACSF_GetTeamScore = 19620,	// (int team)
@@ -7379,16 +7384,7 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 
 		case ACSF_SetGamemodeLimit:
 			{
-				GAMELIMIT_e limit = static_cast<GAMELIMIT_e> ( args[0] );
-
-				if ( limit == GAMELIMIT_TIME )
-				{
-					UCVarValue Val;
-					Val.Float = FIXED2FLOAT( args[1] );
-					timelimit.ForceSet( Val, CVAR_Float );
-				}
-				else
-					GAMEMODE_SetLimit( limit, args[1] );
+				GAMEMODE_SetLimit( static_cast<GAMELIMIT_e>( args[0] ), args[1] );
 				break;
 			}
 
@@ -7654,15 +7650,21 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 		case ACSF_GetChatMessage:
 			{
 				const int offset = ( MAX_SAVED_MESSAGES - 1 ) - clamp<int>( args[1], 0, MAX_SAVED_MESSAGES - 1 );
+				const bool bKeepColorCodes = argCount > 2 ? !!args[2] : false;
+				FString chatMessage;
 
 				// [AK] Get the chat message from the server via RCON.
 				if ( args[0] < 0 )
-					return GlobalACSStrings.AddString( CHAT_GetChatMessage( MAXPLAYERS, offset ) );
+					chatMessage = CHAT_GetChatMessage( MAXPLAYERS, offset );
 				// [AK] Only get chat messages from valid players.
 				else if ( PLAYER_IsValidPlayer( args[0] ) )
-					return GlobalACSStrings.AddString( CHAT_GetChatMessage( args[0], offset ) );
+					chatMessage = CHAT_GetChatMessage( args[0], offset );
 
-				return GlobalACSStrings.AddString( "" );
+				// [AK] Remove any color codes if we don't want to keep them.
+				if (( bKeepColorCodes == false ) && ( chatMessage.IsNotEmpty( )))
+					V_RemoveColorCodes( chatMessage );
+
+				return GlobalACSStrings.AddString( chatMessage.GetChars( ));
 			}
 
 		case ACSF_GetMapRotationSize:
@@ -7673,6 +7675,18 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 		case ACSF_GetMapRotationInfo:
 			{
 				ULONG ulPosition = ( args[0] <= 0 ) ? MAPROTATION_GetCurrentPosition() : ( args[0] - 1 );
+				level_info_t *rotationMap = MAPROTATION_GetMap( ulPosition );
+
+				// [AK] If the map position's level info is invalid, this could mean that there's no maplist
+				// or that the position is invalid, so return zero (or an empty string if we wanted the name).
+				// If we're checking the current map position, make sure it's the current level too.
+				if (( rotationMap == NULL ) || (( args[0] <= 0 ) && ( stricmp( level.mapname, rotationMap->mapname ) != 0 )))
+				{
+					if (( args[1] == MAPROTATION_Name ) || ( args[1] == MAPROTATION_LumpName ))
+						return GlobalACSStrings.AddString( "" );
+
+					return 0;
+				}
 
 				switch ( args[1] )
 				{
@@ -7685,13 +7699,173 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 
 					case MAPROTATION_Name:
 					case MAPROTATION_LumpName:
-					{
-						level_info_t *level = MAPROTATION_GetMap( ulPosition );
-						if ( level == NULL )
-							return GlobalACSStrings.AddString( "" );
+						return GlobalACSStrings.AddString( args[1] == MAPROTATION_Name ? rotationMap->LookupLevelName().GetChars() : rotationMap->mapname );
+				}
 
-						return GlobalACSStrings.AddString( args[1] == MAPROTATION_Name ? level->LookupLevelName().GetChars() : level->mapname );
+				return 0;
+			}
+
+		case ACSF_GetCurrentMapPosition:
+			{
+				// [AK] If there's no maplist, return zero.
+				if ( MAPROTATION_GetNumEntries() == 0 )
+					return 0;
+
+				ULONG ulPosition = MAPROTATION_GetCurrentPosition();
+				level_info_t *rotationMap = MAPROTATION_GetMap( ulPosition );
+
+				// [AK] Make sure that the current map position is the current level being played.
+				if (( rotationMap == NULL ) || ( stricmp( level.mapname, rotationMap->mapname ) != 0 ))
+					return 0;
+
+				return ulPosition + 1;
+			}
+
+		case ACSF_GetEventResult:
+			{
+				return GAMEMODE_GetEventResult();
+			}
+
+		case ACSF_GetActorSectorLocation:
+			{
+				const bool bCheckPointSectors = !!args[1];
+				const TArray<FString *> *sectorInfoNames = bCheckPointSectors ? &level.info->SectorInfo.PointNames : &level.info->SectorInfo.Names;
+				const AActor *pActor = SingleActorFromTID( args[0], activator );
+
+				// [AK] Make sure that the actor is valid.
+				if ( pActor != NULL )
+				{
+					ULONG ulSectorNum = pActor->Sector->sectornum;
+
+					// [AK] Point sector numbers are stored in a multidimensional array. If we want to return
+					// the name of the point sector that the actor is in, then we must check each array until
+					// we find a match.
+					if ( bCheckPointSectors )
+					{
+						const TArray<TArray<unsigned int> *> *pointSectorNumbers = &level.info->SectorInfo.Points;
+						TArray<unsigned int> *pointNumberArray;
+
+						for ( unsigned int i = 0; i < pointSectorNumbers->Size( ); i++ )
+						{
+							pointNumberArray = ( *pointSectorNumbers )[i];
+
+							for ( unsigned int j = 0; j < pointNumberArray->Size( ); j++ )
+							{
+								if (( *pointNumberArray )[j] == ulSectorNum )
+									return GlobalACSStrings.AddString( *( *sectorInfoNames )[i] );
+							}
+						}
 					}
+					else
+					{
+						// [AK] Check if the sector that the actor is in has a designated name.
+						if (( sectorInfoNames->Size( ) > ulSectorNum ) && (( *sectorInfoNames )[ulSectorNum] != NULL ))
+							return GlobalACSStrings.AddString( *( *sectorInfoNames )[ulSectorNum] );
+					}
+				}
+
+				return GlobalACSStrings.AddString( "" );
+			}
+
+		case ACSF_ChangeTeamScore:
+			{
+				const ULONG ulTeam = static_cast<ULONG>( args[0] );
+				const bool bAnnounce = argCount > 3 ? !!args[3] : true;
+
+				// [AK] With the exception of frags, the new score must not be a negative value.
+				const LONG lScore = ( args[1] == SCORE_FRAGS || args[2] >= 0 ) ? args[2] : 0;
+
+				if ( TEAM_CheckIfValid( ulTeam ) )
+				{
+					switch ( args[1] )
+					{
+						case SCORE_FRAGS:
+						{
+							// [AK] Don't do anything if the frag count won't change.
+							if ( teams[ulTeam].lFragCount == lScore )
+								return 0;
+
+							TEAM_SetFragCount( ulTeam, lScore, bAnnounce );
+							return 1;
+						}
+
+						case SCORE_POINTS:
+						{
+							// [AK] Don't do anything if the point count won't change.
+							if ( teams[ulTeam].lPointCount == lScore )
+								return 0;
+
+							TEAM_SetPointCount( ulTeam, lScore, bAnnounce );
+							return 1;
+						}
+
+						case SCORE_WINS:
+						{
+							// [AK] Don't do anything if the win count won't change.
+							if ( teams[ulTeam].lWinCount == lScore )
+								return 0;
+
+							TEAM_SetWinCount( ulTeam, lScore, bAnnounce );
+							return 1;
+						}
+
+						case SCORE_DEATHS:
+						{
+							// [AK] Don't do anything if the death count won't change.
+							if ( teams[ulTeam].lDeathCount == lScore )
+								return 0;
+
+							TEAM_SetDeathCount( ulTeam, lScore );
+							return 1;
+						}
+					}
+				}
+
+				return 0;
+			}
+
+		case ACSF_SetGameplaySetting:
+			{
+				const char *pszName = FBehavior::StaticLookupString( args[0] );
+				FBaseCVar *pCVar = FindCVar( pszName, NULL );
+
+				// [AK] Ignore invalid CVars, especially those which are latched (e.g. sv_maxlives and sv_maxteams).
+				if (( pCVar == NULL ) || ( pCVar->GetFlags() & ( CVAR_IGNORE | CVAR_NOSET | CVAR_LATCH )))
+					return 0;
+
+				// [AK] Make sure that the CVar can be used in a game settings block.
+				if (( pCVar->GetFlags() & CVAR_GAMEPLAYSETTING ) || (( pCVar->IsFlagCVar() ) && ( static_cast<FFlagCVar *>( pCVar )->GetValueVar()->GetFlags() & CVAR_GAMEPLAYFLAGSET )))
+				{
+					UCVarValue Val;
+					ECVarType Type;
+
+					switch ( pCVar->GetRealType() )
+					{
+						case CVAR_Bool:
+						case CVAR_Dummy:
+						{
+							Val.Bool = !!args[1];
+							Type = CVAR_Bool;
+							break;
+						}
+					
+						case CVAR_Float:
+						{
+							Val.Float = FIXED2FLOAT( args[1] );
+							Type = CVAR_Float;
+							break;
+						}
+					
+						default:
+						{
+							Val.Int = args[1];
+							Type = CVAR_Int;
+							break;
+						}
+					}
+
+					GAMEMODE_SetGameplaySetting( pCVar, Val, Type );
+					return 1;
 				}
 
 				return 0;
@@ -7781,6 +7955,7 @@ int DLevelScript::RunScript ()
 	ScriptFunction *activeFunction = NULL;
 	FRemapTable *translation = 0;
 	int resultValue = 1;
+	bool bIsFirstTic = false; // [AK]
 
 	if (InModuleScriptNumber >= 0)
 	{
@@ -7806,6 +7981,8 @@ int DLevelScript::RunScript ()
 	case SCRIPT_Running:
 		if ( ACS_IsEventScript( script ))
 			resultValue = GAMEMODE_GetEventResult( );
+
+		bIsFirstTic = true;
 		break;
 
 	case SCRIPT_Delayed:
@@ -9106,6 +9283,13 @@ int DLevelScript::RunScript ()
 
 		case PCD_SETRESULTVALUE:
 			resultValue = STACK(1);
+
+			// [AK] If this is an event script and the result value differs from the event's result value, update it.
+			// This can only happen during the first tic that the event script is running. Updating an event's result
+			// value is irrelevant after the first tic because it will be too late.
+			if (( bIsFirstTic ) && ( ACS_IsEventScript( script )) && ( resultValue != GAMEMODE_GetEventResult( )))
+				GAMEMODE_SetEventResult( resultValue );
+
 		case PCD_DROP: //fall through.
 			sp--;
 			break;
@@ -9891,7 +10075,7 @@ scriptwait:
 			else if ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNWINS )
 				PushToStack( TEAM_GetWinCount( 0 ));
 			else
-				PushToStack( TEAM_GetScore( 0 ));
+				PushToStack( TEAM_GetPointCount( 0 ));
 			break;
 		case PCD_REDTEAMSCORE:
 			
@@ -9900,7 +10084,7 @@ scriptwait:
 			else if ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNWINS )
 				PushToStack( TEAM_GetWinCount( 1 ));
 			else
-				PushToStack( TEAM_GetScore( 1 ));
+				PushToStack( TEAM_GetPointCount( 1 ));
 			break;
 		case PCD_ISONEFLAGCTF:
 
@@ -11310,7 +11494,8 @@ scriptwait:
 				switch (STACK(1))
 				{
 				// [CW] PLAYERINFO_TEAM needs to use the one in player_t rather than the one in userinfo_t.
-				case PLAYERINFO_TEAM:			STACK(2) = players[STACK( 2 )].Team; break;
+				// [AK] Return TEAM_None if the player isn't on a team.
+				case PLAYERINFO_TEAM:			STACK(2) = pl->bOnTeam ? pl->Team : TEAM_None; break;
 				case PLAYERINFO_AIMDIST:		STACK(2) = userinfo->GetAimDist(); break;
 				case PLAYERINFO_COLOR:			STACK(2) = userinfo->GetColor(); break;
 				case PLAYERINFO_GENDER:			STACK(2) = userinfo->GetGender(); break;
@@ -11661,10 +11846,6 @@ scriptwait:
 
 	// [AK] We're done running this script so any action or line specials activated now aren't done in ACS.
 	g_pCurrentScript = NULL;
-
-	// [AK] If this is an event script and the result value differs from the event's result value, update it.
-	if (( ACS_IsEventScript( script )) && ( resultValue != GAMEMODE_GetEventResult( )))
-		GAMEMODE_SetEventResult( resultValue );
 
 	// [BB] Stop the net traffic measurement and add the result to this script's traffic.
 	NETTRAFFIC_AddACSScriptTraffic ( script, NETWORK_StopTrafficMeasurement ( ) );

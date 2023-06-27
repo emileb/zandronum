@@ -85,6 +85,9 @@
 // [AK] Maximum amount of gametics of recent commands from a client that we can store.
 #define MAX_RECENT_COMMANDS			15
 
+// [AK] Maximum amount of characters that can be put in sv_hostname.
+#define MAX_HOSTNAME_LENGTH			160
+
 // This is for the server console, but since we normally can't include that (win32 stuff),
 // we can just put it here.
 #define	UDF_NAME					0x00000001
@@ -285,6 +288,11 @@ public:
 	{
 		return 0;
 	}
+
+	virtual unsigned short getWeaponNetworkIndex ( ) const
+	{
+		return 0;
+	}
 };
 
 //*****************************************************************************
@@ -307,6 +315,11 @@ public:
 		return moveCmd.ulGametic;
 	}
 
+	virtual unsigned short getWeaponNetworkIndex ( ) const
+	{
+		return moveCmd.usWeaponNetworkIndex;
+	}
+
 	void setClientTic( ULONG ulTic )
 	{
 		moveCmd.ulGametic = ulTic;
@@ -321,6 +334,11 @@ public:
 	ClientWeaponSelectCommand ( BYTESTREAM_s *pByteStream );
 
 	bool process ( const ULONG ulClient ) const;
+
+	virtual unsigned short getWeaponNetworkIndex ( ) const
+	{
+		return usActorNetworkIndex;
+	}
 };
 
 //*****************************************************************************
@@ -430,6 +448,9 @@ struct CLIENT_s
 
 	// [AK] The last movement command we received from this client.
 	ClientMoveCommand	*LastMoveCMD;
+
+	// [AK] The network index the client sent with their last weapon select command.
+	USHORT			usLastWeaponNetworkIndex;
 
 	// We keep track of how many extra movement commands we get from the client. If it
 	// exceeds a certain level over time, we kick him.
@@ -636,6 +657,7 @@ void		SERVER_SyncServerModCVars ( const int PlayerToSync );
 void		SERVER_KillCheat( const char* what );
 void STACK_ARGS SERVER_PrintWarning( const char* format, ... ) GCCPRINTF( 1, 2 );
 void		SERVER_FlagsetChanged( FIntCVar& flagset, int maxflags = 2 );
+void		SERVER_SettingChanged( FBaseCVar &cvar, bool bUpdateConsole, int maxDecimals = 0 );
 void		SERVER_HandleSkipCorrection( ULONG ulClient );
 bool		SERVER_IsExtrapolatingPlayer( ULONG ulClient );
 bool		SERVER_IsBacktracingPlayer( ULONG ulClient );
@@ -676,7 +698,7 @@ EXTERN_CVAR( Bool, sv_defaultdmflags );
 EXTERN_CVAR( Bool, sv_forcepassword );
 EXTERN_CVAR( Bool, sv_forcejoinpassword );
 EXTERN_CVAR( Int, sv_forcerespawntime ); // [RK] Delay used for forced respawn
-EXTERN_CVAR( Int, sv_respawndelaytime );
+EXTERN_CVAR( Float, sv_respawndelaytime );
 EXTERN_CVAR( Bool, sv_showlauncherqueries );
 EXTERN_CVAR( Int, sv_maxclients );
 EXTERN_CVAR( Int, sv_maxplayers );

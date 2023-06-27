@@ -84,6 +84,7 @@
 #include "cooperative.h"
 #include "survival.h"
 #include "m_cheat.h"
+#include "gamemode.h"
 
 extern FILE *Logfile;
 extern bool insave;
@@ -478,6 +479,9 @@ CCMD (chase)
 			chasedemo = true;
 			for (i = 0; i < MAXPLAYERS; i++)
 				players[i].cheats |= CF_CHASECAM;
+
+			// [AK] Reset the free chasecam's orientation when we enable the chasecam.
+			P_ResetFreeChasecamView();
 		}
 		R_ResetViewInterpolation ();
 	}
@@ -1536,6 +1540,26 @@ CCMD(nextsecret)
 		Printf("no next secret map!\n");
 	}
 */
+}
+
+//*****************************************************************************
+//	[SB] Essentially just a console command version of the ACS ResetMap function
+CCMD( resetmap )
+{
+	if ( NETWORK_GetState() == NETSTATE_CLIENT )
+	{
+		Printf( "Only the server can reset the map.\n" );
+		return;
+	}
+
+	if ( GAMEMODE_GetCurrentFlags() & GMF_MAPRESETS )
+	{
+		GAME_RequestMapReset ( );
+	}
+	else
+	{
+		Printf ( "resetmap can only be used in game modes that support map resets.\n" );
+	}
 }
 
 //*****************************************************************************

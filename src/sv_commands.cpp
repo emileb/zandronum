@@ -212,10 +212,10 @@ void SendPrivateMessageToRCONClients( ServerCommands::PlayerSay &command, ULONG 
 
 //*****************************************************************************
 //
-void SERVERCOMMANDS_Ping( ULONG ulTime )
+void SERVERCOMMANDS_Ping( unsigned int time )
 {
 	ServerCommands::Ping command;
-	command.SetTime( ulTime );
+	command.SetTime( time );
 	command.sendCommandToClients();
 }
 
@@ -263,8 +263,6 @@ void SERVERCOMMANDS_SpawnPlayer( ULONG ulPlayer, LONG lPlayerState, ULONG ulPlay
 	command.SetPlayer( &players[ulPlayer] );
 	command.SetPriorState( lPlayerState );
 	command.SetIsBot( players[ulPlayer].bIsBot );
-	// Do we really need to send this? Shouldn't it always be PST_LIVE?
-	command.SetPlayerState( players[ulPlayer].playerstate );
 	command.SetIsSpectating( players[ulPlayer].bSpectating );
 	command.SetIsDeadSpectator( players[ulPlayer].bDeadSpectator );
 	command.SetIsMorphed( bMorph );
@@ -291,20 +289,38 @@ void SERVERCOMMANDS_SpawnPlayer( ULONG ulPlayer, LONG lPlayerState, ULONG ulPlay
 //
 void SERVERCOMMANDS_MovePlayer( ULONG ulPlayer, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
-	ULONG ulPlayerAttackFlags = 0;
+	ULONG ulPlayerFlags = 0;
 
 	if ( PLAYER_IsValidPlayerWithMo( ulPlayer ) == false )
 		return;
 
 	// [BB] Check if ulPlayer is pressing any attack buttons.
 	if ( players[ulPlayer].cmd.ucmd.buttons & BT_ATTACK )
-		ulPlayerAttackFlags |= PLAYER_ATTACK;
+		ulPlayerFlags |= PLAYER_ATTACK;
 	if ( players[ulPlayer].cmd.ucmd.buttons & BT_ALTATTACK )
-		ulPlayerAttackFlags |= PLAYER_ALTATTACK;
+		ulPlayerFlags |= PLAYER_ALTATTACK;
+
+	// [AK] Check if the player is crouching.
+	if ( players[ulPlayer].crouchdir >= 0 )
+		ulPlayerFlags |= PLAYER_CROUCHING;
+
+	// [AK] Ideally, we should only need to send the player's velocity if it's not zero.
+	// Otherwise, the client can set the velocity to zero by themselves.
+	if ( players[ulPlayer].mo->velx )
+		ulPlayerFlags |= PLAYER_SENDVELX;
+	if ( players[ulPlayer].mo->vely )
+		ulPlayerFlags |= PLAYER_SENDVELY;
+	if ( players[ulPlayer].mo->velz )
+		ulPlayerFlags |= PLAYER_SENDVELZ;
+
+	// [AK] Check if the player is standing on a moving lift. This tells clients to clamp the player onto
+	// the floor of whatever sector they end up in, making them not appeary jittery on lifts moving downward.
+	if (( players[ulPlayer].mo->z <= players[ulPlayer].mo->floorz ) && ( players[ulPlayer].mo->floorsector->floordata ))
+		ulPlayerFlags |= PLAYER_ONLIFT;
 
 	ServerCommands::MovePlayer fullCommand;
 	fullCommand.SetPlayer ( &players[ulPlayer] );
-	fullCommand.SetFlags( ulPlayerAttackFlags | PLAYER_VISIBLE );
+	fullCommand.SetFlags( ulPlayerFlags | PLAYER_VISIBLE );
 	fullCommand.SetX( players[ulPlayer].mo->x );
 	fullCommand.SetY( players[ulPlayer].mo->y );
 	fullCommand.SetZ( players[ulPlayer].mo->z );
@@ -312,10 +328,9 @@ void SERVERCOMMANDS_MovePlayer( ULONG ulPlayer, ULONG ulPlayerExtra, ServerComma
 	fullCommand.SetVelx( players[ulPlayer].mo->velx );
 	fullCommand.SetVely( players[ulPlayer].mo->vely );
 	fullCommand.SetVelz( players[ulPlayer].mo->velz );
-	fullCommand.SetIsCrouching(( players[ulPlayer].crouchdir >= 0 ) ? true : false );
 
 	ServerCommands::MovePlayer stubCommand = fullCommand;
-	stubCommand.SetFlags( ulPlayerAttackFlags );
+	stubCommand.SetFlags( ulPlayerFlags );
 
 	for ( ClientIterator it ( ulPlayerExtra, flags ); it.notAtEnd(); ++it )
 	{
@@ -332,6 +347,8 @@ void SERVERCOMMANDS_DamagePlayer( ULONG ulPlayer )
 {
 	ULONG		ulArmorPoints;
 	AInventory	*pArmor;
+	PalEntry	painFlash;
+	bool		bSendDamageType = false;
 
 	if ( PLAYER_IsValidPlayer( ulPlayer ) == false )
 		return;
@@ -346,6 +363,12 @@ void SERVERCOMMANDS_DamagePlayer( ULONG ulPlayer )
 
 		// If the player doesn't possess any armor, then his armor points are 0.
 		ulArmorPoints = ( pArmor != NULL ) ? pArmor->Amount : 0;
+
+		// [AK] Check if the player's class has a special pain flash for the damage type they just
+		// received. If it does, then we'll also send the damage type under a different command so
+		// that the pain flash appears properly on the client's screen.
+		if ( players[ulPlayer].mo->GetClass( )->ActorInfo->GetPainFlash( players[ulPlayer].mo->DamageTypeReceived, &painFlash ))
+			bSendDamageType = true;
 	}
 
 	ServerCommands::DamagePlayer fullCommand;
@@ -359,8 +382,29 @@ void SERVERCOMMANDS_DamagePlayer( ULONG ulPlayer )
 		// [EP] Send the updated health and armor of the player who's being damaged to this client
 		// only if this client is allowed to know.
 		if ( SERVER_IsPlayerAllowedToKnowHealth( *it, ulPlayer ))
-			fullCommand.sendCommandToClients( *it, SVCF_ONLYTHISCLIENT );
+		{
+			// [AK] If we're going to send the damage type, make sure that this client is watching the
+			// player. Otherwise, they don't need to know the damage type.
+			if (( bSendDamageType ) && ( SERVER_GetClient( *it )->ulDisplayPlayer == ulPlayer ))
+				SERVERCOMMANDS_DamagePlayerWithType( ulPlayer, ulArmorPoints, *it );
+			else
+				fullCommand.sendCommandToClients( *it, SVCF_ONLYTHISCLIENT );
+		}
 	}
+}
+
+//*****************************************************************************
+//
+void SERVERCOMMANDS_DamagePlayerWithType( ULONG ulPlayer, ULONG ulArmorPoints, ULONG ulPlayerExtra )
+{
+	ServerCommands::DamagePlayerWithType command;
+	command.SetPlayer( &players[ulPlayer] );
+	command.SetHealth( players[ulPlayer].health );
+	command.SetArmor( ulArmorPoints );
+	command.SetDamageType( players[ulPlayer].mo->DamageTypeReceived.GetChars() );
+	command.SetAttacker( players[ulPlayer].attacker );
+
+	command.sendCommandToClients( ulPlayerExtra, SVCF_ONLYTHISCLIENT );
 }
 
 //*****************************************************************************
@@ -2098,6 +2142,8 @@ void SERVERCOMMANDS_SpawnPuff( AActor *pActor, ULONG ulPlayerExtra, ServerComman
 			ulState = STATE_MELEE;
 		else if ( pActor->state == pActor->FindState( NAME_Crash ) )
 			ulState = STATE_CRASH;
+		else if ( pActor->state == pActor->FindState( NAME_Death, NAME_Extreme, true ) )
+			ulState = STATE_XDEATH;
 		bool bSendTranslation = pActor->Translation != 0;
 		SERVERCOMMANDS_SpawnPuffNoNetID( pActor, ulState, bSendTranslation, ulPlayerExtra, flags );
 		return;
@@ -2337,7 +2383,7 @@ void SERVERCOMMANDS_SetGameModeLimits( ULONG ulPlayerExtra, ServerCommandFlags f
 	// [AK] Send sv_allowprivatechat.
 	command.addByte( sv_allowprivatechat );
 	// [AK] Send sv_respawndelaytime.
-	command.addByte( sv_respawndelaytime );
+	command.addFloat( sv_respawndelaytime );
 	command.sendCommandToClients( ulPlayerExtra, flags );
 }
 
@@ -2507,7 +2553,7 @@ void SERVERCOMMANDS_SetTeamScore( ULONG ulTeam, ULONG ulType, bool bAnnounce, UL
 			break;
 
 		case TEAMSCORE_POINTS:
-			lScore = TEAM_GetScore( ulTeam );
+			lScore = TEAM_GetPointCount( ulTeam );
 			break;
 		
 		case TEAMSCORE_WINS:

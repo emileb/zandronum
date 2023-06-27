@@ -4441,6 +4441,12 @@ AActor *P_LineAttack(AActor *t1, angle_t angle, fixed_t distance,
 					dmgflags |= DMG_NO_ARMOR;
 				}
 				
+				// [AK] If this is a melee attack from a player that's using a weapon which gives the "fisting"
+				// medal, add DMG_GIVE_FISTING_MEDAL_ON_FRAG. MEDAL_PlayerDied will award the medal upon fragging
+				// another player.
+				if (( flags & LAF_ISMELEEATTACK ) && ( t1->player ) && ( t1->player->ReadyWeapon ) && ( t1->player->ReadyWeapon->STFlags & STFL_GIVEFISTINGMEDAL ))
+					dmgflags |= DMG_GIVE_FISTING_MEDAL_ON_FRAG;
+
 				if (puff == NULL)
 				{
 					// Since the puff is the damage inflictor we need it here 
@@ -4588,7 +4594,10 @@ AActor *P_LinePickActor(AActor *t1, angle_t angle, fixed_t distance, int pitch,
 	TData.Caller = t1;
 	TData.hitGhosts = true;
 	
-	// [AK] This doesn't spawn a puff actor, but indicate that this is a line pick hitscan.
+	// [AK] Explicity set hitSameSpecies to false. We are allowed to pick actors that are the
+	// same species, but this isn't always the case if called by the server.
+	// This doesn't spawn a puff actor, but indicate that this is a line pick hitscan.
+	TData.hitSameSpecies = false;
 	TData.pPuff = NULL;
 	TData.bIsLinePick = true;
 
@@ -4769,6 +4778,10 @@ struct RailData
 	TArray<SRailHit> RailHits;
 	bool StopAtOne;
 	bool StopAtInvul;
+
+	// [AK] Added caller and hitscan puff actor pointers.
+	AActor *pCaller;
+	AActor *pPuff;
 };
 
 static ETraceStatus ProcessRailHit(FTraceResults &res, void *userdata)
@@ -4777,6 +4790,12 @@ static ETraceStatus ProcessRailHit(FTraceResults &res, void *userdata)
 	if (res.HitType != TRACE_HitActor)
 	{
 		return TRACE_Stop;
+	}
+
+	// [AK] Check if this player can shoot through their teammates if ZADF_SHOOT_THROUGH_ALLIES is enabled.
+	if ( PLAYER_CannotAffectAllyWith( data->pCaller, res.Actor, data->pPuff, ZADF_SHOOT_THROUGH_ALLIES ))
+	{
+		return TRACE_Skip;
 	}
 
 	// Invulnerable things completely block the shot
@@ -4856,6 +4875,10 @@ void P_RailAttack(AActor *source, int damage, int offset_xy, fixed_t offset_z, i
 	flags = (puffDefaults->flags6 & MF6_NOTRIGGER) ? 0 : TRACE_PCross | TRACE_Impact;
 	rail_data.StopAtInvul = (puffDefaults->flags3 & MF3_FOILINVUL) ? false : true;
 
+	// [AK] Remember the actor who fired the rail and the puff actor that is supposed to spawn.
+	rail_data.pCaller = source;
+	rail_data.pPuff = puffDefaults;
+
 	Trace(x1, y1, shootz, source->Sector, vx, vy, vz,
 		distance, MF_SHOOTABLE, ML_BLOCKEVERYTHING, source, trace,
 		flags, ProcessRailHit, &rail_data);
@@ -4930,37 +4953,14 @@ void P_RailAttack(AActor *source, int damage, int offset_xy, fixed_t offset_z, i
 				}
 			}
 
-			if (( hitactor->player ) && ( source->IsTeammate( hitactor ) == false ))
+			if (( hitactor->player ) && ( source->IsTeammate( hitactor ) == false ) && ( source->player ))
 			{
-				if ( source->player )
-				{
-					source->player->ulConsecutiveRailgunHits++;
+				source->player->ulConsecutiveRailgunHits++;
 
-					// If the player has made 2 straight consecutive hits with the railgun, award a medal.
-					if (( source->player->ulConsecutiveRailgunHits % 2 ) == 0 )
-					{
-						// If the player gets 4+ straight hits with the railgun, award a "Most Impressive" medal.
-						if ( source->player->ulConsecutiveRailgunHits >= 4 )
-						{
-							if ( NETWORK_InClientMode() == false )
-								MEDAL_GiveMedal( ULONG( source->player - players ), MEDAL_MOSTIMPRESSIVE );
-
-							// Tell clients about the medal that been given.
-							if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-								SERVERCOMMANDS_GivePlayerMedal( ULONG( source->player - players ), MEDAL_MOSTIMPRESSIVE );
-						}
-						// Otherwise, award an "Impressive" medal.
-						else
-						{
-							if ( NETWORK_InClientMode() == false )
-								MEDAL_GiveMedal( ULONG( source->player - players ), MEDAL_IMPRESSIVE );
-
-							// Tell clients about the medal that been given.
-							if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-								SERVERCOMMANDS_GivePlayerMedal( ULONG( source->player - players ), MEDAL_IMPRESSIVE );
-						}
-					}
-				}
+				// If the player has made 2 straight consecutive hits with the railgun, award a medal.
+				// Award a "Most Impressive" medal if they get 4+ straight hits. Otherwise, award an "Impressive" medal.
+				if (( NETWORK_InClientMode( ) == false ) && (( source->player->ulConsecutiveRailgunHits % 2 ) == 0 ))
+					MEDAL_GiveMedal( static_cast<ULONG>( source->player - players ), source->player->ulConsecutiveRailgunHits >= 4 ? MEDAL_MOSTIMPRESSIVE : MEDAL_IMPRESSIVE );
 			}
 		}
 	}
@@ -5067,6 +5067,60 @@ void P_RailAttackWithPossibleSpread (AActor *source, int damage, int offset_xy, 
 			source->player->ulConsecutiveRailgunHits = 0;
 	}
 }
+
+//==========================================================================
+//
+// [AK] P_IsUsingFreeChasecam
+//
+// Checks if we're allowed to use the free chasecam on some actor.
+//
+//==========================================================================
+
+CUSTOM_CVAR( Bool, cl_freechase, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG )
+{
+	if ( self )
+	{
+		P_ResetFreeChasecamView( );
+	}
+}
+
+bool P_IsUsingFreeChasecam( AActor *pActor )
+{
+	// [AK] We can't use the free chasecam if it's disabled or if we're not using the chasecam at all.
+	if (( cl_freechase == false ) || (( players[consoleplayer].cheats & CF_CHASECAM ) == false ))
+		return false;
+
+	// [AK] The actor must be valid and we need to be spying on them.
+	if (( pActor == NULL ) || ( pActor != players[consoleplayer].camera ))
+		return false;
+
+	// [AK] We can't use the free chasecam while spying on ourselves (unless we're playing a demo) or
+	// if we're in free spectator mode.
+	if ((( pActor == players[consoleplayer].mo ) && ( CLIENTDEMO_IsPlaying( ) == false )) || ( CLIENTDEMO_IsInFreeSpectateMode( )))
+		return false;
+
+	return true;
+}
+
+void P_ResetFreeChasecamView( )
+{
+	AActor *pActor = P_GetFreeChasecamActor( );
+
+	// [AK] We only need to reset the orientation if we're allowed to use the free chasecam right now.
+	if ( P_IsUsingFreeChasecam( players[consoleplayer].camera ))
+	{
+		pActor->angle = players[consoleplayer].camera->angle;
+		pActor->pitch = players[consoleplayer].camera->pitch;
+	}
+}
+
+// [AK] Returns the actor whose angle/pitch will be used for the free chasecam. We normally use the
+// local player but if we're watching a demo we need to use the free spectator player instead.
+AActor *P_GetFreeChasecamActor( )
+{
+	return CLIENTDEMO_IsPlaying( ) ? CLIENTDEMO_GetFreeSpectatorPlayer( )->mo : players[consoleplayer].mo;
+}
+
 //==========================================================================
 //
 // [RH] P_AimCamera
@@ -5085,8 +5139,11 @@ CUSTOM_CVAR(Float, chase_dist, 90.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 void P_AimCamera(AActor *t1, fixed_t &CameraX, fixed_t &CameraY, fixed_t &CameraZ, sector_t *&CameraSector)
 {
 	fixed_t distance = (fixed_t)(chase_dist * FRACUNIT);
-	angle_t angle = (t1->angle - ANG180) >> ANGLETOFINESHIFT;
-	angle_t pitch = (angle_t)(t1->pitch) >> ANGLETOFINESHIFT;
+	// [AK] If we're using free chasecam, use the angle and pitch of ourselves (or the free spectator
+	// if playing a demo). If not, use the passed actor's angle and pitch
+	AActor *pActor = P_IsUsingFreeChasecam(t1) ? P_GetFreeChasecamActor() : t1;
+	angle_t angle = (pActor->angle - ANG180) >> ANGLETOFINESHIFT;
+	angle_t pitch = (angle_t)(pActor->pitch) >> ANGLETOFINESHIFT;
 	FTraceResults trace;
 	fixed_t vx, vy, vz, sz;
 
@@ -5430,66 +5487,6 @@ void P_UseItems( player_t *pPlayer )
 	}
 }
 */
-/*
-================
-=
-= P_PlayerScan
-=
-= Looks for other players directly in front of the player.
-================
-*/
-
-player_t *P_PlayerScan( AActor *pSource )
-{
-	fixed_t vx, vy, vz, eyez;
-	FTraceResults	trace;
-	int				pitch;
-	angle_t			angle;
-
-	angle = pSource->angle >> ANGLETOFINESHIFT;
-	pitch = (angle_t)( pSource->pitch ) >> ANGLETOFINESHIFT;
-
-	vx = FixedMul (finecosine[pitch], finecosine[angle]);
-	vy = FixedMul (finecosine[pitch], finesine[angle]);
-	vz = -finesine[pitch];
-
-	if ( pSource->player )
-		eyez = pSource->player->viewz;
-	else
-		eyez = pSource->z + pSource->height / 2;
-
-	if ( Trace( pSource->x,	// Actor x
-		pSource->y, // Actor y
-		eyez,	// Actor z
-		pSource->Sector,
-		vx,
-		vy,
-		vz,
-		( 32 * 64 * FRACUNIT ) /* MISSILERANGE */,	// Maximum distance
-		MF_SHOOTABLE,	// Actor mask
-		ML_BLOCKEVERYTHING,	// Wall mask
-		pSource,		// Actor to ignore
-		trace,	// Result
-		TRACE_NoSky,	// Trace flags
-		NULL ) == false )	// Callback
-	// Did not spot anything anything.
-	{
-		return ( NULL );
-	}
-	else
-	{
-		// Return NULL if we did not hit an actor.
-		if ( trace.HitType != TRACE_HitActor )
-			return ( NULL );
-
-		// Return NULL if the actor we hit is not a player.
-		if ( trace.Actor->player == NULL )
-			return ( NULL );
-
-		// Return the player we found.
-		return ( trace.Actor->player );
-	}
-}
 
 //==========================================================================
 //

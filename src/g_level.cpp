@@ -381,8 +381,11 @@ void G_InitNew (const char *mapname, bool bTitleLevel)
 
 	G_ClearHubInfo();
 
+	// [AK] We must save our demo playback status since G_InitNew resets it.
+	const bool bIsPlayingDemo = CLIENTDEMO_IsPlaying( );
+
 	// [BB] If there is a free spectator player from the last map, be sure to get rid of it.
-	if ( CLIENTDEMO_IsPlaying() )
+	if ( bIsPlayingDemo )
 		CLIENTDEMO_ClearFreeSpectatorPlayer();
 
 	// [BC] Clients need to keep their snapshots around for hub purposes, and since
@@ -415,8 +418,8 @@ void G_InitNew (const char *mapname, bool bTitleLevel)
 		S_ResumeSound (false);
 	}
 
-	// [AK] Set any flags to what the need to be in the new game mode.
-	GAMEMODE_ReconfigureGameSettings( );
+	// [AK] Set any CVars to what the need to be in the new game mode.
+	GAMEMODE_ResetGameplaySettings( false, true );
 
 	// [BC] Reset the end level delay.
 	GAME_SetEndLevelDelay( 0 );
@@ -583,6 +586,13 @@ void G_InitNew (const char *mapname, bool bTitleLevel)
 	}
 	// [BB] Somehow G_DoLoadLevel alters the contents of mapname. This causes the "Frags" bug.
 	G_DoLoadLevel (0, false);
+
+	// [AK] Restore our demo playback status. Also spawn the free spectator player if needed.
+	if ( bIsPlayingDemo )
+	{
+		CLIENTDEMO_SetPlaying( true );
+		CLIENTDEMO_SpawnFreeSpectatorPlayer( );
+	}
 
 //	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 //		SERVERCONSOLE_SetupColumns( );
@@ -1067,8 +1077,8 @@ void G_DoLoadLevel (int position, bool autosave)
 	// [AK] Reset the end level delay if it's not already zero.
 	GAME_SetEndLevelDelay( 0, false );
 
-	// [AK] Reset all locked gameplay/compatibility flags to what they're supposed to be, in case they somehow changed.
-	GAMEMODE_ReconfigureGameSettings( true );
+	// [AK] Reset all locked CVars to what they're supposed to be, in case they somehow changed.
+	GAMEMODE_ResetGameplaySettings( true, false );
 
 	// Loop through the teams, and reset the scores.
 	for ( i = 0; i < teams.Size( ); i++ )
@@ -1076,7 +1086,7 @@ void G_DoLoadLevel (int position, bool autosave)
 		TEAM_SetFragCount( i, 0, false );
 		TEAM_SetDeathCount( i, 0 );
 		TEAM_SetWinCount( i, 0, false );
-		TEAM_SetScore( i, 0, false );
+		TEAM_SetPointCount( i, 0, false );
 		TEAM_SetAnnouncedLeadState( i, false );
 
 		// Also, reset the return ticks.
@@ -1390,7 +1400,7 @@ void G_DoLoadLevel (int position, bool autosave)
 		TEAM_UpdateCarriers( );
 
 	// Refresh the HUD.
-	HUD_Refresh( );
+	HUD_ShouldRefreshBeforeRendering( );
 
 	// Set number of duels to 0.
 	DUEL_SetNumDuels( 0 );

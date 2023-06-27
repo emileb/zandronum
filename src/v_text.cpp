@@ -669,9 +669,9 @@ void V_CleanPlayerName( FString &String, bool bPrintWarning )
 			// [AK] Ignore color codes, also taking into account those that use square brackets.
 			if ( tempColorizedString[j] == TEXTCOLOR_ESCAPE )
 			{
-				if (( String[++j] != '\0' ) && ( String[j] == '[' ))
+				if (( tempColorizedString[++j] != '\0' ) && ( tempColorizedString[j] == '[' ))
 				{
-					while (( String[j] != '\0') && ( String[j] != ']' ))
+					while (( tempColorizedString[j] != '\0') && ( tempColorizedString[j] != ']' ))
 					{
 						j++;
 					}
@@ -771,13 +771,19 @@ void V_RemoveTrailingCrap( char *pszString )
 		// [BB] Remove trailing color code of type "\c[X]".
 		else if ( pszString[ulStringLength-1] == ']' )
 		{
+			// [AK] "\c[X]]" is not a trailing color code.
+			if ( ( ulStringLength > 2 ) && ( pszString[ulStringLength-2] == ']' ) )
+				break;
+
 			int i = 0;
 			for ( i = ulStringLength-2; i >= 2; --i )
 			{
-				if ( pszString[i] == '[' )
+				// [AK] We should keep checking for "\c[" until we reach the beginning of the string,
+				// in case the string contains something like "\c[X[[[]".
+				if ( ( pszString[i] == '[' ) && V_ColorCodeStart ( pszString, i-2 ) )
 					break;
 			}
-			if ( ( i >= 2 ) && V_ColorCodeStart ( pszString, i-2 ) )
+			if ( i >= 2 )
 			{
 				pszString[i-2] = 0;
 				ulStringLength = static_cast<ULONG>(strlen( pszString ));
@@ -799,7 +805,7 @@ void V_RemoveTrailingCrap( char *pszString )
 			if ( pChar > strrchr(pszString, ']') )
 			{
 				const int index = pChar - pszString;
-				if ( ( index > 2 ) && V_ColorCodeStart ( pszString, index-2 ) )
+				if ( ( index >= 2 ) && V_ColorCodeStart ( pszString, index-2 ) )
 				{
 					pszString[index-2] = 0;
 					ulStringLength = static_cast<ULONG>(strlen( pszString ));

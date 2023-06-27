@@ -108,40 +108,9 @@ CVAR( Bool, sv_forcerandomclass, false, 0 )
 
 void TEAM_Construct( void )
 {
-	for ( ULONG i = 0; i < teams.Size( ); i++ )
-	{
-		TEAM_SetScore( i, 0, false );
-		TEAM_SetReturnTicks( i, 0 );
-		TEAM_SetFragCount( i, 0, false );
-		TEAM_SetDeathCount( i, 0 );
-		TEAM_SetWinCount( i, 0, false );
-		TEAM_SetCarrier( i, NULL );
-		TEAM_SetItemTaken( i, false );
-		TEAM_SetAnnouncedLeadState( i, false );
-		TEAM_SetAssistPlayer( i, MAXPLAYERS );
-
-		teams[i].g_Origin.x = 0;
-		teams[i].g_Origin.y = 0;
-		teams[i].g_Origin.z = 0;
-
-		switch ( i )
-		{
-		case 0:
-			teams[i].ulReturnScriptOffset = SCRIPT_BlueReturn;
-			break;
-		case 1:
-			teams[i].ulReturnScriptOffset = SCRIPT_RedReturn;
-			break;
-		default:
-			break;
-		}
-	}
-
 	// Start off in regular CTF/ST mode.
 	TEAM_SetSimpleCTFSTMode( false );
-
-	TEAM_SetWhiteFlagTaken( false );
-	g_ulWhiteFlagReturnTicks = 0;
+	TEAM_Reset( );
 }
 
 //*****************************************************************************
@@ -174,7 +143,7 @@ void TEAM_Reset( void )
 {
 	for ( ULONG i = 0; i < teams.Size( ); i++ )
 	{
-		TEAM_SetScore( i, 0, false );
+		TEAM_SetPointCount( i, 0, false );
 		TEAM_SetReturnTicks( i, 0 );
 		TEAM_SetFragCount( i, 0, false );
 		TEAM_SetDeathCount( i, 0 );
@@ -201,7 +170,7 @@ void TEAM_Reset( void )
 		}
 	}
 
-	TEAM_SetWhiteFlagTaken( false );
+	g_bWhiteFlagTaken = false;
 	g_ulWhiteFlagReturnTicks = 0;
 }
 
@@ -338,7 +307,7 @@ void TEAM_ExecuteReturnRoutine( ULONG ulTeamIdx, AActor *pReturner )
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 		SERVERCOMMANDS_TeamFlagReturned( ulTeamIdx );
 	else
-		HUD_Refresh( );
+		HUD_ShouldRefreshBeforeRendering( );
 }
 
 //*****************************************************************************
@@ -427,8 +396,8 @@ ULONG TEAM_ChooseBestTeamForPlayer( const bool bIgnoreTeamStartsAvailability )
 		}
 		else
 		{
-			if ( lLowestScoreCount > TEAM_GetScore( i ))
-				lLowestScoreCount = TEAM_GetScore( i );
+			if ( lLowestScoreCount > TEAM_GetPointCount( i ))
+				lLowestScoreCount = TEAM_GetPointCount( i );
 		}
 	}
 
@@ -439,7 +408,7 @@ ULONG TEAM_ChooseBestTeamForPlayer( const bool bIgnoreTeamStartsAvailability )
 		else if ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNWINS )
 			lGotScore[i] = TEAM_GetWinCount( i );
 		else
-			lGotScore[i] = TEAM_GetScore( i );
+			lGotScore[i] = TEAM_GetPointCount( i );
 	}
 
 	for ( ULONG i = 0; i < teams.Size( ); i++ )
@@ -594,7 +563,7 @@ void TEAM_ScoreSkulltagPoint( player_t *pPlayer, ULONG ulNumPoints, AActor *pPil
 		SERVERCOMMANDS_PrintHUDMessage( szString, 1.5f, TEAM_MESSAGE_Y_AXIS_SUB, 0, 0, HUDMESSAGETYPE_FADEOUT, CR_BLUE, 3.0f, 0.0f, 0.5f, "SmallFont", MAKE_ID( 'S', 'U', 'B', 'S' ) );
 
 	// Give his team a point.
-	TEAM_SetScore( pPlayer->Team, TEAM_GetScore( pPlayer->Team ) + ulNumPoints, true );
+	TEAM_SetPointCount( pPlayer->Team, TEAM_GetPointCount( pPlayer->Team ) + ulNumPoints, true );
 	PLAYER_SetPoints ( pPlayer, pPlayer->lPointCount + ulNumPoints );
 
 	// Take the skull away.
@@ -615,7 +584,7 @@ void TEAM_ScoreSkulltagPoint( player_t *pPlayer, ULONG ulNumPoints, AActor *pPil
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 		SERVERCOMMANDS_TakeInventory( ULONG( pPlayer - players ), TEAM_GetItem( ulTeamIdx ), 0 );
 	else
-		HUD_Refresh( );
+		HUD_ShouldRefreshBeforeRendering( );
 
 	// Respawn the skull.
 	SkullOrigin = TEAM_GetItemOrigin( ulTeamIdx );
@@ -636,22 +605,13 @@ void TEAM_ScoreSkulltagPoint( player_t *pPlayer, ULONG ulNumPoints, AActor *pPil
 	// Award the scorer with a "Tag!" medal.
 	MEDAL_GiveMedal( ULONG( pPlayer - players ), MEDAL_TAG );
 
-	// Tell clients about the medal that been given.
-	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-		SERVERCOMMANDS_GivePlayerMedal( ULONG( pPlayer - players ), MEDAL_TAG );
-
 	// If someone just recently returned the skull, award him with an "Assist!" medal.
 	if ( TEAM_GetAssistPlayer( pPlayer->Team ) != MAXPLAYERS )
 	{
 		// [AK] Mark the assisting player.
 		playerAssistNumber = TEAM_GetAssistPlayer( pPlayer->Team );
 
-		MEDAL_GiveMedal( TEAM_GetAssistPlayer( pPlayer->Team ), MEDAL_ASSIST );
-
-		// Tell clients about the medal that been given.
-		if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-			SERVERCOMMANDS_GivePlayerMedal( TEAM_GetAssistPlayer( pPlayer->Team ), MEDAL_ASSIST );
-
+		MEDAL_GiveMedal( playerAssistNumber, MEDAL_ASSIST );
 		TEAM_SetAssistPlayer( pPlayer->Team, MAXPLAYERS );
 	}
 
@@ -816,7 +776,7 @@ void TEAM_TimeExpired( void )
 	if ( SERVER_CountPlayers( true ))
 	{
 		if ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNPOINTS )
-			lHighestScore = TEAM_GetHighestScoreCount( );
+			lHighestScore = TEAM_GetHighestPointCount( );
 		else
 			lHighestScore = TEAM_GetHighestFragCount( );
 
@@ -824,7 +784,7 @@ void TEAM_TimeExpired( void )
 		{
 			if ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNPOINTS )
 			{
-				if ( lHighestScore == static_cast<unsigned> (TEAM_GetScore( i )))
+				if ( lHighestScore == static_cast<unsigned> (TEAM_GetPointCount( i )))
 				{
 					ulLeadingTeamsCount++;
 					lWinner = i;
@@ -1020,26 +980,26 @@ void TEAM_SetRailgunColor( ULONG ulTeamIdx, LONG lColor )
 
 //*****************************************************************************
 //
-LONG TEAM_GetScore( ULONG ulTeamIdx )
+LONG TEAM_GetPointCount( ULONG ulTeamIdx )
 {
 	if ( TEAM_CheckIfValid( ulTeamIdx ))
-		return ( teams[ulTeamIdx].lScore );
+		return ( teams[ulTeamIdx].lPointCount );
 	else
 		return ( 0 );
 }
 
 //*****************************************************************************
 //
-void TEAM_SetScore( ULONG ulTeamIdx, LONG lScore, bool bAnnouncer )
+void TEAM_SetPointCount( ULONG ulTeamIdx, LONG lPointCount, bool bAnnouncer )
 {
-	LONG				lOldScore;
+	LONG lOldPointCount;
 
 	if ( TEAM_CheckIfValid( ulTeamIdx ) == false )
 		return;
 
-	lOldScore = TEAM_GetScore( ulTeamIdx );
-	teams[ulTeamIdx].lScore = lScore;
-	if ( bAnnouncer && ( TEAM_GetScore( ulTeamIdx ) > lOldScore ))
+	lOldPointCount = TEAM_GetPointCount( ulTeamIdx );
+	teams[ulTeamIdx].lPointCount = lPointCount;
+	if ( bAnnouncer && ( TEAM_GetPointCount( ulTeamIdx ) > lOldPointCount ))
 	{
 		// Build the message.
 		// Whatever the team's name is, is the first part of the message. For example:
@@ -1066,7 +1026,7 @@ void TEAM_SetScore( ULONG ulTeamIdx, LONG lScore, bool bAnnouncer )
 	if ( pointlimit <= 0 || NETWORK_InClientMode() )
 		return;
 
-	if ( TEAM_GetScore( ulTeamIdx ) >= (LONG)pointlimit )
+	if ( TEAM_GetPointCount( ulTeamIdx ) >= (LONG)pointlimit )
 	{
 		NETWORK_Printf( "\034%s%s " TEXTCOLOR_NORMAL "has won the game!\n", TEAM_GetTextColorName( ulTeamIdx ), TEAM_GetName( ulTeamIdx ));
 
@@ -1425,56 +1385,40 @@ void TEAM_SetSimpleCTFSTMode( bool bSimple )
 //
 bool TEAM_GetItemTaken( ULONG ulTeamIdx )
 {
-	return ( teams[ulTeamIdx].g_bTaken );
+	if ( TEAM_CheckIfValid( ulTeamIdx ))
+		return ( teams[ulTeamIdx].g_bTaken );
+
+	return ( g_bWhiteFlagTaken );
 }
 
 //*****************************************************************************
 //
 void TEAM_SetItemTaken( ULONG ulTeamIdx, bool bTaken )
 {
-	teams[ulTeamIdx].g_bTaken = bTaken;
-}
-
-//*****************************************************************************
-//
-bool TEAM_GetWhiteFlagTaken( void )
-{
-	return ( g_bWhiteFlagTaken );
-}
-
-//*****************************************************************************
-//
-void TEAM_SetWhiteFlagTaken( bool bTaken )
-{
-	g_bWhiteFlagTaken = bTaken;
+	if ( TEAM_CheckIfValid( ulTeamIdx ))
+		teams[ulTeamIdx].g_bTaken = bTaken;
+	else
+		g_bWhiteFlagTaken = bTaken;
 }
 
 //*****************************************************************************
 //
 POS_t TEAM_GetItemOrigin( ULONG ulTeamIdx )
 {
-	return ( teams[ulTeamIdx].g_Origin );
+	if ( TEAM_CheckIfValid( ulTeamIdx ))
+		return ( teams[ulTeamIdx].g_Origin );
+
+	return ( g_WhiteFlagOrigin );
 }
 
 //*****************************************************************************
 //
 void TEAM_SetTeamItemOrigin( ULONG ulTeamIdx, POS_t Origin )
 {
-	teams[ulTeamIdx].g_Origin = Origin;
-}
-
-//*****************************************************************************
-//
-POS_t TEAM_GetWhiteFlagOrigin( void )
-{
-	return ( g_WhiteFlagOrigin );
-}
-
-//*****************************************************************************
-//
-void TEAM_SetWhiteFlagOrigin( POS_t Origin )
-{
-	g_WhiteFlagOrigin = Origin;
+	if ( TEAM_CheckIfValid( ulTeamIdx ))
+		teams[ulTeamIdx].g_Origin = Origin;
+	else
+		g_WhiteFlagOrigin = Origin;
 }
 
 //*****************************************************************************
@@ -1587,20 +1531,20 @@ LONG TEAM_GetHighestWinCount( void )
 
 //*****************************************************************************
 //
-LONG TEAM_GetHighestScoreCount( void )
+LONG TEAM_GetHighestPointCount( void )
 {
-	LONG lScoreCount = LONG_MIN;
+	LONG lPointCount = LONG_MIN;
 
 	for ( ULONG i = 0; i < teams.Size( ); i++ )
 	{
 		if ( teamgame == false && TEAM_CountPlayers( i ) < 1 )
 			continue;
 
-		if ( lScoreCount < TEAM_GetScore( i ))
-			lScoreCount = TEAM_GetScore( i );
+		if ( lPointCount < TEAM_GetPointCount( i ))
+			lPointCount = TEAM_GetPointCount( i );
 	}
 
-	return lScoreCount;
+	return lPointCount;
 }
 
 //*****************************************************************************
@@ -1653,37 +1597,9 @@ LONG TEAM_GetWinCountSpread ( ULONG ulTeam )
 
 //*****************************************************************************
 //
-LONG TEAM_GetScoreCountSpread ( ULONG ulTeam )
+LONG TEAM_GetPointCountSpread ( ULONG ulTeam )
 {
-	return TEAM_GetSpread ( ulTeam, &TEAM_GetScore );
-}
-
-//*****************************************************************************
-//
-ULONG TEAM_CountFlags( void )
-{
-	AFlag *pItem;
-	TThinkerIterator<AFlag>	iterator;
-	ULONG ulCounted = 0;
-
-	while ( (pItem = iterator.Next( )))
-		ulCounted++;
-
-	return ulCounted;
-}
-
-//*****************************************************************************
-//
-ULONG TEAM_CountSkulls( void )
-{
-	ASkull *pItem;
-	TThinkerIterator<ASkull>	iterator;
-	ULONG ulCounted = 0;
-
-	while ( (pItem = iterator.Next( )))
-		ulCounted++;
-
-	return ulCounted;
+	return TEAM_GetSpread ( ulTeam, &TEAM_GetPointCount );
 }
 
 //*****************************************************************************
@@ -2316,27 +2232,21 @@ CCMD( changeteam )
 //*****************************************************************************
 //*****************************************************************************
 //
-CUSTOM_CVAR( Int, pointlimit, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK )
+CUSTOM_CVAR( Int, pointlimit, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEPLAYSETTING )
 {
 	if ( self >= 65536 )
 		self = 65535;
 	if ( self < 0 )
 		self = 0;
 
-	if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( gamestate != GS_STARTUP ))
-	{
-		SERVER_Printf( "%s changed to: %d\n", self.GetName( ), (int)self );
-		SERVERCOMMANDS_SetGameModeLimits( );
-
-		// Update the scoreboard.
-		SERVERCONSOLE_UpdateScoreboard( );
-	}
+	// [AK] Update the clients and update the server console.
+	SERVER_SettingChanged( self, true );
 }
 
 // Allow the server to set the return time for flags/skulls.
-CVAR( Int, sv_flagreturntime, 15, CVAR_CAMPAIGNLOCK | CVAR_SERVERINFO );
+CVAR( Int, sv_flagreturntime, 15, CVAR_CAMPAIGNLOCK | CVAR_SERVERINFO | CVAR_GAMEPLAYSETTING );
 
-CUSTOM_CVAR( Int, sv_maxteams, 2, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_LATCH )
+CUSTOM_CVAR( Int, sv_maxteams, 2, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_LATCH | CVAR_GAMEPLAYSETTING )
 {
 	// [BB] We didn't initialize TEAMINFO yet, so we can't use teams.Size() to clamp sv_maxteams right now.
 	// In order to ensure that sv_maxteams stays in its limits, we have to clamp it in TEAMINFO_Init.

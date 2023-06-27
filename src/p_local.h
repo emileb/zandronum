@@ -528,6 +528,11 @@ enum	// P_RailAttack / A_RailAttack / A_CustomRailgun / P_DrawRailTrail flags
 bool	P_CheckMissileSpawn (AActor *missile, fixed_t maxdist, bool bExplode = true);
 void	P_PlaySpawnSound(AActor *missile, AActor *spawner);
 
+// [AK] Prototypes used to control the free chasecam.
+bool	P_IsUsingFreeChasecam (AActor *pActor);
+void	P_ResetFreeChasecamView (void);
+AActor	*P_GetFreeChasecamActor (void);
+
 // [RH] Position the chasecam
 void	P_AimCamera (AActor *t1, fixed_t &x, fixed_t &y, fixed_t &z, sector_t *&sec);
 
@@ -602,6 +607,10 @@ enum EDmgFlags
 	DMG_NO_FACTOR = 16,
 	DMG_PLAYERATTACK = 32,
 	DMG_FOILINVUL = 64,
+
+	// [AK] Zandronum additions.
+	DMG_GIVE_FISTING_MEDAL_ON_FRAG = 128,
+	DMG_GIVE_SPAM_MEDAL_ON_FRAG = 256,
 };
 
 

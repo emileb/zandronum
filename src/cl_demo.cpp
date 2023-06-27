@@ -834,6 +834,15 @@ bool CLIENTDEMO_IsInFreeSpectateMode( void )
 	const AActor *pCamera = players[consoleplayer].camera;
 	return ( pCamera && ( pCamera == g_demoCameraPlayer.mo ) );
 }
+
+//*****************************************************************************
+//
+bool CLIENTDEMO_ShouldLetFreeSpectatorThink( void )
+{
+	// [AK] Let the free spectator "think" while using the free chasecam to control the camera's movement.
+	return (( CLIENTDEMO_IsInFreeSpectateMode( )) || ( P_IsUsingFreeChasecam( players[consoleplayer].camera )));
+}
+
 //*****************************************************************************
 //
 void CLIENTDEMO_SetFreeSpectatorTiccmd( ticcmd_t *pCmd )
@@ -862,6 +871,35 @@ player_t *CLIENTDEMO_GetFreeSpectatorPlayer( void )
 bool CLIENTDEMO_IsFreeSpectatorPlayer( player_t *pPlayer )
 {
 	return ( &g_demoCameraPlayer == pPlayer );
+}
+
+//*****************************************************************************
+//
+void CLIENTDEMO_SpawnFreeSpectatorPlayer( void )
+{
+	const AActor *pCamera = players[consoleplayer].camera;
+	player_t *p = &g_demoCameraPlayer;
+
+	p->bSpectating = true;
+	p->cls = PlayerClasses[p->CurrentPlayerClass].Type;
+	
+	// [AK] If the local player's camera is invalid, just spawn the free spectator player at the center of the map.
+	if ( pCamera != NULL )
+	{
+		p->mo = static_cast<APlayerPawn *>( Spawn( p->cls, pCamera->x, pCamera->y, pCamera->z + pCamera->height, NO_REPLACE ));
+		p->mo->angle = pCamera->angle;
+	}
+	else
+	{
+		p->mo = static_cast<APlayerPawn *>( Spawn( p->cls, 0, 0, 0, NO_REPLACE ));
+	}
+
+	p->mo->flags |= (MF_NOGRAVITY);
+	p->mo->player = p;
+	p->DesiredFOV = p->FOV = 90.f;
+	p->crouchfactor = FRACUNIT;
+	PLAYER_SetDefaultSpectatorValues( p );
+	p->camera = p->mo;
 }
 
 //*****************************************************************************
@@ -1059,23 +1097,13 @@ CCMD( demo_spectatefreely )
 	if ( CLIENTDEMO_IsPlaying( ) == false )
 		return;
 
-	const AActor *pCamera = players[consoleplayer].camera;
-	if ( pCamera != g_demoCameraPlayer.mo )
+	if ( players[consoleplayer].camera != g_demoCameraPlayer.mo )
 	{
 		CLIENTDEMO_ClearFreeSpectatorPlayer();
-		player_t *p = &g_demoCameraPlayer;
-		p->bSpectating = true;
-		p->cls = PlayerClasses[p->CurrentPlayerClass].Type;
-		p->mo = static_cast<APlayerPawn *> (Spawn (p->cls, pCamera->x, pCamera->y, pCamera->z + pCamera->height , NO_REPLACE));
-		p->mo->angle = pCamera->angle;
-		p->mo->flags |= (MF_NOGRAVITY);
-		p->mo->player = p;
-		p->DesiredFOV = p->FOV = 90.f;
-		p->crouchfactor = FRACUNIT;
-		PLAYER_SetDefaultSpectatorValues ( p );
+		CLIENTDEMO_SpawnFreeSpectatorPlayer();
+
 		players[consoleplayer].camera = g_demoCameraPlayer.mo;
-		p->camera = p->mo;
 		if ( StatusBar )
-			StatusBar->AttachToPlayer ( p );
+			StatusBar->AttachToPlayer ( &g_demoCameraPlayer );
 	}
 }

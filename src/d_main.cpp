@@ -124,6 +124,7 @@
 #include "md5.h"
 #include "za_database.h"
 #include "st_hud.h"
+#include "p_acs.h"
 
 #include "st_start.h"
 #include "templates.h"
@@ -409,8 +410,8 @@ void D_RemoveNextCharEvent()
 //
 //==========================================================================
 
-// [AK] Added CVAR_GAMEMODELOCK.
-CUSTOM_CVAR (Int, dmflags, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEMODELOCK)
+// [AK] Added CVAR_GAMEPLAYFLAGSET.
+CUSTOM_CVAR (Int, dmflags, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEPLAYFLAGSET)
 {
 	// In case DF_NO_FREELOOK was changed, reinitialize the sky
 	// map. (If no freelook, then no need to stretch the sky.)
@@ -496,8 +497,8 @@ CVAR (Mask, sv_fallingdamage,	dmflags, DF_FORCE_FALLINGHX|DF_FORCE_FALLINGZD);
 //
 //==========================================================================
 
-// [AK] Added CVAR_GAMEMODELOCK.
-CUSTOM_CVAR (Int, dmflags2, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEMODELOCK)
+// [AK] Added CVAR_GAMEPLAYFLAGSET.
+CUSTOM_CVAR (Int, dmflags2, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEPLAYFLAGSET)
 {
 	// [BC] If we're the server, tell clients that the dmflags changed.
 	// [AK] Moved everything into a separate function to avoid code duplication.
@@ -538,7 +539,8 @@ CUSTOM_CVAR (Int, dmflags2, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEMO
 		if (!(dmflags2 & DF2_CHASECAM) && !G_SkillProperty (SKILLP_DisableCheats) && !sv_cheats)
 		{
 			// Take us out of chasecam mode only.
-			if (p->cheats & CF_CHASECAM)
+			// [AK] Allow spectators to keep using the chasecam.
+			if ((p->cheats & CF_CHASECAM) && p->bSpectating == false)
 				cht_DoCheat (p, CHT_CHASECAM);
 		}
 	}
@@ -583,8 +585,8 @@ EXTERN_CVAR(Int, gl_lightmode)
 EXTERN_CVAR(Int, gl_distfog)
 #endif
 
-// [AK] Added CVAR_CAMPAIGNLOCK and CVAR_GAMEMODELOCK.
-CUSTOM_CVAR (Int, zadmflags, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEMODELOCK)
+// [AK] Added CVAR_CAMPAIGNLOCK and CVAR_GAMEPLAYFLAGSET.
+CUSTOM_CVAR (Int, zadmflags, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEPLAYFLAGSET)
 {
 	// [Dusk] If we just turned sv_sharedkeys on, share keys now.
 	if ((( self ^ self.GetPastValue() ) & ZADF_SHARE_KEYS ) & ( self & ZADF_SHARE_KEYS ))
@@ -593,6 +595,33 @@ CUSTOM_CVAR (Int, zadmflags, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEM
 	// [AK] If we changed sv_forcesoftwarepitchlimits, reimpose the new pitch limits for everyone.
 	if (( self ^ self.GetPastValue() ) & ZADF_FORCE_SOFTWARE_PITCH_LIMITS )
 		P_ResetPlayerPitchLimits();
+
+	// [AK] If we're the server and just turned sv_donthidestats on, update the health and armor
+	// of all enemy players, for all players.
+	if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && ((( self ^ self.GetPastValue() ) & ZADF_DONT_HIDE_STATS ) & ( self & ZADF_DONT_HIDE_STATS )))
+	{
+		for ( ULONG ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
+		{
+			// [AK] Don't update enemy player stats for bots.
+			if (( players[ulIdx].bIsBot ) || ( players[ulIdx].mo == NULL ))
+				continue;
+
+			for ( ULONG ulOtherIdx = 0; ulOtherIdx < MAXPLAYERS; ulOtherIdx++ )
+			{
+				// [AK] Don't update the player's own stats for themselves.
+				if (( ulOtherIdx != ulIdx ) && ( players[ulIdx].mo->IsTeammate( players[ulOtherIdx].mo ) == false ))
+				{
+					SERVERCOMMANDS_SetPlayerHealth( ulOtherIdx, ulIdx, SVCF_ONLYTHISCLIENT );
+					SERVERCOMMANDS_SetPlayerArmor( ulOtherIdx, ulIdx, SVCF_ONLYTHISCLIENT );
+				}
+			}
+		}
+	}
+
+	// [AK] If we changed sv_dontoverrideplayercolors, rebuild the player translations.
+	// The server doesn't need to do this.
+	if (( NETWORK_GetState( ) != NETSTATE_SERVER ) && (( self ^ self.GetPastValue() ) & ZADF_DONT_OVERRIDE_PLAYER_COLORS ))
+		D_UpdatePlayerColors();
 
 	// [BB] If we're the server, tell clients that the dmflags changed.
 	// [AK] Moved everything into a separate function to avoid code duplication.
@@ -631,6 +660,9 @@ CVAR (Flag, sv_nodoorclose, zadmflags, ZADF_NODOORCLOSE);
 CVAR (Flag, sv_forcesoftwarepitchlimits, zadmflags, ZADF_FORCE_SOFTWARE_PITCH_LIMITS);
 CVAR (Flag, sv_shootthroughallies, zadmflags, ZADF_SHOOT_THROUGH_ALLIES);
 CVAR (Flag, sv_dontpushallies, zadmflags, ZADF_DONT_PUSH_ALLIES);
+CVAR (Flag, sv_dontkeepjoinqueue, zadmflags, ZADF_DONT_KEEP_JOIN_QUEUE);
+CVAR (Flag, sv_donthidestats, zadmflags, ZADF_DONT_HIDE_STATS);
+CVAR (Flag, sv_dontoverrideplayercolors, zadmflags, ZADF_DONT_OVERRIDE_PLAYER_COLORS);
 
 // Old name kept for compatibility
 CVAR (Flag, sv_forcegldefaults,		zadmflags, ZADF_FORCE_VIDEO_DEFAULTS);
@@ -659,8 +691,8 @@ static int GetCompatibility2(int mask)
 }
 
 // [BB] Removed the CVAR_ARCHIVE flag.
-// [AK] Added CVAR_CAMPAIGNLOCK and CVAR_GAMEMODELOCK.
-CUSTOM_CVAR (Int, compatflags, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEMODELOCK)
+// [AK] Added CVAR_CAMPAIGNLOCK and CVAR_GAMEPLAYFLAGSET.
+CUSTOM_CVAR (Int, compatflags, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEPLAYFLAGSET)
 {
 	int old = i_compatflags;
 	i_compatflags = GetCompatibility(self) | ii_compatflags;
@@ -675,8 +707,8 @@ CUSTOM_CVAR (Int, compatflags, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAM
 }
 
 // [BB] Removed the CVAR_ARCHIVE flag.
-// [AK] Added CVAR_CAMPAIGNLOCK and CVAR_GAMEMODELOCK.
-CUSTOM_CVAR (Int, compatflags2, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEMODELOCK)
+// [AK] Added CVAR_CAMPAIGNLOCK and CVAR_GAMEPLAYFLAGSET.
+CUSTOM_CVAR (Int, compatflags2, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEPLAYFLAGSET)
 {
 	i_compatflags2 = GetCompatibility2(self) | ii_compatflags2;
 
@@ -691,8 +723,8 @@ CUSTOM_CVAR (Int, compatflags2, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GA
 //
 //==========================================================================
 
-// [AK] Added CVAR_CAMPAIGNLOCK and CVAR_GAMEMODELOCK.
-CUSTOM_CVAR (Int, zacompatflags, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEMODELOCK)
+// [AK] Added CVAR_CAMPAIGNLOCK and CVAR_GAMEPLAYFLAGSET.
+CUSTOM_CVAR (Int, zacompatflags, 0, CVAR_SERVERINFO | CVAR_CAMPAIGNLOCK | CVAR_GAMEPLAYFLAGSET)
 {
 	// [BC] If we're the server, tell clients that the dmflags changed.
 	// [AK] Moved everything into a separate function to avoid code duplication.
@@ -1104,49 +1136,19 @@ drawfullconsole:
 	}
 	if ( NETWORK_InClientMode() )
 	{
+		FString message;
+
 		// Draw a "Waiting for server..." message if the server is lagging.
 		if ( CLIENT_GetServerLagging( ) == true )
-		{
-			USHORT				usTextColor;
-			char				szString[64];
-			DHUDMessageFadeOut	*pMsg;
-
-			// Build the string and text color;
-			sprintf( szString, "Waiting for server..." );
-			usTextColor = CR_GREEN;
-
-			pMsg = new DHUDMessageFadeOut( SmallFont, szString,
-				1.5f,
-				0.9f,
-				0,
-				0,
-				(EColorRange)usTextColor,
-				0.15f,
-				0.35f );
-
-			StatusBar->AttachMessage( pMsg, MAKE_ID('C','L','A','G') );
-		}
+			message = "Waiting for server...";
 		// Draw a "CONNECTION INTERRUPTED" message if the client is lagging.
 		else if ( CLIENT_GetClientLagging( ) == true )
+			message = "CONNECTION INTERRUPTED!";
+
+		if ( message.Len( ) > 0 )
 		{
-			USHORT				usTextColor;
-			char				szString[64];
-			DHUDMessageFadeOut	*pMsg;
-
-			// Build the string and text color;
-			sprintf( szString, "CONNECTION INTERRUPTED!" );
-			usTextColor = CR_GREEN;
-
-			pMsg = new DHUDMessageFadeOut( SmallFont, szString,
-				1.5f,
-				0.9f,
-				0,
-				0,
-				(EColorRange)usTextColor,
-				0.15f,
-				0.35f );
-
-			StatusBar->AttachMessage( pMsg, MAKE_ID('C','L','A','G') );
+			DHUDMessageFadeOut *pMsg = new DHUDMessageFadeOut( SmallFont, message, 1.5f, 0.9f, 0, 0, CR_GREEN, 0.15f, 0.35f );
+			StatusBar->AttachMessage( pMsg, MAKE_ID( 'C', 'L', 'A', 'G' ));
 		}
 	}
 
@@ -2900,7 +2902,7 @@ void D_DoomMain (void)
 		CAMPAIGN_ParseCampaignInfo( );
 
 		// [BB] Parse the GAMEMODE lump.
-		GAMEMODE_ParseGamemodeInfo( );
+		GAMEMODE_ParseGameModeInfo( );
 
 		// [RH] Initialize localizable strings.
 		GStrings.LoadStrings (false);
@@ -3330,6 +3332,10 @@ void D_DoomMain (void)
 
 UNSAFE_CCMD(restart)
 {
+	// [AK] This function may not be used by ConsoleCommand.
+	if ( ACS_IsCalledFromConsoleCommand( ))
+		return;
+
 	// remove command line args that would get in the way during restart
 	Args->RemoveArgs("-iwad");
 	Args->RemoveArgs("-deh");

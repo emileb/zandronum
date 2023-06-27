@@ -88,9 +88,11 @@ enum
 //*****************************************************************************
 //	PROTOTYPES
 
+bool	SCOREBOARD_ShouldDrawBoard( void );
 void	SCOREBOARD_Render( ULONG ulDisplayPlayer );
+void	SCOREBOARD_Refresh( void );
+void	SCOREBOARD_ShouldRefreshBeforeRendering( void );
 void	SCOREBOARD_BuildLimitStrings( std::list<FString> &lines, bool bAcceptColors );
-bool	SCOREBOARD_ShouldDrawBoard( ULONG ulDisplayPlayer );
 LONG	SCOREBOARD_GetLeftToLimit( void );
 void	SCOREBOARD_SetNextLevel( const char *pszMapName );
 

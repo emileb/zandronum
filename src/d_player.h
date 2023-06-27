@@ -320,6 +320,22 @@ enum
 	GENDER_NEUTER
 };
 
+// [AK] Enumerations used to indicate a player's rail color.
+enum
+{
+	RAILCOLOR_BLUE,
+	RAILCOLOR_RED,
+	RAILCOLOR_YELLOW,
+	RAILCOLOR_BLACK,
+	RAILCOLOR_SILVER,
+	RAILCOLOR_GOLD,
+	RAILCOLOR_GREEN,
+	RAILCOLOR_WHITE,
+	RAILCOLOR_PURPLE,
+	RAILCOLOR_ORANGE,
+	RAILCOLOR_RAINBOW
+};
+
 struct userinfo_t : TMap<FName,FBaseCVar *>
 {
 	~userinfo_t();
@@ -618,8 +634,8 @@ public:
 	// The last tick this player got an "Excellent!" medal.
 	ULONG		ulLastExcellentTick;
 
-	// The last tick this player killed someone with the BFG9000.
-	ULONG		ulLastBFGFragTick;
+	// The last tick this player got a frag with a weapon that gives the "Spam" medal.
+	ULONG		ulLastSpamTick;
 
 	// Number of consecutive hits the player has made with his weapon without missing.
 	ULONG		ulConsecutiveHits;
@@ -724,13 +740,13 @@ public:
 	bool		bUnarmed;
 
 	// [Spleen] Store old information about the player for unlagged support
-	fixed_t		unlaggedX[UNLAGGEDTICS];
-	fixed_t		unlaggedY[UNLAGGEDTICS];
-	fixed_t		unlaggedZ[UNLAGGEDTICS];
+	// [AK] Converted the position members into TVector3 objects.
+	TVector3<fixed_t>	unlaggedPos[UNLAGGEDTICS];
+	TVector3<fixed_t>	restorePos;
 
-	fixed_t		restoreX;
-	fixed_t		restoreY;
-	fixed_t		restoreZ;
+	// [AK] We should also store the player's old height for unlagged.
+	fixed_t		unlaggedHeight[UNLAGGEDTICS];
+	fixed_t		restoreHeight;
 
 	fixed_t		restoreFloorZ;
 	fixed_t		restoreCeilingZ;
@@ -774,7 +790,6 @@ void	PLAYER_ResetAllPlayersFragcount( void );
 void	PLAYER_ResetAllPlayersSpecialCounters( void );
 void	PLAYER_ResetSpecialCounters ( player_t *pPlayer );
 void	PLAYER_ResetPlayerData( player_t *pPlayer );
-void	PLAYER_GivePossessionPoint( player_t *pPlayer );
 void	PLAYER_SetTeam( player_t *pPlayer, ULONG ulTeam, bool bNoBroadcast );
 void	PLAYER_SetSpectator( player_t *pPlayer, bool bBroadcast, bool bDeadSpectator );
 void	PLAYER_SetDefaultSpectatorValues( player_t *pPlayer );
@@ -782,7 +797,7 @@ void	PLAYER_SpectatorJoinsGame ( player_t *pPlayer );
 void	PLAYER_SetPoints( player_t *pPlayer, ULONG ulPoints );
 void	PLAYER_SetWins( player_t *pPlayer, ULONG ulWins );
 void	PLAYER_SetKills( player_t *pPlayer, ULONG ulKills );
-void	PLAYER_SetDeaths( player_t *pPlayer, ULONG ulDeaths );
+void	PLAYER_SetDeaths( player_t *pPlayer, ULONG ulDeaths, bool bInformClients = true );
 // [BB] PLAYER_GetHealth and PLAYER_GetLivesLeft are helper functions for PLAYER_GetPlayerWithSingleHighestValue.
 LONG	PLAYER_GetHealth( ULONG ulPlayer );
 LONG	PLAYER_GetLivesLeft( ULONG ulPlayer );
@@ -798,6 +813,8 @@ LONG	PLAYER_GetRailgunColor( player_t *pPlayer );
 void	PLAYER_AwardDamagePointsForAllPlayers( void );
 void	PLAYER_SetWeapon( player_t *pPlayer, AWeapon *pWeapon, bool bClearWeaponForClientOnServer = false );
 void	PLAYER_ClearWeapon( player_t *pPlayer );
+bool	PLAYER_IsUsingWeaponSkin( AActor *pActor );
+void	PLAYER_ApplySkinScaleToBody( player_t *pPlayer, AActor *pActor, AWeapon *pWeapon );
 void	PLAYER_SetLivesLeft( player_t *pPlayer, ULONG ulLivesLeft );
 bool	PLAYER_IsAliveOrCanRespawn( player_t *pPlayer );
 void	PLAYER_RemoveFriends( const ULONG ulPlayer );
@@ -810,6 +827,7 @@ bool	PLAYER_CanRespawnWhereDied( player_t *pPlayer );
 bool	PLAYER_CannotAffectAllyWith( AActor *pActor1, AActor *pActor2, AActor *pInflictor, int flag );
 LONG	PLAYER_CalcSpread( ULONG ulPlayer );
 ULONG	PLAYER_CalcRank( ULONG ulPlayer );
+void	PLAYER_ScaleDamageCountWithMaxHealth( player_t *pPlayer, int &damage );
 
 void P_CheckPlayerSprite(AActor *mo, int &spritenum, fixed_t &scalex, fixed_t &scaley);
 

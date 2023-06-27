@@ -520,6 +520,7 @@ OptionMenu "CustomizeControls"
 	Control		"Item carrier spy",			"spycarrier" // [AK]
 	Control 	"Screenshot",			"screenshot"
 	Control		"Spectate",				"spectate" // [TP]
+	Control		"Switch teams",				"changeteam" // [AK]
 	Control		"Taunt",				"taunt" // [TP]
 	Option		"Join the game",		"joinmenukey", "JoinMenuKeys" // [TP]
 	Control		"Join the game (custom)", "menu_join" // [TP]
@@ -1315,6 +1316,8 @@ OptionMenu GameplayOptions
 	Option "Force software pitch limits",	"sv_forcesoftwarepitchlimits", "YesNo"
 	Option "Shoot through allies",	"sv_shootthroughallies", "YesNo"
 	Option "Attacks push allies",	"sv_dontpushallies", "NoYes"
+	Option "Clear join queue between levels",	"sv_dontkeepjoinqueue", "YesNo"
+	Option "Don't override player colors",	"sv_dontoverrideplayercolors", "YesNo"
 	// [TP] --
 
 	StaticText " "
@@ -1345,6 +1348,7 @@ OptionMenu GameplayOptions
 	Option "Server picks teams (ST/CTF)", "sv_noteamselect", "YesNo"
 	Option "Keep teams across levels", "sv_keepteams", "YesNo"
 	Option "Apply LMS spectator settings",	"sv_applylmsspectatorsettings", "YesNo"
+	Option "Don't hide enemy player stats",	"sv_donthidestats", "YesNo"
 	Option "Medals",				"sv_nomedals", "NoYes"
 	// [TP] --
 
@@ -1608,6 +1612,7 @@ OptionMenu SoundOptions
 	Slider "Sound channels",	"snd_channels", 8, 256, 8, 0
 	Option "Play connect sound", "cl_connectsound", "YesNo" // [TP]
 	Option "Multiple announcer sounds", "cl_allowmultipleannouncersounds", "YesNo" // [TP]
+	Option "Lock music",		"snd_lockmusic", "YesNo" // [AK]
 	StaticText " "
 	Command "Restart sound",	"snd_reset"
 	StaticText " "

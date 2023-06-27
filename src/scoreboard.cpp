@@ -101,6 +101,9 @@ static	ULONG		g_aulColumnX[MAX_COLUMNS];
 // What font are the column headers using?
 static	FFont		*g_pColumnHeaderFont = NULL;
 
+// [AK] Do we need to update the scoreboard before we draw it on the screen?
+static	bool		g_bRefreshBeforeRendering = false;
+
 // This is the header for each column type.
 static	const char	*g_pszColumnHeaders[NUM_COLUMN_TYPES] =
 {
@@ -148,7 +151,7 @@ CVAR( Bool, cl_intermissiontimer, false, CVAR_ARCHIVE );
 //*****************************************************************************
 // Checks if the user wants to see the scoreboard and is allowed to.
 //
-bool SCOREBOARD_ShouldDrawBoard( ULONG ulDisplayPlayer )
+bool SCOREBOARD_ShouldDrawBoard( void )
 {
 	// [AK] If the user isn't pressing their scoreboard key then return false.
 	if ( Button_ShowScores.bDown == false )
@@ -166,18 +169,30 @@ bool SCOREBOARD_ShouldDrawBoard( ULONG ulDisplayPlayer )
 //
 void SCOREBOARD_Render( ULONG ulDisplayPlayer )
 {
-	ULONG	ulNumIdealColumns;
-
 	// Make sure the display player is valid.
 	if ( ulDisplayPlayer >= MAXPLAYERS )
 		return;
 
+	// [AK] If we need to update the scoreboard, do so before rendering it.
+	if ( g_bRefreshBeforeRendering )
+	{
+		SCOREBOARD_Refresh( );
+		g_bRefreshBeforeRendering = false;
+	}
+
 	// [AK] Draw the scoreboard header at the top.
 	scoreboard_DrawHeader( ulDisplayPlayer );
 
-	// Draw the player list and its data.
+	// Draw the headers, list, entries, everything.
+	scoreboard_DrawRankings( ulDisplayPlayer );
+}
+
+//*****************************************************************************
+//
+void SCOREBOARD_Refresh( void )
+{
 	// First, determine how many columns we can use, based on our screen resolution.
-	ulNumIdealColumns = 3;
+	ULONG ulNumIdealColumns = 3;
 
 	if ( HUD_GetWidth( ) >= 600 )
 		ulNumIdealColumns = 5;
@@ -185,18 +200,25 @@ void SCOREBOARD_Render( ULONG ulDisplayPlayer )
 		ulNumIdealColumns = 4;
 
 	// The 5 column display is only availible for modes that support it.
-	if (( ulNumIdealColumns == 5 ) && !( GAMEMODE_GetCurrentFlags() & (GMF_PLAYERSEARNPOINTS|GMF_PLAYERSEARNWINS) ))
+	if (( ulNumIdealColumns == 5 ) && !( GAMEMODE_GetCurrentFlags( ) & ( GMF_PLAYERSEARNPOINTS | GMF_PLAYERSEARNWINS )))
 		ulNumIdealColumns = 4;
 
 	if ( ulNumIdealColumns == 5 )
 		scoreboard_Prepare5ColumnDisplay( );
-	else if( ulNumIdealColumns == 4 )
+	else if ( ulNumIdealColumns == 4 )
 		scoreboard_Prepare4ColumnDisplay( );
 	else
 		scoreboard_Prepare3ColumnDisplay( );
+}
 
-	// Draw the headers, list, entries, everything.
-	scoreboard_DrawRankings( ulDisplayPlayer );
+//*****************************************************************************
+//
+void SCOREBOARD_ShouldRefreshBeforeRendering( void )
+{
+	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+		return;
+
+	g_bRefreshBeforeRendering = true;
 }
 
 //*****************************************************************************
@@ -264,7 +286,7 @@ LONG SCOREBOARD_GetLeftToLimit( void )
 	else if ( pointlimit && GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNPOINTS )
 	{
 		if ( teamgame || teampossession )
-			return ( pointlimit - TEAM_GetHighestScoreCount( ));		
+			return ( pointlimit - TEAM_GetHighestPointCount( ));
 		else // Must be possession mode.
 		{
 			LONG lHighestPointCount = INT_MIN;
@@ -454,7 +476,7 @@ static void scoreboard_RenderIndividualPlayer( ULONG ulDisplayPlayer, ULONG ulPl
 			}
 
 			// [AK] Also show an icon if the player is lagging to the server.
-			if (( players[ulPlayer].bLagging ) && ( players[ulPlayer].bSpectating == false ) && ( gamestate == GS_LEVEL ))
+			if (( players[ulPlayer].bLagging ) && ( gamestate == GS_LEVEL ))
 				scoreboard_DrawIcon( "LAGMINI", ulXPosOffset, g_ulCurYPos, 4 );
 
 			// Draw text if there's a vote on and this player voted.
@@ -766,6 +788,10 @@ void SCOREBOARD_BuildLimitStrings( std::list<FString> &lines, bool bAcceptColors
 				text.Format( "%d monster%s left", static_cast<int>( lRemaining ), lRemaining == 1 ? "" : "s" );
 			else
 				text.Format( "%d%% monsters left", static_cast<int>( lRemaining ));
+
+			// [AK] Render the number of monsters left on the same line as the number of waves left in invasion.
+			if ( invasion && wavelimit )			
+				scoreboard_TryToPrependLimit( lines, text );
 
 			lines.push_back( text );
 			ulNumLimits++;

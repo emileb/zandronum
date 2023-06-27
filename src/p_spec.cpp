@@ -88,6 +88,7 @@
 #include "invasion.h"
 #include "unlagged.h"
 #include "network_enums.h"
+#include "st_hud.h"
 
 static FRandom pr_playerinspecialsector ("PlayerInSpecialSector");
 void P_SetupPortals();
@@ -970,7 +971,7 @@ void P_UpdateSpecials ()
 					V_ColorizeString( szString );
 
 					// Display "%s WINS!" HUD message.
-					GAMEMODE_DisplayStandardMessage ( szString, true );
+					HUD_DrawStandardMessage( szString, CR_RED, false, 3.0f, 2.0f, true );
 
 					GAME_SetEndLevelDelay( 5 * TICRATE );
 				}
@@ -2362,13 +2363,6 @@ static void P_SpawnFriction(void)
 {
 	int i;
 	line_t *l = lines;
-
-	// [BC] Don't do this in client mode, because the friction for the sector could
-	// have changed at some point on the server end.
-	if ( NETWORK_InClientMode() )
-	{
-		return;
-	}
 
 	for (i = 0 ; i < numlines ; i++,l++)
 	{
