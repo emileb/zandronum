@@ -1,4 +1,4 @@
-// 0880792b417b3294a440d96cf029d08b
+// d1256fcdb68191eca819fa33f43eeff9
 // This file has been automatically generated. Do not edit by hand.
 #pragma once
 #include "actor.h"
@@ -24,6 +24,14 @@ namespace ServerCommands
 	{
 		int player;
 		int team;
+	};
+
+	struct MapRotationEntry
+	{
+		FString name;
+		int isUsed;
+		int minPlayers;
+		int maxPlayers;
 	};
 
 	class BaseServerCommand
@@ -69,7 +77,7 @@ namespace ServerCommands
 	public:
 		Ping() :
 			_timeInitialized( false ) {}
-		void SetTime( int value );
+		void SetTime( unsigned int value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
@@ -84,7 +92,7 @@ namespace ServerCommands
 		}
 
 	protected:
-		int time;
+		unsigned int time;
 		bool _timeInitialized;
 	};
 
@@ -143,24 +151,31 @@ namespace ServerCommands
 	{
 	public:
 		MapLoad() :
-			_mapNameInitialized( false ) {}
+			_mapNameInitialized( false ),
+			_currentPositionInitialized( false ) {}
 		void SetMapName( const FString & value );
+		void SetCurrentPosition( int value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
 		bool AllParametersInitialized() const
 		{
-			return _mapNameInitialized;
+			return _mapNameInitialized
+				&& _currentPositionInitialized;
 		}
 		void PrintMissingParameters() const
 		{
 			if ( _mapNameInitialized == false )
 				Printf( "Missing: mapName\n" );
+			if ( _currentPositionInitialized == false )
+				Printf( "Missing: currentPosition\n" );
 		}
 
 	protected:
 		FString mapName;
+		int currentPosition;
 		bool _mapNameInitialized;
+		bool _currentPositionInitialized;
 	};
 
 	class MapNew : public BaseServerCommand
@@ -646,7 +661,6 @@ namespace ServerCommands
 		SpawnPlayer() :
 			_playerInitialized( false ),
 			_priorStateInitialized( false ),
-			_playerStateInitialized( false ),
 			_isBotInitialized( false ),
 			_isSpectatingInitialized( false ),
 			_isDeadSpectatorInitialized( false ),
@@ -661,7 +675,6 @@ namespace ServerCommands
 			_morphedClassInitialized( false ) {}
 		void SetPlayer( player_t * value );
 		void SetPriorState( int value );
-		void SetPlayerState( int value );
 		void SetIsBot( bool value );
 		void SetIsSpectating( bool value );
 		void SetIsDeadSpectator( bool value );
@@ -682,7 +695,6 @@ namespace ServerCommands
 		{
 			return _playerInitialized
 				&& _priorStateInitialized
-				&& _playerStateInitialized
 				&& _isBotInitialized
 				&& _isSpectatingInitialized
 				&& _isDeadSpectatorInitialized
@@ -702,8 +714,6 @@ namespace ServerCommands
 				Printf( "Missing: player\n" );
 			if ( _priorStateInitialized == false )
 				Printf( "Missing: priorState\n" );
-			if ( _playerStateInitialized == false )
-				Printf( "Missing: playerState\n" );
 			if ( _isBotInitialized == false )
 				Printf( "Missing: isBot\n" );
 			if ( _isSpectatingInitialized == false )
@@ -733,7 +743,6 @@ namespace ServerCommands
 	protected:
 		player_t *player;
 		int priorState;
-		int playerState;
 		bool isBot;
 		bool isSpectating;
 		bool isDeadSpectator;
@@ -748,7 +757,6 @@ namespace ServerCommands
 		const PClass *morphedClass;
 		bool _playerInitialized;
 		bool _priorStateInitialized;
-		bool _playerStateInitialized;
 		bool _isBotInitialized;
 		bool _isSpectatingInitialized;
 		bool _isDeadSpectatorInitialized;
@@ -775,8 +783,7 @@ namespace ServerCommands
 			_angleInitialized( false ),
 			_velxInitialized( false ),
 			_velyInitialized( false ),
-			_velzInitialized( false ),
-			_isCrouchingInitialized( false ) {}
+			_velzInitialized( false ) {}
 		void SetPlayer( player_t * value );
 		void SetFlags( int value );
 		void SetX( fixed_t value );
@@ -786,7 +793,9 @@ namespace ServerCommands
 		void SetVelx( fixed_t value );
 		void SetVely( fixed_t value );
 		void SetVelz( fixed_t value );
-		void SetIsCrouching( bool value );
+		bool IsMovingX() const;
+		bool IsMovingY() const;
+		bool IsMovingZ() const;
 		bool IsVisible() const;
 		void Execute();
 		NetCommand BuildNetCommand() const;
@@ -801,8 +810,7 @@ namespace ServerCommands
 				&& _angleInitialized
 				&& _velxInitialized
 				&& _velyInitialized
-				&& _velzInitialized
-				&& _isCrouchingInitialized;
+				&& _velzInitialized;
 		}
 		void PrintMissingParameters() const
 		{
@@ -824,8 +832,6 @@ namespace ServerCommands
 				Printf( "Missing: vely\n" );
 			if ( _velzInitialized == false )
 				Printf( "Missing: velz\n" );
-			if ( _isCrouchingInitialized == false )
-				Printf( "Missing: isCrouching\n" );
 		}
 
 	protected:
@@ -838,7 +844,6 @@ namespace ServerCommands
 		fixed_t velx;
 		fixed_t vely;
 		fixed_t velz;
-		bool isCrouching;
 		bool _playerInitialized;
 		bool _flagsInitialized;
 		bool _xInitialized;
@@ -848,7 +853,6 @@ namespace ServerCommands
 		bool _velxInitialized;
 		bool _velyInitialized;
 		bool _velzInitialized;
-		bool _isCrouchingInitialized;
 	};
 
 	class DamagePlayer : public BaseServerCommand
@@ -893,6 +897,58 @@ namespace ServerCommands
 		bool _playerInitialized;
 		bool _healthInitialized;
 		bool _armorInitialized;
+		bool _attackerInitialized;
+	};
+
+	class DamagePlayerWithType : public BaseServerCommand
+	{
+	public:
+		DamagePlayerWithType() :
+			_playerInitialized( false ),
+			_healthInitialized( false ),
+			_armorInitialized( false ),
+			_damageTypeInitialized( false ),
+			_attackerInitialized( false ) {}
+		void SetPlayer( player_t * value );
+		void SetHealth( int value );
+		void SetArmor( int value );
+		void SetDamageType( const FString & value );
+		void SetAttacker( AActor * value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _playerInitialized
+				&& _healthInitialized
+				&& _armorInitialized
+				&& _damageTypeInitialized
+				&& _attackerInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _playerInitialized == false )
+				Printf( "Missing: player\n" );
+			if ( _healthInitialized == false )
+				Printf( "Missing: health\n" );
+			if ( _armorInitialized == false )
+				Printf( "Missing: armor\n" );
+			if ( _damageTypeInitialized == false )
+				Printf( "Missing: damageType\n" );
+			if ( _attackerInitialized == false )
+				Printf( "Missing: attacker\n" );
+		}
+
+	protected:
+		player_t *player;
+		int health;
+		int armor;
+		FString damageType;
+		AActor *attacker;
+		bool _playerInitialized;
+		bool _healthInitialized;
+		bool _armorInitialized;
+		bool _damageTypeInitialized;
 		bool _attackerInitialized;
 	};
 
@@ -1230,6 +1286,37 @@ namespace ServerCommands
 		bool _winsInitialized;
 	};
 
+	class SetPlayerDeaths : public BaseServerCommand
+	{
+	public:
+		SetPlayerDeaths() :
+			_playerInitialized( false ),
+			_deathsInitialized( false ) {}
+		void SetPlayer( player_t * value );
+		void SetDeaths( int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _playerInitialized
+				&& _deathsInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _playerInitialized == false )
+				Printf( "Missing: player\n" );
+			if ( _deathsInitialized == false )
+				Printf( "Missing: deaths\n" );
+		}
+
+	protected:
+		player_t *player;
+		int deaths;
+		bool _playerInitialized;
+		bool _deathsInitialized;
+	};
+
 	class SetPlayerKillCount : public BaseServerCommand
 	{
 	public:
@@ -1261,128 +1348,42 @@ namespace ServerCommands
 		bool _killCountInitialized;
 	};
 
-	class SetPlayerChatStatus : public BaseServerCommand
+	class SetPlayerStatus : public BaseServerCommand
 	{
 	public:
-		SetPlayerChatStatus() :
+		SetPlayerStatus() :
 			_playerInitialized( false ),
-			_chattingInitialized( false ) {}
+			_typeInitialized( false ),
+			_valueInitialized( false ) {}
 		void SetPlayer( player_t * value );
-		void SetChatting( bool value );
+		void SetType( int value );
+		void SetValue( bool value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
 		bool AllParametersInitialized() const
 		{
 			return _playerInitialized
-				&& _chattingInitialized;
+				&& _typeInitialized
+				&& _valueInitialized;
 		}
 		void PrintMissingParameters() const
 		{
 			if ( _playerInitialized == false )
 				Printf( "Missing: player\n" );
-			if ( _chattingInitialized == false )
-				Printf( "Missing: chatting\n" );
+			if ( _typeInitialized == false )
+				Printf( "Missing: type\n" );
+			if ( _valueInitialized == false )
+				Printf( "Missing: value\n" );
 		}
 
 	protected:
 		player_t *player;
-		bool chatting;
+		int type;
+		bool value;
 		bool _playerInitialized;
-		bool _chattingInitialized;
-	};
-
-	class SetPlayerConsoleStatus : public BaseServerCommand
-	{
-	public:
-		SetPlayerConsoleStatus() :
-			_playerInitialized( false ),
-			_inConsoleInitialized( false ) {}
-		void SetPlayer( player_t * value );
-		void SetInConsole( bool value );
-		void Execute();
-		NetCommand BuildNetCommand() const;
-		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
-		bool AllParametersInitialized() const
-		{
-			return _playerInitialized
-				&& _inConsoleInitialized;
-		}
-		void PrintMissingParameters() const
-		{
-			if ( _playerInitialized == false )
-				Printf( "Missing: player\n" );
-			if ( _inConsoleInitialized == false )
-				Printf( "Missing: inConsole\n" );
-		}
-
-	protected:
-		player_t *player;
-		bool inConsole;
-		bool _playerInitialized;
-		bool _inConsoleInitialized;
-	};
-
-	class SetPlayerLaggingStatus : public BaseServerCommand
-	{
-	public:
-		SetPlayerLaggingStatus() :
-			_playerInitialized( false ),
-			_laggingInitialized( false ) {}
-		void SetPlayer( player_t * value );
-		void SetLagging( bool value );
-		void Execute();
-		NetCommand BuildNetCommand() const;
-		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
-		bool AllParametersInitialized() const
-		{
-			return _playerInitialized
-				&& _laggingInitialized;
-		}
-		void PrintMissingParameters() const
-		{
-			if ( _playerInitialized == false )
-				Printf( "Missing: player\n" );
-			if ( _laggingInitialized == false )
-				Printf( "Missing: lagging\n" );
-		}
-
-	protected:
-		player_t *player;
-		bool lagging;
-		bool _playerInitialized;
-		bool _laggingInitialized;
-	};
-
-	class SetPlayerReadyToGoOnStatus : public BaseServerCommand
-	{
-	public:
-		SetPlayerReadyToGoOnStatus() :
-			_playerInitialized( false ),
-			_readyToGoOnInitialized( false ) {}
-		void SetPlayer( player_t * value );
-		void SetReadyToGoOn( bool value );
-		void Execute();
-		NetCommand BuildNetCommand() const;
-		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
-		bool AllParametersInitialized() const
-		{
-			return _playerInitialized
-				&& _readyToGoOnInitialized;
-		}
-		void PrintMissingParameters() const
-		{
-			if ( _playerInitialized == false )
-				Printf( "Missing: player\n" );
-			if ( _readyToGoOnInitialized == false )
-				Printf( "Missing: readyToGoOn\n" );
-		}
-
-	protected:
-		player_t *player;
-		bool readyToGoOn;
-		bool _playerInitialized;
-		bool _readyToGoOnInitialized;
+		bool _typeInitialized;
+		bool _valueInitialized;
 	};
 
 	class SetPlayerTeam : public BaseServerCommand
@@ -2444,23 +2445,46 @@ namespace ServerCommands
 			_messageInitialized( false ),
 			_xInitialized( false ),
 			_yInitialized( false ),
-			_hudWidthInitialized( false ),
-			_hudHeightInitialized( false ),
+			_typeInitialized( false ),
 			_colorInitialized( false ),
 			_holdTimeInitialized( false ),
+			_idInitialized( false ),
+			_inTimeInitialized( false ),
+			_outTimeInitialized( false ),
+			_hudWidthInitialized( false ),
+			_hudHeightInitialized( false ),
+			_clipRectLeftInitialized( false ),
+			_clipRectTopInitialized( false ),
+			_clipRectWidthInitialized( false ),
+			_clipRectHeightInitialized( false ),
+			_wrapWidthInitialized( false ),
 			_fontNameInitialized( false ),
-			_logInitialized( false ),
-			_idInitialized( false ) {}
+			_alphaInitialized( false ) {}
 		void SetMessage( const FString & value );
 		void SetX( float value );
 		void SetY( float value );
-		void SetHudWidth( int value );
-		void SetHudHeight( int value );
+		void SetType( int value );
 		void SetColor( int value );
 		void SetHoldTime( float value );
-		void SetFontName( const FString & value );
-		void SetLog( bool value );
 		void SetId( int value );
+		void SetInTime( float value );
+		void SetOutTime( float value );
+		void SetHudWidth( int value );
+		void SetHudHeight( int value );
+		void SetClipRectLeft( int value );
+		void SetClipRectTop( int value );
+		void SetClipRectWidth( int value );
+		void SetClipRectHeight( int value );
+		void SetWrapWidth( int value );
+		void SetFontName( const FString & value );
+		void SetAlpha( fixed_t value );
+		bool ContainsAlpha() const;
+		bool ContainsClippingRectangle() const;
+		bool ContainsFontName() const;
+		bool ContainsHUDSize() const;
+		bool ContainsInTime() const;
+		bool ContainsOutTime() const;
+		bool ContainsWrapWidth() const;
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
@@ -2469,13 +2493,21 @@ namespace ServerCommands
 			return _messageInitialized
 				&& _xInitialized
 				&& _yInitialized
-				&& _hudWidthInitialized
-				&& _hudHeightInitialized
+				&& _typeInitialized
 				&& _colorInitialized
 				&& _holdTimeInitialized
+				&& _idInitialized
+				&& _inTimeInitialized
+				&& _outTimeInitialized
+				&& _hudWidthInitialized
+				&& _hudHeightInitialized
+				&& _clipRectLeftInitialized
+				&& _clipRectTopInitialized
+				&& _clipRectWidthInitialized
+				&& _clipRectHeightInitialized
+				&& _wrapWidthInitialized
 				&& _fontNameInitialized
-				&& _logInitialized
-				&& _idInitialized;
+				&& _alphaInitialized;
 		}
 		void PrintMissingParameters() const
 		{
@@ -2485,339 +2517,75 @@ namespace ServerCommands
 				Printf( "Missing: x\n" );
 			if ( _yInitialized == false )
 				Printf( "Missing: y\n" );
-			if ( _hudWidthInitialized == false )
-				Printf( "Missing: hudWidth\n" );
-			if ( _hudHeightInitialized == false )
-				Printf( "Missing: hudHeight\n" );
+			if ( _typeInitialized == false )
+				Printf( "Missing: type\n" );
 			if ( _colorInitialized == false )
 				Printf( "Missing: color\n" );
 			if ( _holdTimeInitialized == false )
 				Printf( "Missing: holdTime\n" );
-			if ( _fontNameInitialized == false )
-				Printf( "Missing: fontName\n" );
-			if ( _logInitialized == false )
-				Printf( "Missing: log\n" );
 			if ( _idInitialized == false )
 				Printf( "Missing: id\n" );
+			if ( _inTimeInitialized == false )
+				Printf( "Missing: inTime\n" );
+			if ( _outTimeInitialized == false )
+				Printf( "Missing: outTime\n" );
+			if ( _hudWidthInitialized == false )
+				Printf( "Missing: hudWidth\n" );
+			if ( _hudHeightInitialized == false )
+				Printf( "Missing: hudHeight\n" );
+			if ( _clipRectLeftInitialized == false )
+				Printf( "Missing: clipRectLeft\n" );
+			if ( _clipRectTopInitialized == false )
+				Printf( "Missing: clipRectTop\n" );
+			if ( _clipRectWidthInitialized == false )
+				Printf( "Missing: clipRectWidth\n" );
+			if ( _clipRectHeightInitialized == false )
+				Printf( "Missing: clipRectHeight\n" );
+			if ( _wrapWidthInitialized == false )
+				Printf( "Missing: wrapWidth\n" );
+			if ( _fontNameInitialized == false )
+				Printf( "Missing: fontName\n" );
+			if ( _alphaInitialized == false )
+				Printf( "Missing: alpha\n" );
 		}
 
 	protected:
 		FString message;
 		float x;
 		float y;
-		int hudWidth;
-		int hudHeight;
+		int type;
 		int color;
 		float holdTime;
-		FString fontName;
-		bool log;
 		int id;
+		float inTime;
+		float outTime;
+		int hudWidth;
+		int hudHeight;
+		int clipRectLeft;
+		int clipRectTop;
+		int clipRectWidth;
+		int clipRectHeight;
+		int wrapWidth;
+		FString fontName;
+		fixed_t alpha;
 		bool _messageInitialized;
 		bool _xInitialized;
 		bool _yInitialized;
-		bool _hudWidthInitialized;
-		bool _hudHeightInitialized;
+		bool _typeInitialized;
 		bool _colorInitialized;
 		bool _holdTimeInitialized;
-		bool _fontNameInitialized;
-		bool _logInitialized;
 		bool _idInitialized;
-	};
-
-	class PrintHUDMessageFadeOut : public BaseServerCommand
-	{
-	public:
-		PrintHUDMessageFadeOut() :
-			_messageInitialized( false ),
-			_xInitialized( false ),
-			_yInitialized( false ),
-			_hudWidthInitialized( false ),
-			_hudHeightInitialized( false ),
-			_colorInitialized( false ),
-			_holdTimeInitialized( false ),
-			_fadeOutTimeInitialized( false ),
-			_fontNameInitialized( false ),
-			_logInitialized( false ),
-			_idInitialized( false ) {}
-		void SetMessage( const FString & value );
-		void SetX( float value );
-		void SetY( float value );
-		void SetHudWidth( int value );
-		void SetHudHeight( int value );
-		void SetColor( int value );
-		void SetHoldTime( float value );
-		void SetFadeOutTime( float value );
-		void SetFontName( const FString & value );
-		void SetLog( bool value );
-		void SetId( int value );
-		void Execute();
-		NetCommand BuildNetCommand() const;
-		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
-		bool AllParametersInitialized() const
-		{
-			return _messageInitialized
-				&& _xInitialized
-				&& _yInitialized
-				&& _hudWidthInitialized
-				&& _hudHeightInitialized
-				&& _colorInitialized
-				&& _holdTimeInitialized
-				&& _fadeOutTimeInitialized
-				&& _fontNameInitialized
-				&& _logInitialized
-				&& _idInitialized;
-		}
-		void PrintMissingParameters() const
-		{
-			if ( _messageInitialized == false )
-				Printf( "Missing: message\n" );
-			if ( _xInitialized == false )
-				Printf( "Missing: x\n" );
-			if ( _yInitialized == false )
-				Printf( "Missing: y\n" );
-			if ( _hudWidthInitialized == false )
-				Printf( "Missing: hudWidth\n" );
-			if ( _hudHeightInitialized == false )
-				Printf( "Missing: hudHeight\n" );
-			if ( _colorInitialized == false )
-				Printf( "Missing: color\n" );
-			if ( _holdTimeInitialized == false )
-				Printf( "Missing: holdTime\n" );
-			if ( _fadeOutTimeInitialized == false )
-				Printf( "Missing: fadeOutTime\n" );
-			if ( _fontNameInitialized == false )
-				Printf( "Missing: fontName\n" );
-			if ( _logInitialized == false )
-				Printf( "Missing: log\n" );
-			if ( _idInitialized == false )
-				Printf( "Missing: id\n" );
-		}
-
-	protected:
-		FString message;
-		float x;
-		float y;
-		int hudWidth;
-		int hudHeight;
-		int color;
-		float holdTime;
-		float fadeOutTime;
-		FString fontName;
-		bool log;
-		int id;
-		bool _messageInitialized;
-		bool _xInitialized;
-		bool _yInitialized;
+		bool _inTimeInitialized;
+		bool _outTimeInitialized;
 		bool _hudWidthInitialized;
 		bool _hudHeightInitialized;
-		bool _colorInitialized;
-		bool _holdTimeInitialized;
-		bool _fadeOutTimeInitialized;
+		bool _clipRectLeftInitialized;
+		bool _clipRectTopInitialized;
+		bool _clipRectWidthInitialized;
+		bool _clipRectHeightInitialized;
+		bool _wrapWidthInitialized;
 		bool _fontNameInitialized;
-		bool _logInitialized;
-		bool _idInitialized;
-	};
-
-	class PrintHUDMessageFadeInOut : public BaseServerCommand
-	{
-	public:
-		PrintHUDMessageFadeInOut() :
-			_messageInitialized( false ),
-			_xInitialized( false ),
-			_yInitialized( false ),
-			_hudWidthInitialized( false ),
-			_hudHeightInitialized( false ),
-			_colorInitialized( false ),
-			_holdTimeInitialized( false ),
-			_fadeInTimeInitialized( false ),
-			_fadeOutTimeInitialized( false ),
-			_fontNameInitialized( false ),
-			_logInitialized( false ),
-			_idInitialized( false ) {}
-		void SetMessage( const FString & value );
-		void SetX( float value );
-		void SetY( float value );
-		void SetHudWidth( int value );
-		void SetHudHeight( int value );
-		void SetColor( int value );
-		void SetHoldTime( float value );
-		void SetFadeInTime( float value );
-		void SetFadeOutTime( float value );
-		void SetFontName( const FString & value );
-		void SetLog( bool value );
-		void SetId( int value );
-		void Execute();
-		NetCommand BuildNetCommand() const;
-		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
-		bool AllParametersInitialized() const
-		{
-			return _messageInitialized
-				&& _xInitialized
-				&& _yInitialized
-				&& _hudWidthInitialized
-				&& _hudHeightInitialized
-				&& _colorInitialized
-				&& _holdTimeInitialized
-				&& _fadeInTimeInitialized
-				&& _fadeOutTimeInitialized
-				&& _fontNameInitialized
-				&& _logInitialized
-				&& _idInitialized;
-		}
-		void PrintMissingParameters() const
-		{
-			if ( _messageInitialized == false )
-				Printf( "Missing: message\n" );
-			if ( _xInitialized == false )
-				Printf( "Missing: x\n" );
-			if ( _yInitialized == false )
-				Printf( "Missing: y\n" );
-			if ( _hudWidthInitialized == false )
-				Printf( "Missing: hudWidth\n" );
-			if ( _hudHeightInitialized == false )
-				Printf( "Missing: hudHeight\n" );
-			if ( _colorInitialized == false )
-				Printf( "Missing: color\n" );
-			if ( _holdTimeInitialized == false )
-				Printf( "Missing: holdTime\n" );
-			if ( _fadeInTimeInitialized == false )
-				Printf( "Missing: fadeInTime\n" );
-			if ( _fadeOutTimeInitialized == false )
-				Printf( "Missing: fadeOutTime\n" );
-			if ( _fontNameInitialized == false )
-				Printf( "Missing: fontName\n" );
-			if ( _logInitialized == false )
-				Printf( "Missing: log\n" );
-			if ( _idInitialized == false )
-				Printf( "Missing: id\n" );
-		}
-
-	protected:
-		FString message;
-		float x;
-		float y;
-		int hudWidth;
-		int hudHeight;
-		int color;
-		float holdTime;
-		float fadeInTime;
-		float fadeOutTime;
-		FString fontName;
-		bool log;
-		int id;
-		bool _messageInitialized;
-		bool _xInitialized;
-		bool _yInitialized;
-		bool _hudWidthInitialized;
-		bool _hudHeightInitialized;
-		bool _colorInitialized;
-		bool _holdTimeInitialized;
-		bool _fadeInTimeInitialized;
-		bool _fadeOutTimeInitialized;
-		bool _fontNameInitialized;
-		bool _logInitialized;
-		bool _idInitialized;
-	};
-
-	class PrintHUDMessageTypeOnFadeOut : public BaseServerCommand
-	{
-	public:
-		PrintHUDMessageTypeOnFadeOut() :
-			_messageInitialized( false ),
-			_xInitialized( false ),
-			_yInitialized( false ),
-			_hudWidthInitialized( false ),
-			_hudHeightInitialized( false ),
-			_colorInitialized( false ),
-			_typeOnTimeInitialized( false ),
-			_holdTimeInitialized( false ),
-			_fadeOutTimeInitialized( false ),
-			_fontNameInitialized( false ),
-			_logInitialized( false ),
-			_idInitialized( false ) {}
-		void SetMessage( const FString & value );
-		void SetX( float value );
-		void SetY( float value );
-		void SetHudWidth( int value );
-		void SetHudHeight( int value );
-		void SetColor( int value );
-		void SetTypeOnTime( float value );
-		void SetHoldTime( float value );
-		void SetFadeOutTime( float value );
-		void SetFontName( const FString & value );
-		void SetLog( bool value );
-		void SetId( int value );
-		void Execute();
-		NetCommand BuildNetCommand() const;
-		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
-		bool AllParametersInitialized() const
-		{
-			return _messageInitialized
-				&& _xInitialized
-				&& _yInitialized
-				&& _hudWidthInitialized
-				&& _hudHeightInitialized
-				&& _colorInitialized
-				&& _typeOnTimeInitialized
-				&& _holdTimeInitialized
-				&& _fadeOutTimeInitialized
-				&& _fontNameInitialized
-				&& _logInitialized
-				&& _idInitialized;
-		}
-		void PrintMissingParameters() const
-		{
-			if ( _messageInitialized == false )
-				Printf( "Missing: message\n" );
-			if ( _xInitialized == false )
-				Printf( "Missing: x\n" );
-			if ( _yInitialized == false )
-				Printf( "Missing: y\n" );
-			if ( _hudWidthInitialized == false )
-				Printf( "Missing: hudWidth\n" );
-			if ( _hudHeightInitialized == false )
-				Printf( "Missing: hudHeight\n" );
-			if ( _colorInitialized == false )
-				Printf( "Missing: color\n" );
-			if ( _typeOnTimeInitialized == false )
-				Printf( "Missing: typeOnTime\n" );
-			if ( _holdTimeInitialized == false )
-				Printf( "Missing: holdTime\n" );
-			if ( _fadeOutTimeInitialized == false )
-				Printf( "Missing: fadeOutTime\n" );
-			if ( _fontNameInitialized == false )
-				Printf( "Missing: fontName\n" );
-			if ( _logInitialized == false )
-				Printf( "Missing: log\n" );
-			if ( _idInitialized == false )
-				Printf( "Missing: id\n" );
-		}
-
-	protected:
-		FString message;
-		float x;
-		float y;
-		int hudWidth;
-		int hudHeight;
-		int color;
-		float typeOnTime;
-		float holdTime;
-		float fadeOutTime;
-		FString fontName;
-		bool log;
-		int id;
-		bool _messageInitialized;
-		bool _xInitialized;
-		bool _yInitialized;
-		bool _hudWidthInitialized;
-		bool _hudHeightInitialized;
-		bool _colorInitialized;
-		bool _typeOnTimeInitialized;
-		bool _holdTimeInitialized;
-		bool _fadeOutTimeInitialized;
-		bool _fontNameInitialized;
-		bool _logInitialized;
-		bool _idInitialized;
+		bool _alphaInitialized;
 	};
 
 	class SpawnThing : public BaseServerCommand
@@ -3757,6 +3525,44 @@ namespace ServerCommands
 		AActor *actor;
 		int property;
 		int value;
+		bool _actorInitialized;
+		bool _propertyInitialized;
+		bool _valueInitialized;
+	};
+
+	class SetThingStringProperty : public BaseServerCommand
+	{
+	public:
+		SetThingStringProperty() :
+			_actorInitialized( false ),
+			_propertyInitialized( false ),
+			_valueInitialized( false ) {}
+		void SetActor( AActor * value );
+		void SetProperty( int value );
+		void SetValue( const FString & value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _actorInitialized
+				&& _propertyInitialized
+				&& _valueInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _actorInitialized == false )
+				Printf( "Missing: actor\n" );
+			if ( _propertyInitialized == false )
+				Printf( "Missing: property\n" );
+			if ( _valueInitialized == false )
+				Printf( "Missing: value\n" );
+		}
+
+	protected:
+		AActor *actor;
+		int property;
+		FString value;
 		bool _actorInitialized;
 		bool _propertyInitialized;
 		bool _valueInitialized;
@@ -6051,7 +5857,7 @@ namespace ServerCommands
 			_textureNameInitialized( false ),
 			_sideInitialized( false ),
 			_positionInitialized( false ) {}
-		void SetLineID( int value );
+		void SetLineID( unsigned int value );
 		void SetTextureName( const FString & value );
 		void SetSide( bool value );
 		void SetPosition( int value );
@@ -6078,7 +5884,7 @@ namespace ServerCommands
 		}
 
 	protected:
-		int lineID;
+		unsigned int lineID;
 		FString textureName;
 		bool side;
 		int position;
@@ -6086,6 +5892,214 @@ namespace ServerCommands
 		bool _textureNameInitialized;
 		bool _sideInitialized;
 		bool _positionInitialized;
+	};
+
+	class SetLineTextureOffset : public BaseServerCommand
+	{
+	public:
+		SetLineTextureOffset() :
+			_lineInitialized( false ),
+			_XOffsetInitialized( false ),
+			_YOffsetInitialized( false ),
+			_sideInitialized( false ),
+			_positionInitialized( false ) {}
+		void SetLine( line_t * value );
+		void SetXOffset( fixed_t value );
+		void SetYOffset( fixed_t value );
+		void SetSide( bool value );
+		void SetPosition( int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _lineInitialized
+				&& _XOffsetInitialized
+				&& _YOffsetInitialized
+				&& _sideInitialized
+				&& _positionInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _lineInitialized == false )
+				Printf( "Missing: line\n" );
+			if ( _XOffsetInitialized == false )
+				Printf( "Missing: XOffset\n" );
+			if ( _YOffsetInitialized == false )
+				Printf( "Missing: YOffset\n" );
+			if ( _sideInitialized == false )
+				Printf( "Missing: side\n" );
+			if ( _positionInitialized == false )
+				Printf( "Missing: position\n" );
+		}
+
+	protected:
+		line_t *line;
+		fixed_t XOffset;
+		fixed_t YOffset;
+		bool side;
+		int position;
+		bool _lineInitialized;
+		bool _XOffsetInitialized;
+		bool _YOffsetInitialized;
+		bool _sideInitialized;
+		bool _positionInitialized;
+	};
+
+	class SetLineTextureOffsetByID : public BaseServerCommand
+	{
+	public:
+		SetLineTextureOffsetByID() :
+			_lineIDInitialized( false ),
+			_XOffsetInitialized( false ),
+			_YOffsetInitialized( false ),
+			_sideInitialized( false ),
+			_flagsInitialized( false ) {}
+		void SetLineID( unsigned int value );
+		void SetXOffset( fixed_t value );
+		void SetYOffset( fixed_t value );
+		void SetSide( bool value );
+		void SetFlags( int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _lineIDInitialized
+				&& _XOffsetInitialized
+				&& _YOffsetInitialized
+				&& _sideInitialized
+				&& _flagsInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _lineIDInitialized == false )
+				Printf( "Missing: lineID\n" );
+			if ( _XOffsetInitialized == false )
+				Printf( "Missing: XOffset\n" );
+			if ( _YOffsetInitialized == false )
+				Printf( "Missing: YOffset\n" );
+			if ( _sideInitialized == false )
+				Printf( "Missing: side\n" );
+			if ( _flagsInitialized == false )
+				Printf( "Missing: flags\n" );
+		}
+
+	protected:
+		unsigned int lineID;
+		fixed_t XOffset;
+		fixed_t YOffset;
+		bool side;
+		int flags;
+		bool _lineIDInitialized;
+		bool _XOffsetInitialized;
+		bool _YOffsetInitialized;
+		bool _sideInitialized;
+		bool _flagsInitialized;
+	};
+
+	class SetLineTextureScale : public BaseServerCommand
+	{
+	public:
+		SetLineTextureScale() :
+			_lineInitialized( false ),
+			_XScaleInitialized( false ),
+			_YScaleInitialized( false ),
+			_sideInitialized( false ),
+			_positionInitialized( false ) {}
+		void SetLine( line_t * value );
+		void SetXScale( fixed_t value );
+		void SetYScale( fixed_t value );
+		void SetSide( bool value );
+		void SetPosition( int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _lineInitialized
+				&& _XScaleInitialized
+				&& _YScaleInitialized
+				&& _sideInitialized
+				&& _positionInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _lineInitialized == false )
+				Printf( "Missing: line\n" );
+			if ( _XScaleInitialized == false )
+				Printf( "Missing: XScale\n" );
+			if ( _YScaleInitialized == false )
+				Printf( "Missing: YScale\n" );
+			if ( _sideInitialized == false )
+				Printf( "Missing: side\n" );
+			if ( _positionInitialized == false )
+				Printf( "Missing: position\n" );
+		}
+
+	protected:
+		line_t *line;
+		fixed_t XScale;
+		fixed_t YScale;
+		bool side;
+		int position;
+		bool _lineInitialized;
+		bool _XScaleInitialized;
+		bool _YScaleInitialized;
+		bool _sideInitialized;
+		bool _positionInitialized;
+	};
+
+	class SetLineTextureScaleByID : public BaseServerCommand
+	{
+	public:
+		SetLineTextureScaleByID() :
+			_lineIDInitialized( false ),
+			_XScaleInitialized( false ),
+			_YScaleInitialized( false ),
+			_sideInitialized( false ),
+			_flagsInitialized( false ) {}
+		void SetLineID( unsigned int value );
+		void SetXScale( fixed_t value );
+		void SetYScale( fixed_t value );
+		void SetSide( bool value );
+		void SetFlags( int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _lineIDInitialized
+				&& _XScaleInitialized
+				&& _YScaleInitialized
+				&& _sideInitialized
+				&& _flagsInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _lineIDInitialized == false )
+				Printf( "Missing: lineID\n" );
+			if ( _XScaleInitialized == false )
+				Printf( "Missing: XScale\n" );
+			if ( _YScaleInitialized == false )
+				Printf( "Missing: YScale\n" );
+			if ( _sideInitialized == false )
+				Printf( "Missing: side\n" );
+			if ( _flagsInitialized == false )
+				Printf( "Missing: flags\n" );
+		}
+
+	protected:
+		unsigned int lineID;
+		fixed_t XScale;
+		fixed_t YScale;
+		bool side;
+		int flags;
+		bool _lineIDInitialized;
+		bool _XScaleInitialized;
+		bool _YScaleInitialized;
+		bool _sideInitialized;
+		bool _flagsInitialized;
 	};
 
 	class SetSomeLineFlags : public BaseServerCommand
@@ -6405,6 +6419,37 @@ namespace ServerCommands
 	protected:
 		FString sound;
 		bool _soundInitialized;
+	};
+
+	class StopSound : public BaseServerCommand
+	{
+	public:
+		StopSound() :
+			_actorInitialized( false ),
+			_channelInitialized( false ) {}
+		void SetActor( AActor * value );
+		void SetChannel( int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _actorInitialized
+				&& _channelInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _actorInitialized == false )
+				Printf( "Missing: actor\n" );
+			if ( _channelInitialized == false )
+				Printf( "Missing: channel\n" );
+		}
+
+	protected:
+		AActor *actor;
+		int channel;
+		bool _actorInitialized;
+		bool _channelInitialized;
 	};
 
 	class SpawnMissile : public BaseServerCommand
@@ -6877,6 +6922,44 @@ namespace ServerCommands
 		bool _alwaysInitialized;
 	};
 
+	class ACSSendString : public BaseServerCommand
+	{
+	public:
+		ACSSendString() :
+			_netidInitialized( false ),
+			_activatorInitialized( false ),
+			_stringInitialized( false ) {}
+		void SetNetid( int value );
+		void SetActivator( AActor * value );
+		void SetString( const FString & value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _netidInitialized
+				&& _activatorInitialized
+				&& _stringInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _netidInitialized == false )
+				Printf( "Missing: netid\n" );
+			if ( _activatorInitialized == false )
+				Printf( "Missing: activator\n" );
+			if ( _stringInitialized == false )
+				Printf( "Missing: string\n" );
+		}
+
+	protected:
+		int netid;
+		AActor *activator;
+		FString string;
+		bool _netidInitialized;
+		bool _activatorInitialized;
+		bool _stringInitialized;
+	};
+
 	class SyncJoinQueue : public BaseServerCommand
 	{
 	public:
@@ -6912,6 +6995,50 @@ namespace ServerCommands
 	protected:
 		TArray<struct JoinSlot> slots;
 		bool _slotsInitialized;
+	};
+
+	class SyncMapRotation : public BaseServerCommand
+	{
+	public:
+		SyncMapRotation() :
+			_entriesInitialized( false ),
+			_currentPositionInitialized( false ) {}
+		void SetEntries( const TArray<struct MapRotationEntry> & value );
+		void PushToEntries(const struct MapRotationEntry & value)
+		{
+			entries.Push(value);
+			_entriesInitialized = true;
+		}
+		bool PopFromEntries(struct MapRotationEntry& value)
+		{
+			return entries.Pop(value);
+		}
+		void ClearEntries()
+		{
+			entries.Clear();
+		}
+		void SetCurrentPosition( int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _entriesInitialized
+				&& _currentPositionInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _entriesInitialized == false )
+				Printf( "Missing: entries\n" );
+			if ( _currentPositionInitialized == false )
+				Printf( "Missing: currentPosition\n" );
+		}
+
+	protected:
+		TArray<struct MapRotationEntry> entries;
+		int currentPosition;
+		bool _entriesInitialized;
+		bool _currentPositionInitialized;
 	};
 
 	class ReplaceTextures : public BaseServerCommand

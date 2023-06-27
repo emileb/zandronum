@@ -38,10 +38,9 @@
 #include "version.h"
 
 #ifdef __ANDROID__
-#define HG_REVISION_HASH_STRING "ANDROID######"
-#define HG_TIME                 "200501-1847"
-//#define DOTVERSIONSTR_REV       "DD3C3B57023F"
-#define HG_REVISION_NUMBER       1504266050
+#define HG_REVISION_HASH_STRING "2c280cd262f3"
+#define HG_TIME                 "221030-0316"
+#define HG_REVISION_NUMBER       1667099807
 #endif
 
 const char *GetGitDescription()

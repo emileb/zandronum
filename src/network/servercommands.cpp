@@ -1,4 +1,4 @@
-// 399a189990dee9393b4f6058fa95a976
+// 4fbc61d6bd3594084c82855135974418
 // This file has been automatically generated. Do not edit by hand.
 #include "cl_main.h"
 #include "servercommands.h"
@@ -57,6 +57,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 		{
 			ServerCommands::MapLoad command;
 			command.mapName = bytestream->ReadString();
+			command.currentPosition = bytestream->ReadShort();
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
 				CLIENT_PrintWarning( "MapLoad: Packet contained %td too few bytes\n",
@@ -132,7 +133,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETMAPNUMKILLEDMONSTERS:
 		{
 			ServerCommands::SetMapNumKilledMonsters command;
-			command.killedMonsters = bytestream->ReadShort();
+			command.killedMonsters = bytestream->ReadVariable();
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
 				CLIENT_PrintWarning( "SetMapNumKilledMonsters: Packet contained %td too few bytes\n",
@@ -147,7 +148,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETMAPNUMFOUNDITEMS:
 		{
 			ServerCommands::SetMapNumFoundItems command;
-			command.foundItems = bytestream->ReadShort();
+			command.foundItems = bytestream->ReadVariable();
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
 				CLIENT_PrintWarning( "SetMapNumFoundItems: Packet contained %td too few bytes\n",
@@ -162,7 +163,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETMAPNUMFOUNDSECRETS:
 		{
 			ServerCommands::SetMapNumFoundSecrets command;
-			command.foundSecrets = bytestream->ReadShort();
+			command.foundSecrets = bytestream->ReadVariable();
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
 				CLIENT_PrintWarning( "SetMapNumFoundSecrets: Packet contained %td too few bytes\n",
@@ -177,7 +178,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETMAPNUMTOTALMONSTERS:
 		{
 			ServerCommands::SetMapNumTotalMonsters command;
-			command.totalMonsters = bytestream->ReadShort();
+			command.totalMonsters = bytestream->ReadVariable();
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
 				CLIENT_PrintWarning( "SetMapNumTotalMonsters: Packet contained %td too few bytes\n",
@@ -192,7 +193,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETMAPNUMTOTALITEMS:
 		{
 			ServerCommands::SetMapNumTotalItems command;
-			command.totalItems = bytestream->ReadShort();
+			command.totalItems = bytestream->ReadVariable();
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
 				CLIENT_PrintWarning( "SetMapNumTotalItems: Packet contained %td too few bytes\n",
@@ -287,8 +288,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 				int temp1;
 			int temp2;
 			command.player = &players[bytestream->ReadByte()];
-			command.priorState = bytestream->ReadByte();
-			command.playerState = bytestream->ReadByte();
+			command.priorState = bytestream->ReadShortByte( 4 );
 			command.isBot = bytestream->ReadBit();
 			command.isSpectating = bytestream->ReadBit();
 			command.isDeadSpectator = bytestream->ReadBit();
@@ -347,10 +347,18 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 				command.y = bytestream->ReadLong();
 				command.z = bytestream->ReadShort() << FRACBITS;
 				command.angle = bytestream->ReadLong();
+			}
+			if ( command.IsMovingX() )
+			{
 				command.velx = bytestream->ReadShort() << FRACBITS;
+			}
+			if ( command.IsMovingY() )
+			{
 				command.vely = bytestream->ReadShort() << FRACBITS;
+			}
+			if ( command.IsMovingZ() )
+			{
 				command.velz = bytestream->ReadShort() << FRACBITS;
-				command.isCrouching = bytestream->ReadBit();
 			}
 			temp3 = command.player - players;
 
@@ -365,6 +373,15 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 				return true;
 
 			if ( command.IsVisible() )
+			{
+			}
+			if ( command.IsMovingX() )
+			{
+			}
+			if ( command.IsMovingY() )
+			{
+			}
+			if ( command.IsMovingZ() )
 			{
 			}
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
@@ -384,8 +401,8 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			int temp4;
 			int temp5;
 			command.player = &players[bytestream->ReadByte()];
-			command.health = bytestream->ReadShort();
-			command.armor = bytestream->ReadShort();
+			command.health = bytestream->ReadVariable();
+			command.armor = bytestream->ReadVariable();
 			temp4 = bytestream->ReadShort();
 			temp5 = command.player - players;
 
@@ -477,7 +494,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			ServerCommands::SetPlayerHealth command;
 			int temp10;
 			command.player = &players[bytestream->ReadByte()];
-			command.health = bytestream->ReadShort();
+			command.health = bytestream->ReadVariable();
 			temp10 = command.player - players;
 
 			if ( PLAYER_IsValidPlayer( temp10 ) == false )
@@ -502,7 +519,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			ServerCommands::SetPlayerArmor command;
 			int temp11;
 			command.player = &players[bytestream->ReadByte()];
-			command.armorAmount = bytestream->ReadShort();
+			command.armorAmount = bytestream->ReadVariable();
 			command.armorIcon = bytestream->ReadString();
 			temp11 = command.player - players;
 
@@ -596,7 +613,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			ServerCommands::SetPlayerFrags command;
 			int temp15;
 			command.player = &players[bytestream->ReadByte()];
-			command.fragCount = bytestream->ReadShort();
+			command.fragCount = bytestream->ReadVariable();
 			temp15 = command.player - players;
 
 			if ( PLAYER_IsValidPlayer( temp15 ) == false )
@@ -621,7 +638,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			ServerCommands::SetPlayerPoints command;
 			int temp16;
 			command.player = &players[bytestream->ReadByte()];
-			command.pointCount = bytestream->ReadShort();
+			command.pointCount = bytestream->ReadVariable();
 			temp16 = command.player - players;
 
 			if ( PLAYER_IsValidPlayer( temp16 ) == false )
@@ -646,7 +663,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			ServerCommands::SetPlayerWins command;
 			int temp17;
 			command.player = &players[bytestream->ReadByte()];
-			command.wins = bytestream->ReadByte();
+			command.wins = bytestream->ReadVariable();
 			temp17 = command.player - players;
 
 			if ( PLAYER_IsValidPlayer( temp17 ) == false )
@@ -671,7 +688,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			ServerCommands::SetPlayerKillCount command;
 			int temp18;
 			command.player = &players[bytestream->ReadByte()];
-			command.killCount = bytestream->ReadShort();
+			command.killCount = bytestream->ReadVariable();
 			temp18 = command.player - players;
 
 			if ( PLAYER_IsValidPlayer( temp18 ) == false )
@@ -691,98 +708,24 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 		}
 		return true;
 
-	case SVC_SETPLAYERCHATSTATUS:
+	case SVC_SETPLAYERSTATUS:
 		{
-			ServerCommands::SetPlayerChatStatus command;
+			ServerCommands::SetPlayerStatus command;
 			int temp19;
 			command.player = &players[bytestream->ReadByte()];
-			command.chatting = bytestream->ReadBit();
+			command.type = bytestream->ReadShortByte( 7 );
+			command.value = bytestream->ReadBit();
 			temp19 = command.player - players;
 
 			if ( PLAYER_IsValidPlayer( temp19 ) == false )
 			{
-				CLIENT_PrintWarning( "SetPlayerChatStatus: Invalid player number: %d\n", temp19 );
+				CLIENT_PrintWarning( "SetPlayerStatus: Invalid player number: %d\n", temp19 );
 				return true;
 			}
 
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
-				CLIENT_PrintWarning( "SetPlayerChatStatus: Packet contained %td too few bytes\n",
-					bytestream->pbStream - bytestream->pbStreamEnd );
-				return true;
-			}
-
-			command.Execute();
-		}
-		return true;
-
-	case SVC_SETPLAYERCONSOLESTATUS:
-		{
-			ServerCommands::SetPlayerConsoleStatus command;
-			int temp20;
-			command.player = &players[bytestream->ReadByte()];
-			command.inConsole = bytestream->ReadBit();
-			temp20 = command.player - players;
-
-			if ( PLAYER_IsValidPlayer( temp20 ) == false )
-			{
-				CLIENT_PrintWarning( "SetPlayerConsoleStatus: Invalid player number: %d\n", temp20 );
-				return true;
-			}
-
-			if ( bytestream->pbStream > bytestream->pbStreamEnd )
-			{
-				CLIENT_PrintWarning( "SetPlayerConsoleStatus: Packet contained %td too few bytes\n",
-					bytestream->pbStream - bytestream->pbStreamEnd );
-				return true;
-			}
-
-			command.Execute();
-		}
-		return true;
-
-	case SVC_SETPLAYERLAGGINGSTATUS:
-		{
-			ServerCommands::SetPlayerLaggingStatus command;
-			int temp21;
-			command.player = &players[bytestream->ReadByte()];
-			command.lagging = bytestream->ReadBit();
-			temp21 = command.player - players;
-
-			if ( PLAYER_IsValidPlayer( temp21 ) == false )
-			{
-				CLIENT_PrintWarning( "SetPlayerLaggingStatus: Invalid player number: %d\n", temp21 );
-				return true;
-			}
-
-			if ( bytestream->pbStream > bytestream->pbStreamEnd )
-			{
-				CLIENT_PrintWarning( "SetPlayerLaggingStatus: Packet contained %td too few bytes\n",
-					bytestream->pbStream - bytestream->pbStreamEnd );
-				return true;
-			}
-
-			command.Execute();
-		}
-		return true;
-
-	case SVC_SETPLAYERREADYTOGOONSTATUS:
-		{
-			ServerCommands::SetPlayerReadyToGoOnStatus command;
-			int temp22;
-			command.player = &players[bytestream->ReadByte()];
-			command.readyToGoOn = bytestream->ReadBit();
-			temp22 = command.player - players;
-
-			if ( PLAYER_IsValidPlayer( temp22 ) == false )
-			{
-				CLIENT_PrintWarning( "SetPlayerReadyToGoOnStatus: Invalid player number: %d\n", temp22 );
-				return true;
-			}
-
-			if ( bytestream->pbStream > bytestream->pbStreamEnd )
-			{
-				CLIENT_PrintWarning( "SetPlayerReadyToGoOnStatus: Packet contained %td too few bytes\n",
+				CLIENT_PrintWarning( "SetPlayerStatus: Packet contained %td too few bytes\n",
 					bytestream->pbStream - bytestream->pbStreamEnd );
 				return true;
 			}
@@ -794,14 +737,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETPLAYERTEAM:
 		{
 			ServerCommands::SetPlayerTeam command;
-			int temp23;
+			int temp20;
 			command.player = &players[bytestream->ReadByte()];
 			command.team = bytestream->ReadByte();
-			temp23 = command.player - players;
+			temp20 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp23 ) == false )
+			if ( PLAYER_IsValidPlayer( temp20 ) == false )
 			{
-				CLIENT_PrintWarning( "SetPlayerTeam: Invalid player number: %d\n", temp23 );
+				CLIENT_PrintWarning( "SetPlayerTeam: Invalid player number: %d\n", temp20 );
 				return true;
 			}
 
@@ -819,10 +762,10 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETPLAYERCAMERA:
 		{
 			ServerCommands::SetPlayerCamera command;
-			int temp24;
-			temp24 = bytestream->ReadShort();
+			int temp21;
+			temp21 = bytestream->ReadShort();
 			command.revertPlease = bytestream->ReadBit();
-			if ( CLIENT_ReadActorFromNetID( temp24, RUNTIME_CLASS( AActor ), true,
+			if ( CLIENT_ReadActorFromNetID( temp21, RUNTIME_CLASS( AActor ), true,
 											reinterpret_cast<AActor *&>( command.camera ),
 											"SetPlayerCamera", "camera" ) == false )
 			{
@@ -844,14 +787,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETPLAYERPOISONCOUNT:
 		{
 			ServerCommands::SetPlayerPoisonCount command;
-			int temp25;
+			int temp22;
 			command.player = &players[bytestream->ReadByte()];
 			command.poisonCount = bytestream->ReadShort();
-			temp25 = command.player - players;
+			temp22 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp25 ) == false )
+			if ( PLAYER_IsValidPlayer( temp22 ) == false )
 			{
-				CLIENT_PrintWarning( "SetPlayerPoisonCount: Invalid player number: %d\n", temp25 );
+				CLIENT_PrintWarning( "SetPlayerPoisonCount: Invalid player number: %d\n", temp22 );
 				return true;
 			}
 
@@ -869,22 +812,22 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETPLAYERAMMOCAPACITY:
 		{
 			ServerCommands::SetPlayerAmmoCapacity command;
-			int temp26;
-			int temp27;
+			int temp23;
+			int temp24;
 			command.player = &players[bytestream->ReadByte()];
-			temp26 = bytestream->ReadShort();
-			command.ammoType = NETWORK_GetClassFromIdentification( temp26 );
+			temp23 = bytestream->ReadShort();
+			command.ammoType = NETWORK_GetClassFromIdentification( temp23 );
 
 			if ( command.ammoType->IsDescendantOf( RUNTIME_CLASS( AAmmo )) == false )
 				command.ammoType = NULL;
 
 
 			command.maxAmount = bytestream->ReadLong();
-			temp27 = command.player - players;
+			temp24 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp27 ) == false )
+			if ( PLAYER_IsValidPlayer( temp24 ) == false )
 			{
-				CLIENT_PrintWarning( "SetPlayerAmmoCapacity: Invalid player number: %d\n", temp27 );
+				CLIENT_PrintWarning( "SetPlayerAmmoCapacity: Invalid player number: %d\n", temp24 );
 				return true;
 			}
 
@@ -895,7 +838,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.ammoType == NULL )
 			{
-				CLIENT_PrintWarning( "SetPlayerAmmoCapacity: unknown class ID for ammoType: %d\n", temp26 );
+				CLIENT_PrintWarning( "SetPlayerAmmoCapacity: unknown class ID for ammoType: %d\n", temp23 );
 				return true;
 			}
 
@@ -914,14 +857,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETPLAYERCHEATS:
 		{
 			ServerCommands::SetPlayerCheats command;
-			int temp28;
+			int temp25;
 			command.player = &players[bytestream->ReadByte()];
 			command.cheats = bytestream->ReadLong();
-			temp28 = command.player - players;
+			temp25 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp28 ) == false )
+			if ( PLAYER_IsValidPlayer( temp25 ) == false )
 			{
-				CLIENT_PrintWarning( "SetPlayerCheats: Invalid player number: %d\n", temp28 );
+				CLIENT_PrintWarning( "SetPlayerCheats: Invalid player number: %d\n", temp25 );
 				return true;
 			}
 
@@ -939,21 +882,21 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETPLAYERPENDINGWEAPON:
 		{
 			ServerCommands::SetPlayerPendingWeapon command;
-			int temp29;
-			int temp30;
+			int temp26;
+			int temp27;
 			command.player = &players[bytestream->ReadByte()];
-			temp29 = bytestream->ReadShort();
-			command.weaponType = NETWORK_GetClassFromIdentification( temp29 );
+			temp26 = bytestream->ReadShort();
+			command.weaponType = NETWORK_GetClassFromIdentification( temp26 );
 
 			if ( command.weaponType->IsDescendantOf( RUNTIME_CLASS( AWeapon )) == false )
 				command.weaponType = NULL;
 
 
-			temp30 = command.player - players;
+			temp27 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp30 ) == false )
+			if ( PLAYER_IsValidPlayer( temp27 ) == false )
 			{
-				CLIENT_PrintWarning( "SetPlayerPendingWeapon: Invalid player number: %d\n", temp30 );
+				CLIENT_PrintWarning( "SetPlayerPendingWeapon: Invalid player number: %d\n", temp27 );
 				return true;
 			}
 
@@ -964,7 +907,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.weaponType == NULL )
 			{
-				CLIENT_PrintWarning( "SetPlayerPendingWeapon: unknown class ID for weaponType: %d\n", temp29 );
+				CLIENT_PrintWarning( "SetPlayerPendingWeapon: unknown class ID for weaponType: %d\n", temp26 );
 				return true;
 			}
 
@@ -983,11 +926,11 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETPLAYERPSPRITE:
 		{
 			ServerCommands::SetPlayerPSprite command;
-			int temp31;
-			int temp32;
+			int temp28;
+			int temp29;
 			command.player = &players[bytestream->ReadByte()];
-			temp31 = bytestream->ReadShort();
-			command.stateOwner = NETWORK_GetClassFromIdentification( temp31 );
+			temp28 = bytestream->ReadShort();
+			command.stateOwner = NETWORK_GetClassFromIdentification( temp28 );
 
 			if ( command.stateOwner->IsDescendantOf( RUNTIME_CLASS( AActor )) == false )
 				command.stateOwner = NULL;
@@ -995,18 +938,18 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			command.offset = bytestream->ReadShort();
 			command.position = bytestream->ReadByte();
-			temp32 = command.player - players;
+			temp29 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp32 ) == false )
+			if ( PLAYER_IsValidPlayer( temp29 ) == false )
 			{
-				CLIENT_PrintWarning( "SetPlayerPSprite: Invalid player number: %d\n", temp32 );
+				CLIENT_PrintWarning( "SetPlayerPSprite: Invalid player number: %d\n", temp29 );
 				return true;
 			}
 
 
 			if ( command.stateOwner == NULL )
 			{
-				CLIENT_PrintWarning( "SetPlayerPSprite: unknown class ID for stateOwner: %d\n", temp31 );
+				CLIENT_PrintWarning( "SetPlayerPSprite: unknown class ID for stateOwner: %d\n", temp28 );
 				return true;
 			}
 
@@ -1025,17 +968,17 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETPLAYERBLEND:
 		{
 			ServerCommands::SetPlayerBlend command;
-			int temp33;
+			int temp30;
 			command.player = &players[bytestream->ReadByte()];
 			command.blendR = bytestream->ReadFloat();
 			command.blendG = bytestream->ReadFloat();
 			command.blendB = bytestream->ReadFloat();
 			command.blendA = bytestream->ReadFloat();
-			temp33 = command.player - players;
+			temp30 = command.player - players;
 
-			if (( temp33 < 0 ) || ( temp33 >= MAXPLAYERS ))
+			if (( temp30 < 0 ) || ( temp30 >= MAXPLAYERS ))
 			{
-				CLIENT_PrintWarning( "SetPlayerBlend: Invalid player number: %d\n", temp33 );
+				CLIENT_PrintWarning( "SetPlayerBlend: Invalid player number: %d\n", temp30 );
 				return true;
 			}
 
@@ -1053,14 +996,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETPLAYERMAXHEALTH:
 		{
 			ServerCommands::SetPlayerMaxHealth command;
-			int temp34;
+			int temp31;
 			command.player = &players[bytestream->ReadByte()];
 			command.maxHealth = bytestream->ReadLong();
-			temp34 = command.player - players;
+			temp31 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp34 ) == false )
+			if ( PLAYER_IsValidPlayer( temp31 ) == false )
 			{
-				CLIENT_PrintWarning( "SetPlayerMaxHealth: Invalid player number: %d\n", temp34 );
+				CLIENT_PrintWarning( "SetPlayerMaxHealth: Invalid player number: %d\n", temp31 );
 				return true;
 			}
 
@@ -1082,14 +1025,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETPLAYERLIVESLEFT:
 		{
 			ServerCommands::SetPlayerLivesLeft command;
-			int temp35;
+			int temp32;
 			command.player = &players[bytestream->ReadByte()];
 			command.livesLeft = bytestream->ReadByte();
-			temp35 = command.player - players;
+			temp32 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp35 ) == false )
+			if ( PLAYER_IsValidPlayer( temp32 ) == false )
 			{
-				CLIENT_PrintWarning( "SetPlayerLivesLeft: Invalid player number: %d\n", temp35 );
+				CLIENT_PrintWarning( "SetPlayerLivesLeft: Invalid player number: %d\n", temp32 );
 				return true;
 			}
 
@@ -1107,14 +1050,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_UPDATEPLAYERPING:
 		{
 			ServerCommands::UpdatePlayerPing command;
-			int temp36;
+			int temp33;
 			command.player = &players[bytestream->ReadByte()];
 			command.ping = bytestream->ReadShort();
-			temp36 = command.player - players;
+			temp33 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp36 ) == false )
+			if ( PLAYER_IsValidPlayer( temp33 ) == false )
 			{
-				CLIENT_PrintWarning( "UpdatePlayerPing: Invalid player number: %d\n", temp36 );
+				CLIENT_PrintWarning( "UpdatePlayerPing: Invalid player number: %d\n", temp33 );
 				return true;
 			}
 
@@ -1132,18 +1075,18 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_UPDATEPLAYEREXTRADATA:
 		{
 			ServerCommands::UpdatePlayerExtraData command;
-			int temp37;
+			int temp34;
 			command.player = &players[bytestream->ReadByte()];
 			command.pitch = bytestream->ReadLong();
 			command.waterLevel = bytestream->ReadByte();
 			command.buttons = bytestream->ReadByte();
 			command.viewZ = bytestream->ReadLong();
 			command.bob = bytestream->ReadLong();
-			temp37 = command.player - players;
+			temp34 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp37 ) == false )
+			if ( PLAYER_IsValidPlayer( temp34 ) == false )
 			{
-				CLIENT_PrintWarning( "UpdatePlayerExtraData: Invalid player number: %d\n", temp37 );
+				CLIENT_PrintWarning( "UpdatePlayerExtraData: Invalid player number: %d\n", temp34 );
 				return true;
 			}
 
@@ -1165,14 +1108,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_UPDATEPLAYERTIME:
 		{
 			ServerCommands::UpdatePlayerTime command;
-			int temp38;
+			int temp35;
 			command.player = &players[bytestream->ReadByte()];
 			command.time = bytestream->ReadShort();
-			temp38 = command.player - players;
+			temp35 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp38 ) == false )
+			if ( PLAYER_IsValidPlayer( temp35 ) == false )
 			{
-				CLIENT_PrintWarning( "UpdatePlayerTime: Invalid player number: %d\n", temp38 );
+				CLIENT_PrintWarning( "UpdatePlayerTime: Invalid player number: %d\n", temp35 );
 				return true;
 			}
 
@@ -1212,13 +1155,13 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_DISCONNECTPLAYER:
 		{
 			ServerCommands::DisconnectPlayer command;
-			int temp39;
+			int temp36;
 			command.player = &players[bytestream->ReadByte()];
-			temp39 = command.player - players;
+			temp36 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp39 ) == false )
+			if ( PLAYER_IsValidPlayer( temp36 ) == false )
 			{
-				CLIENT_PrintWarning( "DisconnectPlayer: Invalid player number: %d\n", temp39 );
+				CLIENT_PrintWarning( "DisconnectPlayer: Invalid player number: %d\n", temp36 );
 				return true;
 			}
 
@@ -1258,14 +1201,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_GIVEPLAYERMEDAL:
 		{
 			ServerCommands::GivePlayerMedal command;
-			int temp40;
+			int temp37;
 			command.player = &players[bytestream->ReadByte()];
 			command.medal = bytestream->ReadByte();
-			temp40 = command.player - players;
+			temp37 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp40 ) == false )
+			if ( PLAYER_IsValidPlayer( temp37 ) == false )
 			{
-				CLIENT_PrintWarning( "GivePlayerMedal: Invalid player number: %d\n", temp40 );
+				CLIENT_PrintWarning( "GivePlayerMedal: Invalid player number: %d\n", temp37 );
 				return true;
 			}
 
@@ -1290,14 +1233,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_PLAYERISSPECTATOR:
 		{
 			ServerCommands::PlayerIsSpectator command;
-			int temp41;
+			int temp38;
 			command.player = &players[bytestream->ReadByte()];
 			command.deadSpectator = bytestream->ReadBit();
-			temp41 = command.player - players;
+			temp38 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp41 ) == false )
+			if ( PLAYER_IsValidPlayer( temp38 ) == false )
 			{
-				CLIENT_PrintWarning( "PlayerIsSpectator: Invalid player number: %d\n", temp41 );
+				CLIENT_PrintWarning( "PlayerIsSpectator: Invalid player number: %d\n", temp38 );
 				return true;
 			}
 
@@ -1332,13 +1275,13 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_PLAYERTAUNT:
 		{
 			ServerCommands::PlayerTaunt command;
-			int temp42;
+			int temp39;
 			command.player = &players[bytestream->ReadByte()];
-			temp42 = command.player - players;
+			temp39 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp42 ) == false )
+			if ( PLAYER_IsValidPlayer( temp39 ) == false )
 			{
-				CLIENT_PrintWarning( "PlayerTaunt: Invalid player number: %d\n", temp42 );
+				CLIENT_PrintWarning( "PlayerTaunt: Invalid player number: %d\n", temp39 );
 				return true;
 			}
 
@@ -1360,13 +1303,13 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_PLAYERRESPAWNINVULNERABILITY:
 		{
 			ServerCommands::PlayerRespawnInvulnerability command;
-			int temp43;
+			int temp40;
 			command.player = &players[bytestream->ReadByte()];
-			temp43 = command.player - players;
+			temp40 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp43 ) == false )
+			if ( PLAYER_IsValidPlayer( temp40 ) == false )
 			{
-				CLIENT_PrintWarning( "PlayerRespawnInvulnerability: Invalid player number: %d\n", temp43 );
+				CLIENT_PrintWarning( "PlayerRespawnInvulnerability: Invalid player number: %d\n", temp40 );
 				return true;
 			}
 
@@ -1388,21 +1331,21 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_PLAYERUSEINVENTORY:
 		{
 			ServerCommands::PlayerUseInventory command;
-			int temp44;
-			int temp45;
+			int temp41;
+			int temp42;
 			command.player = &players[bytestream->ReadByte()];
-			temp44 = bytestream->ReadShort();
-			command.itemType = NETWORK_GetClassFromIdentification( temp44 );
+			temp41 = bytestream->ReadShort();
+			command.itemType = NETWORK_GetClassFromIdentification( temp41 );
 
 			if ( command.itemType->IsDescendantOf( RUNTIME_CLASS( AInventory )) == false )
 				command.itemType = NULL;
 
 
-			temp45 = command.player - players;
+			temp42 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp45 ) == false )
+			if ( PLAYER_IsValidPlayer( temp42 ) == false )
 			{
-				CLIENT_PrintWarning( "PlayerUseInventory: Invalid player number: %d\n", temp45 );
+				CLIENT_PrintWarning( "PlayerUseInventory: Invalid player number: %d\n", temp42 );
 				return true;
 			}
 
@@ -1413,7 +1356,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.itemType == NULL )
 			{
-				CLIENT_PrintWarning( "PlayerUseInventory: unknown class ID for itemType: %d\n", temp44 );
+				CLIENT_PrintWarning( "PlayerUseInventory: unknown class ID for itemType: %d\n", temp41 );
 				return true;
 			}
 
@@ -1432,21 +1375,21 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_PLAYERDROPINVENTORY:
 		{
 			ServerCommands::PlayerDropInventory command;
-			int temp46;
-			int temp47;
+			int temp43;
+			int temp44;
 			command.player = &players[bytestream->ReadByte()];
-			temp46 = bytestream->ReadShort();
-			command.itemType = NETWORK_GetClassFromIdentification( temp46 );
+			temp43 = bytestream->ReadShort();
+			command.itemType = NETWORK_GetClassFromIdentification( temp43 );
 
 			if ( command.itemType->IsDescendantOf( RUNTIME_CLASS( AInventory )) == false )
 				command.itemType = NULL;
 
 
-			temp47 = command.player - players;
+			temp44 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp47 ) == false )
+			if ( PLAYER_IsValidPlayer( temp44 ) == false )
 			{
-				CLIENT_PrintWarning( "PlayerDropInventory: Invalid player number: %d\n", temp47 );
+				CLIENT_PrintWarning( "PlayerDropInventory: Invalid player number: %d\n", temp44 );
 				return true;
 			}
 
@@ -1457,7 +1400,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.itemType == NULL )
 			{
-				CLIENT_PrintWarning( "PlayerDropInventory: unknown class ID for itemType: %d\n", temp46 );
+				CLIENT_PrintWarning( "PlayerDropInventory: unknown class ID for itemType: %d\n", temp43 );
 				return true;
 			}
 
@@ -1526,13 +1469,63 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			command.message = bytestream->ReadString();
 			command.x = bytestream->ReadFloat();
 			command.y = bytestream->ReadFloat();
-			command.hudWidth = bytestream->ReadShort();
-			command.hudHeight = bytestream->ReadShort();
-			command.color = bytestream->ReadByte();
+			command.type = bytestream->ReadShort();
+			command.color = bytestream->ReadShort();
 			command.holdTime = bytestream->ReadFloat();
-			command.fontName = bytestream->ReadString();
-			command.log = bytestream->ReadBit();
 			command.id = bytestream->ReadLong();
+			if ( command.ContainsInTime() )
+			{
+				command.inTime = bytestream->ReadFloat();
+			}
+			if ( command.ContainsOutTime() )
+			{
+				command.outTime = bytestream->ReadFloat();
+			}
+			if ( command.ContainsHUDSize() )
+			{
+				command.hudWidth = bytestream->ReadShort();
+				command.hudHeight = bytestream->ReadShort();
+			}
+			if ( command.ContainsClippingRectangle() )
+			{
+				command.clipRectLeft = bytestream->ReadShort();
+				command.clipRectTop = bytestream->ReadShort();
+				command.clipRectWidth = bytestream->ReadShort();
+				command.clipRectHeight = bytestream->ReadShort();
+			}
+			if ( command.ContainsWrapWidth() )
+			{
+				command.wrapWidth = bytestream->ReadShort();
+			}
+			if ( command.ContainsFontName() )
+			{
+				command.fontName = bytestream->ReadString();
+			}
+			if ( command.ContainsAlpha() )
+			{
+				command.alpha = bytestream->ReadLong();
+			}
+			if ( command.ContainsInTime() )
+			{
+			}
+			if ( command.ContainsOutTime() )
+			{
+			}
+			if ( command.ContainsHUDSize() )
+			{
+			}
+			if ( command.ContainsClippingRectangle() )
+			{
+			}
+			if ( command.ContainsWrapWidth() )
+			{
+			}
+			if ( command.ContainsFontName() )
+			{
+			}
+			if ( command.ContainsAlpha() )
+			{
+			}
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
 				CLIENT_PrintWarning( "PrintHUDMessage: Packet contained %td too few bytes\n",
@@ -1544,97 +1537,20 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 		}
 		return true;
 
-	case SVC_PRINTHUDMESSAGEFADEOUT:
-		{
-			ServerCommands::PrintHUDMessageFadeOut command;
-			command.message = bytestream->ReadString();
-			command.x = bytestream->ReadFloat();
-			command.y = bytestream->ReadFloat();
-			command.hudWidth = bytestream->ReadShort();
-			command.hudHeight = bytestream->ReadShort();
-			command.color = bytestream->ReadByte();
-			command.holdTime = bytestream->ReadFloat();
-			command.fadeOutTime = bytestream->ReadFloat();
-			command.fontName = bytestream->ReadString();
-			command.log = bytestream->ReadBit();
-			command.id = bytestream->ReadLong();
-			if ( bytestream->pbStream > bytestream->pbStreamEnd )
-			{
-				CLIENT_PrintWarning( "PrintHUDMessageFadeOut: Packet contained %td too few bytes\n",
-					bytestream->pbStream - bytestream->pbStreamEnd );
-				return true;
-			}
-
-			command.Execute();
-		}
-		return true;
-
-	case SVC_PRINTHUDMESSAGEFADEINOUT:
-		{
-			ServerCommands::PrintHUDMessageFadeInOut command;
-			command.message = bytestream->ReadString();
-			command.x = bytestream->ReadFloat();
-			command.y = bytestream->ReadFloat();
-			command.hudWidth = bytestream->ReadShort();
-			command.hudHeight = bytestream->ReadShort();
-			command.color = bytestream->ReadByte();
-			command.holdTime = bytestream->ReadFloat();
-			command.fadeInTime = bytestream->ReadFloat();
-			command.fadeOutTime = bytestream->ReadFloat();
-			command.fontName = bytestream->ReadString();
-			command.log = bytestream->ReadBit();
-			command.id = bytestream->ReadLong();
-			if ( bytestream->pbStream > bytestream->pbStreamEnd )
-			{
-				CLIENT_PrintWarning( "PrintHUDMessageFadeInOut: Packet contained %td too few bytes\n",
-					bytestream->pbStream - bytestream->pbStreamEnd );
-				return true;
-			}
-
-			command.Execute();
-		}
-		return true;
-
-	case SVC_PRINTHUDMESSAGETYPEONFADEOUT:
-		{
-			ServerCommands::PrintHUDMessageTypeOnFadeOut command;
-			command.message = bytestream->ReadString();
-			command.x = bytestream->ReadFloat();
-			command.y = bytestream->ReadFloat();
-			command.hudWidth = bytestream->ReadShort();
-			command.hudHeight = bytestream->ReadShort();
-			command.color = bytestream->ReadByte();
-			command.typeOnTime = bytestream->ReadFloat();
-			command.holdTime = bytestream->ReadFloat();
-			command.fadeOutTime = bytestream->ReadFloat();
-			command.fontName = bytestream->ReadString();
-			command.log = bytestream->ReadBit();
-			command.id = bytestream->ReadLong();
-			if ( bytestream->pbStream > bytestream->pbStreamEnd )
-			{
-				CLIENT_PrintWarning( "PrintHUDMessageTypeOnFadeOut: Packet contained %td too few bytes\n",
-					bytestream->pbStream - bytestream->pbStreamEnd );
-				return true;
-			}
-
-			command.Execute();
-		}
-		return true;
-
 	case SVC_SPAWNTHING:
 		{
 			ServerCommands::SpawnThing command;
-			int temp48;
+			int temp45;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
-			temp48 = bytestream->ReadShort();
-			command.type = NETWORK_GetClassFromIdentification( temp48 );
+			temp45 = bytestream->ReadShort();
+			command.type = NETWORK_GetClassFromIdentification( temp45 );
 			command.id = bytestream->ReadShort();
 
 			if ( command.type == NULL )
 			{
-				CLIENT_PrintWarning( "SpawnThing: unknown class ID for type: %d\n", temp48 );
+				CLIENT_PrintWarning( "SpawnThing: unknown class ID for type: %d\n", temp45 );
 				return true;
 			}
 
@@ -1653,16 +1569,16 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SPAWNTHINGNONETID:
 		{
 			ServerCommands::SpawnThingNoNetID command;
-			int temp49;
+			int temp46;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
-			temp49 = bytestream->ReadShort();
-			command.type = NETWORK_GetClassFromIdentification( temp49 );
+			temp46 = bytestream->ReadShort();
+			command.type = NETWORK_GetClassFromIdentification( temp46 );
 
 			if ( command.type == NULL )
 			{
-				CLIENT_PrintWarning( "SpawnThingNoNetID: unknown class ID for type: %d\n", temp49 );
+				CLIENT_PrintWarning( "SpawnThingNoNetID: unknown class ID for type: %d\n", temp46 );
 				return true;
 			}
 
@@ -1681,17 +1597,17 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SPAWNTHINGEXACT:
 		{
 			ServerCommands::SpawnThingExact command;
-			int temp50;
+			int temp47;
 			command.x = bytestream->ReadLong();
 			command.y = bytestream->ReadLong();
 			command.z = bytestream->ReadLong();
-			temp50 = bytestream->ReadShort();
-			command.type = NETWORK_GetClassFromIdentification( temp50 );
+			temp47 = bytestream->ReadShort();
+			command.type = NETWORK_GetClassFromIdentification( temp47 );
 			command.id = bytestream->ReadShort();
 
 			if ( command.type == NULL )
 			{
-				CLIENT_PrintWarning( "SpawnThingExact: unknown class ID for type: %d\n", temp50 );
+				CLIENT_PrintWarning( "SpawnThingExact: unknown class ID for type: %d\n", temp47 );
 				return true;
 			}
 
@@ -1710,16 +1626,16 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SPAWNTHINGEXACTNONETID:
 		{
 			ServerCommands::SpawnThingExactNoNetID command;
-			int temp51;
+			int temp48;
 			command.x = bytestream->ReadLong();
 			command.y = bytestream->ReadLong();
 			command.z = bytestream->ReadLong();
-			temp51 = bytestream->ReadShort();
-			command.type = NETWORK_GetClassFromIdentification( temp51 );
+			temp48 = bytestream->ReadShort();
+			command.type = NETWORK_GetClassFromIdentification( temp48 );
 
 			if ( command.type == NULL )
 			{
-				CLIENT_PrintWarning( "SpawnThingExactNoNetID: unknown class ID for type: %d\n", temp51 );
+				CLIENT_PrintWarning( "SpawnThingExactNoNetID: unknown class ID for type: %d\n", temp48 );
 				return true;
 			}
 
@@ -1738,8 +1654,8 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_MOVETHING:
 		{
 			ServerCommands::MoveThing command;
-			int temp52;
-			temp52 = bytestream->ReadShort();
+			int temp49;
+			temp49 = bytestream->ReadShort();
 			command.bits = bytestream->ReadShort();
 			if ( command.ContainsNewX() )
 			{
@@ -1789,7 +1705,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			{
 				command.movedir = bytestream->ReadByte();
 			}
-			if ( CLIENT_ReadActorFromNetID( temp52, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp49, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"MoveThing", "actor" ) == false )
 			{
@@ -1847,8 +1763,8 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_MOVETHINGEXACT:
 		{
 			ServerCommands::MoveThingExact command;
-			int temp53;
-			temp53 = bytestream->ReadShort();
+			int temp50;
+			temp50 = bytestream->ReadShort();
 			command.bits = bytestream->ReadShort();
 			if ( command.ContainsNewX() )
 			{
@@ -1898,7 +1814,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			{
 				command.movedir = bytestream->ReadByte();
 			}
-			if ( CLIENT_ReadActorFromNetID( temp53, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp50, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"MoveThingExact", "actor" ) == false )
 			{
@@ -1956,15 +1872,15 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_KILLTHING:
 		{
 			ServerCommands::KillThing command;
-			int temp54;
-			int temp55;
-			int temp56;
-			temp54 = bytestream->ReadShort();
-			command.health = bytestream->ReadShort();
+			int temp51;
+			int temp52;
+			int temp53;
+			temp51 = bytestream->ReadShort();
+			command.health = bytestream->ReadVariable();
 			command.damageType = bytestream->ReadString();
-			temp55 = bytestream->ReadShort();
-			temp56 = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp54, RUNTIME_CLASS( AActor ), false,
+			temp52 = bytestream->ReadShort();
+			temp53 = bytestream->ReadShort();
+			if ( CLIENT_ReadActorFromNetID( temp51, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.victim ),
 											"KillThing", "victim" ) == false )
 			{
@@ -1972,7 +1888,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			}
 
 
-			if ( CLIENT_ReadActorFromNetID( temp55, RUNTIME_CLASS( AActor ), true,
+			if ( CLIENT_ReadActorFromNetID( temp52, RUNTIME_CLASS( AActor ), true,
 											reinterpret_cast<AActor *&>( command.source ),
 											"KillThing", "source" ) == false )
 			{
@@ -1980,7 +1896,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			}
 
 
-			if ( CLIENT_ReadActorFromNetID( temp56, RUNTIME_CLASS( AActor ), true,
+			if ( CLIENT_ReadActorFromNetID( temp53, RUNTIME_CLASS( AActor ), true,
 											reinterpret_cast<AActor *&>( command.inflictor ),
 											"KillThing", "inflictor" ) == false )
 			{
@@ -2002,10 +1918,10 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGSTATE:
 		{
 			ServerCommands::SetThingState command;
-			int temp57;
-			temp57 = bytestream->ReadShort();
+			int temp54;
+			temp54 = bytestream->ReadShort();
 			command.state = bytestream->ReadByte();
-			if ( CLIENT_ReadActorFromNetID( temp57, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp54, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingState", "actor" ) == false )
 			{
@@ -2027,11 +1943,11 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGTARGET:
 		{
 			ServerCommands::SetThingTarget command;
-			int temp58;
-			int temp59;
-			temp58 = bytestream->ReadShort();
-			temp59 = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp58, RUNTIME_CLASS( AActor ), false,
+			int temp55;
+			int temp56;
+			temp55 = bytestream->ReadShort();
+			temp56 = bytestream->ReadShort();
+			if ( CLIENT_ReadActorFromNetID( temp55, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingTarget", "actor" ) == false )
 			{
@@ -2039,7 +1955,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			}
 
 
-			if ( CLIENT_ReadActorFromNetID( temp59, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp56, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.target ),
 											"SetThingTarget", "target" ) == false )
 			{
@@ -2061,9 +1977,9 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_DESTROYTHING:
 		{
 			ServerCommands::DestroyThing command;
-			int temp60;
-			temp60 = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp60, RUNTIME_CLASS( AActor ), false,
+			int temp57;
+			temp57 = bytestream->ReadShort();
+			if ( CLIENT_ReadActorFromNetID( temp57, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"DestroyThing", "actor" ) == false )
 			{
@@ -2085,10 +2001,10 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGANGLE:
 		{
 			ServerCommands::SetThingAngle command;
-			int temp61;
-			temp61 = bytestream->ReadShort();
+			int temp58;
+			temp58 = bytestream->ReadShort();
 			command.angle = bytestream->ReadShort() << FRACBITS;
-			if ( CLIENT_ReadActorFromNetID( temp61, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp58, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingAngle", "actor" ) == false )
 			{
@@ -2110,10 +2026,10 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGANGLEEXACT:
 		{
 			ServerCommands::SetThingAngleExact command;
-			int temp62;
-			temp62 = bytestream->ReadShort();
+			int temp59;
+			temp59 = bytestream->ReadShort();
 			command.angle = bytestream->ReadLong();
-			if ( CLIENT_ReadActorFromNetID( temp62, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp59, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingAngleExact", "actor" ) == false )
 			{
@@ -2135,10 +2051,10 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGWATERLEVEL:
 		{
 			ServerCommands::SetThingWaterLevel command;
-			int temp63;
-			temp63 = bytestream->ReadShort();
+			int temp60;
+			temp60 = bytestream->ReadShort();
 			command.waterlevel = bytestream->ReadByte();
-			if ( CLIENT_ReadActorFromNetID( temp63, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp60, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingWaterLevel", "actor" ) == false )
 			{
@@ -2160,11 +2076,11 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGFLAGS:
 		{
 			ServerCommands::SetThingFlags command;
-			int temp64;
-			temp64 = bytestream->ReadShort();
+			int temp61;
+			temp61 = bytestream->ReadShort();
 			command.flagset = bytestream->ReadByte();
 			command.flags = bytestream->ReadLong();
-			if ( CLIENT_ReadActorFromNetID( temp64, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp61, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingFlags", "actor" ) == false )
 			{
@@ -2186,14 +2102,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGARGUMENTS:
 		{
 			ServerCommands::SetThingArguments command;
-			int temp65;
-			temp65 = bytestream->ReadShort();
+			int temp62;
+			temp62 = bytestream->ReadShort();
 			command.arg0 = bytestream->ReadLong();
 			command.arg1 = bytestream->ReadLong();
 			command.arg2 = bytestream->ReadLong();
 			command.arg3 = bytestream->ReadLong();
 			command.arg4 = bytestream->ReadLong();
-			if ( CLIENT_ReadActorFromNetID( temp65, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp62, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingArguments", "actor" ) == false )
 			{
@@ -2215,10 +2131,10 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGTRANSLATION:
 		{
 			ServerCommands::SetThingTranslation command;
-			int temp66;
-			temp66 = bytestream->ReadShort();
+			int temp63;
+			temp63 = bytestream->ReadShort();
 			command.translation = bytestream->ReadLong();
-			if ( CLIENT_ReadActorFromNetID( temp66, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp63, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingTranslation", "actor" ) == false )
 			{
@@ -2240,11 +2156,11 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGPROPERTY:
 		{
 			ServerCommands::SetThingProperty command;
-			int temp67;
-			temp67 = bytestream->ReadShort();
+			int temp64;
+			temp64 = bytestream->ReadShort();
 			command.property = bytestream->ReadByte();
 			command.value = bytestream->ReadLong();
-			if ( CLIENT_ReadActorFromNetID( temp67, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp64, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingProperty", "actor" ) == false )
 			{
@@ -2266,11 +2182,11 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGSOUND:
 		{
 			ServerCommands::SetThingSound command;
-			int temp68;
-			temp68 = bytestream->ReadShort();
+			int temp65;
+			temp65 = bytestream->ReadShort();
 			command.soundType = bytestream->ReadByte();
 			command.sound = bytestream->ReadString();
-			if ( CLIENT_ReadActorFromNetID( temp68, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp65, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingSound", "actor" ) == false )
 			{
@@ -2292,12 +2208,12 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGSPAWNPOINT:
 		{
 			ServerCommands::SetThingSpawnPoint command;
-			int temp69;
-			temp69 = bytestream->ReadShort();
+			int temp66;
+			temp66 = bytestream->ReadShort();
 			command.spawnPointX = bytestream->ReadLong();
 			command.spawnPointY = bytestream->ReadLong();
 			command.spawnPointZ = bytestream->ReadLong();
-			if ( CLIENT_ReadActorFromNetID( temp69, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp66, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingSpawnPoint", "actor" ) == false )
 			{
@@ -2319,10 +2235,10 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGSPECIAL1:
 		{
 			ServerCommands::SetThingSpecial1 command;
-			int temp70;
-			temp70 = bytestream->ReadShort();
+			int temp67;
+			temp67 = bytestream->ReadShort();
 			command.special1 = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp70, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp67, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingSpecial1", "actor" ) == false )
 			{
@@ -2344,10 +2260,10 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGSPECIAL2:
 		{
 			ServerCommands::SetThingSpecial2 command;
-			int temp71;
-			temp71 = bytestream->ReadShort();
+			int temp68;
+			temp68 = bytestream->ReadShort();
 			command.special2 = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp71, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp68, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingSpecial2", "actor" ) == false )
 			{
@@ -2369,10 +2285,10 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGTICS:
 		{
 			ServerCommands::SetThingTics command;
-			int temp72;
-			temp72 = bytestream->ReadShort();
+			int temp69;
+			temp69 = bytestream->ReadShort();
 			command.tics = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp72, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp69, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingTics", "actor" ) == false )
 			{
@@ -2394,10 +2310,10 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGTID:
 		{
 			ServerCommands::SetThingTID command;
-			int temp73;
-			temp73 = bytestream->ReadShort();
+			int temp70;
+			temp70 = bytestream->ReadShort();
 			command.tid = bytestream->ReadLong();
-			if ( CLIENT_ReadActorFromNetID( temp73, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp70, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingTID", "actor" ) == false )
 			{
@@ -2419,10 +2335,10 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGGRAVITY:
 		{
 			ServerCommands::SetThingGravity command;
-			int temp74;
-			temp74 = bytestream->ReadShort();
+			int temp71;
+			temp71 = bytestream->ReadShort();
 			command.gravity = bytestream->ReadLong();
-			if ( CLIENT_ReadActorFromNetID( temp74, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp71, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingGravity", "actor" ) == false )
 			{
@@ -2444,18 +2360,18 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGFRAME:
 		{
 			ServerCommands::SetThingFrame command;
-			int temp75;
-			int temp76;
-			temp75 = bytestream->ReadShort();
-			temp76 = bytestream->ReadShort();
-			command.stateOwner = NETWORK_GetClassFromIdentification( temp76 );
+			int temp72;
+			int temp73;
+			temp72 = bytestream->ReadShort();
+			temp73 = bytestream->ReadShort();
+			command.stateOwner = NETWORK_GetClassFromIdentification( temp73 );
 
 			if ( command.stateOwner->IsDescendantOf( RUNTIME_CLASS( AActor )) == false )
 				command.stateOwner = NULL;
 
 
 			command.offset = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp75, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp72, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingFrame", "actor" ) == false )
 			{
@@ -2466,7 +2382,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.stateOwner == NULL )
 			{
-				CLIENT_PrintWarning( "SetThingFrame: unknown class ID for stateOwner: %d\n", temp76 );
+				CLIENT_PrintWarning( "SetThingFrame: unknown class ID for stateOwner: %d\n", temp73 );
 				return true;
 			}
 
@@ -2485,18 +2401,18 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETTHINGFRAMENF:
 		{
 			ServerCommands::SetThingFrameNF command;
-			int temp77;
-			int temp78;
-			temp77 = bytestream->ReadShort();
-			temp78 = bytestream->ReadShort();
-			command.stateOwner = NETWORK_GetClassFromIdentification( temp78 );
+			int temp74;
+			int temp75;
+			temp74 = bytestream->ReadShort();
+			temp75 = bytestream->ReadShort();
+			command.stateOwner = NETWORK_GetClassFromIdentification( temp75 );
 
 			if ( command.stateOwner->IsDescendantOf( RUNTIME_CLASS( AActor )) == false )
 				command.stateOwner = NULL;
 
 
 			command.offset = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp77, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp74, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingFrameNF", "actor" ) == false )
 			{
@@ -2507,7 +2423,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.stateOwner == NULL )
 			{
-				CLIENT_PrintWarning( "SetThingFrameNF: unknown class ID for stateOwner: %d\n", temp78 );
+				CLIENT_PrintWarning( "SetThingFrameNF: unknown class ID for stateOwner: %d\n", temp75 );
 				return true;
 			}
 
@@ -2526,11 +2442,11 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETWEAPONAMMOGIVE:
 		{
 			ServerCommands::SetWeaponAmmoGive command;
-			int temp79;
-			temp79 = bytestream->ReadShort();
+			int temp76;
+			temp76 = bytestream->ReadShort();
 			command.ammoGive1 = bytestream->ReadShort();
 			command.ammoGive2 = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp79, RUNTIME_CLASS( AWeapon ), false,
+			if ( CLIENT_ReadActorFromNetID( temp76, RUNTIME_CLASS( AWeapon ), false,
 											reinterpret_cast<AActor *&>( command.weapon ),
 											"SetWeaponAmmoGive", "weapon" ) == false )
 			{
@@ -2552,10 +2468,10 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_THINGISCORPSE:
 		{
 			ServerCommands::ThingIsCorpse command;
-			int temp80;
-			temp80 = bytestream->ReadShort();
+			int temp77;
+			temp77 = bytestream->ReadShort();
 			command.isMonster = bytestream->ReadBit();
-			if ( CLIENT_ReadActorFromNetID( temp80, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp77, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"ThingIsCorpse", "actor" ) == false )
 			{
@@ -2577,9 +2493,9 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_HIDETHING:
 		{
 			ServerCommands::HideThing command;
-			int temp81;
-			temp81 = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp81, RUNTIME_CLASS( AInventory ), false,
+			int temp78;
+			temp78 = bytestream->ReadShort();
+			if ( CLIENT_ReadActorFromNetID( temp78, RUNTIME_CLASS( AInventory ), false,
 											reinterpret_cast<AActor *&>( command.item ),
 											"HideThing", "item" ) == false )
 			{
@@ -2601,8 +2517,8 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_TELEPORTTHING:
 		{
 			ServerCommands::TeleportThing command;
-			int temp82;
-			temp82 = bytestream->ReadShort();
+			int temp79;
+			temp79 = bytestream->ReadShort();
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
@@ -2614,7 +2530,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			command.sourcefog = bytestream->ReadBit();
 			command.destfog = bytestream->ReadBit();
 			command.teleportzoom = bytestream->ReadBit();
-			if ( CLIENT_ReadActorFromNetID( temp82, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp79, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"TeleportThing", "actor" ) == false )
 			{
@@ -2636,11 +2552,11 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_THINGACTIVATE:
 		{
 			ServerCommands::ThingActivate command;
-			int temp83;
-			int temp84;
-			temp83 = bytestream->ReadShort();
-			temp84 = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp83, RUNTIME_CLASS( AActor ), false,
+			int temp80;
+			int temp81;
+			temp80 = bytestream->ReadShort();
+			temp81 = bytestream->ReadShort();
+			if ( CLIENT_ReadActorFromNetID( temp80, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"ThingActivate", "actor" ) == false )
 			{
@@ -2648,7 +2564,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			}
 
 
-			if ( CLIENT_ReadActorFromNetID( temp84, RUNTIME_CLASS( AActor ), true,
+			if ( CLIENT_ReadActorFromNetID( temp81, RUNTIME_CLASS( AActor ), true,
 											reinterpret_cast<AActor *&>( command.activator ),
 											"ThingActivate", "activator" ) == false )
 			{
@@ -2670,11 +2586,11 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_THINGDEACTIVATE:
 		{
 			ServerCommands::ThingDeactivate command;
-			int temp85;
-			int temp86;
-			temp85 = bytestream->ReadShort();
-			temp86 = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp85, RUNTIME_CLASS( AActor ), false,
+			int temp82;
+			int temp83;
+			temp82 = bytestream->ReadShort();
+			temp83 = bytestream->ReadShort();
+			if ( CLIENT_ReadActorFromNetID( temp82, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"ThingDeactivate", "actor" ) == false )
 			{
@@ -2682,7 +2598,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			}
 
 
-			if ( CLIENT_ReadActorFromNetID( temp86, RUNTIME_CLASS( AActor ), true,
+			if ( CLIENT_ReadActorFromNetID( temp83, RUNTIME_CLASS( AActor ), true,
 											reinterpret_cast<AActor *&>( command.activator ),
 											"ThingDeactivate", "activator" ) == false )
 			{
@@ -2704,10 +2620,10 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_RESPAWNDOOMTHING:
 		{
 			ServerCommands::RespawnDoomThing command;
-			int temp87;
-			temp87 = bytestream->ReadShort();
+			int temp84;
+			temp84 = bytestream->ReadShort();
 			command.fog = bytestream->ReadBit();
-			if ( CLIENT_ReadActorFromNetID( temp87, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp84, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"RespawnDoomThing", "actor" ) == false )
 			{
@@ -2729,9 +2645,9 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_RESPAWNRAVENTHING:
 		{
 			ServerCommands::RespawnRavenThing command;
-			int temp88;
-			temp88 = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp88, RUNTIME_CLASS( AActor ), false,
+			int temp85;
+			temp85 = bytestream->ReadShort();
+			if ( CLIENT_ReadActorFromNetID( temp85, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"RespawnRavenThing", "actor" ) == false )
 			{
@@ -2753,14 +2669,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SPAWNBLOOD:
 		{
 			ServerCommands::SpawnBlood command;
-			int temp89;
+			int temp86;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
 			command.dir = bytestream->ReadShort() << FRACBITS;
 			command.damage = bytestream->ReadByte();
-			temp89 = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp89, RUNTIME_CLASS( AActor ), false,
+			temp86 = bytestream->ReadShort();
+			if ( CLIENT_ReadActorFromNetID( temp86, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.originator ),
 											"SpawnBlood", "originator" ) == false )
 			{
@@ -2782,12 +2698,12 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SPAWNBLOODSPLATTER:
 		{
 			ServerCommands::SpawnBloodSplatter command;
-			int temp90;
+			int temp87;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
-			temp90 = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp90, RUNTIME_CLASS( AActor ), false,
+			temp87 = bytestream->ReadShort();
+			if ( CLIENT_ReadActorFromNetID( temp87, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.originator ),
 											"SpawnBloodSplatter", "originator" ) == false )
 			{
@@ -2809,12 +2725,12 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SPAWNBLOODSPLATTER2:
 		{
 			ServerCommands::SpawnBloodSplatter2 command;
-			int temp91;
+			int temp88;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
-			temp91 = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp91, RUNTIME_CLASS( AActor ), false,
+			temp88 = bytestream->ReadShort();
+			if ( CLIENT_ReadActorFromNetID( temp88, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.originator ),
 											"SpawnBloodSplatter2", "originator" ) == false )
 			{
@@ -2836,17 +2752,17 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SPAWNPUFF:
 		{
 			ServerCommands::SpawnPuff command;
-			int temp92;
+			int temp89;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
-			temp92 = bytestream->ReadShort();
-			command.pufftype = NETWORK_GetClassFromIdentification( temp92 );
+			temp89 = bytestream->ReadShort();
+			command.pufftype = NETWORK_GetClassFromIdentification( temp89 );
 			command.id = bytestream->ReadShort();
 
 			if ( command.pufftype == NULL )
 			{
-				CLIENT_PrintWarning( "SpawnPuff: unknown class ID for pufftype: %d\n", temp92 );
+				CLIENT_PrintWarning( "SpawnPuff: unknown class ID for pufftype: %d\n", temp89 );
 				return true;
 			}
 
@@ -2865,12 +2781,12 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SPAWNPUFFNONETID:
 		{
 			ServerCommands::SpawnPuffNoNetID command;
-			int temp93;
+			int temp90;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
-			temp93 = bytestream->ReadShort();
-			command.pufftype = NETWORK_GetClassFromIdentification( temp93 );
+			temp90 = bytestream->ReadShort();
+			command.pufftype = NETWORK_GetClassFromIdentification( temp90 );
 			command.stateid = bytestream->ReadByte();
 			command.receiveTranslation = bytestream->ReadBit();
 			if ( command.ContainsTranslation() )
@@ -2880,7 +2796,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.pufftype == NULL )
 			{
-				CLIENT_PrintWarning( "SpawnPuffNoNetID: unknown class ID for pufftype: %d\n", temp93 );
+				CLIENT_PrintWarning( "SpawnPuffNoNetID: unknown class ID for pufftype: %d\n", temp90 );
 				return true;
 			}
 
@@ -2902,14 +2818,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORFLOORPLANE:
 		{
 			ServerCommands::SetSectorFloorPlane command;
-			int temp94;
-			temp94 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp94 );
+			int temp91;
+			temp91 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp91 );
 			command.height = bytestream->ReadShort() << FRACBITS;
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorFloorPlane: couldn't find sector: %d\n", temp94 );
+				CLIENT_PrintWarning( "SetSectorFloorPlane: couldn't find sector: %d\n", temp91 );
 				return true;
 			}
 
@@ -2928,14 +2844,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORCEILINGPLANE:
 		{
 			ServerCommands::SetSectorCeilingPlane command;
-			int temp95;
-			temp95 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp95 );
+			int temp92;
+			temp92 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp92 );
 			command.height = bytestream->ReadShort() << FRACBITS;
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorCeilingPlane: couldn't find sector: %d\n", temp95 );
+				CLIENT_PrintWarning( "SetSectorCeilingPlane: couldn't find sector: %d\n", temp92 );
 				return true;
 			}
 
@@ -2954,16 +2870,16 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORFLOORPLANESLOPE:
 		{
 			ServerCommands::SetSectorFloorPlaneSlope command;
-			int temp96;
-			temp96 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp96 );
+			int temp93;
+			temp93 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp93 );
 			command.a = bytestream->ReadShort() << FRACBITS;
 			command.b = bytestream->ReadShort() << FRACBITS;
 			command.c = bytestream->ReadShort() << FRACBITS;
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorFloorPlaneSlope: couldn't find sector: %d\n", temp96 );
+				CLIENT_PrintWarning( "SetSectorFloorPlaneSlope: couldn't find sector: %d\n", temp93 );
 				return true;
 			}
 
@@ -2982,16 +2898,16 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORCEILINGPLANESLOPE:
 		{
 			ServerCommands::SetSectorCeilingPlaneSlope command;
-			int temp97;
-			temp97 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp97 );
+			int temp94;
+			temp94 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp94 );
 			command.a = bytestream->ReadShort() << FRACBITS;
 			command.b = bytestream->ReadShort() << FRACBITS;
 			command.c = bytestream->ReadShort() << FRACBITS;
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorCeilingPlaneSlope: couldn't find sector: %d\n", temp97 );
+				CLIENT_PrintWarning( "SetSectorCeilingPlaneSlope: couldn't find sector: %d\n", temp94 );
 				return true;
 			}
 
@@ -3010,14 +2926,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORLIGHTLEVEL:
 		{
 			ServerCommands::SetSectorLightLevel command;
-			int temp98;
-			temp98 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp98 );
+			int temp95;
+			temp95 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp95 );
 			command.lightLevel = bytestream->ReadShort();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorLightLevel: couldn't find sector: %d\n", temp98 );
+				CLIENT_PrintWarning( "SetSectorLightLevel: couldn't find sector: %d\n", temp95 );
 				return true;
 			}
 
@@ -3036,9 +2952,9 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORCOLOR:
 		{
 			ServerCommands::SetSectorColor command;
-			int temp99;
-			temp99 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp99 );
+			int temp96;
+			temp96 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp96 );
 			command.red = bytestream->ReadByte();
 			command.green = bytestream->ReadByte();
 			command.blue = bytestream->ReadByte();
@@ -3046,7 +2962,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorColor: couldn't find sector: %d\n", temp99 );
+				CLIENT_PrintWarning( "SetSectorColor: couldn't find sector: %d\n", temp96 );
 				return true;
 			}
 
@@ -3084,16 +3000,16 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORFADE:
 		{
 			ServerCommands::SetSectorFade command;
-			int temp100;
-			temp100 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp100 );
+			int temp97;
+			temp97 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp97 );
 			command.red = bytestream->ReadByte();
 			command.green = bytestream->ReadByte();
 			command.blue = bytestream->ReadByte();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorFade: couldn't find sector: %d\n", temp100 );
+				CLIENT_PrintWarning( "SetSectorFade: couldn't find sector: %d\n", temp97 );
 				return true;
 			}
 
@@ -3130,15 +3046,15 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORFLAT:
 		{
 			ServerCommands::SetSectorFlat command;
-			int temp101;
-			temp101 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp101 );
+			int temp98;
+			temp98 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp98 );
 			command.ceilingFlatName = bytestream->ReadString();
 			command.floorFlatName = bytestream->ReadString();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorFlat: couldn't find sector: %d\n", temp101 );
+				CLIENT_PrintWarning( "SetSectorFlat: couldn't find sector: %d\n", temp98 );
 				return true;
 			}
 
@@ -3157,9 +3073,9 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORPANNING:
 		{
 			ServerCommands::SetSectorPanning command;
-			int temp102;
-			temp102 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp102 );
+			int temp99;
+			temp99 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp99 );
 			command.ceilingXOffset = bytestream->ReadLong();
 			command.ceilingYOffset = bytestream->ReadLong();
 			command.floorXOffset = bytestream->ReadLong();
@@ -3167,7 +3083,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorPanning: couldn't find sector: %d\n", temp102 );
+				CLIENT_PrintWarning( "SetSectorPanning: couldn't find sector: %d\n", temp99 );
 				return true;
 			}
 
@@ -3186,15 +3102,15 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORROTATION:
 		{
 			ServerCommands::SetSectorRotation command;
-			int temp103;
-			temp103 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp103 );
+			int temp100;
+			temp100 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp100 );
 			command.ceilingRotation = bytestream->ReadShort();
 			command.floorRotation = bytestream->ReadShort();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorRotation: couldn't find sector: %d\n", temp103 );
+				CLIENT_PrintWarning( "SetSectorRotation: couldn't find sector: %d\n", temp100 );
 				return true;
 			}
 
@@ -3230,9 +3146,9 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORSCALE:
 		{
 			ServerCommands::SetSectorScale command;
-			int temp104;
-			temp104 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp104 );
+			int temp101;
+			temp101 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp101 );
 			command.ceilingXScale = bytestream->ReadLong();
 			command.ceilingYScale = bytestream->ReadLong();
 			command.floorXScale = bytestream->ReadLong();
@@ -3240,7 +3156,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorScale: couldn't find sector: %d\n", temp104 );
+				CLIENT_PrintWarning( "SetSectorScale: couldn't find sector: %d\n", temp101 );
 				return true;
 			}
 
@@ -3259,14 +3175,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORSPECIAL:
 		{
 			ServerCommands::SetSectorSpecial command;
-			int temp105;
-			temp105 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp105 );
+			int temp102;
+			temp102 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp102 );
 			command.special = bytestream->ReadShort();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorSpecial: couldn't find sector: %d\n", temp105 );
+				CLIENT_PrintWarning( "SetSectorSpecial: couldn't find sector: %d\n", temp102 );
 				return true;
 			}
 
@@ -3285,15 +3201,15 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORFRICTION:
 		{
 			ServerCommands::SetSectorFriction command;
-			int temp106;
-			temp106 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp106 );
+			int temp103;
+			temp103 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp103 );
 			command.friction = bytestream->ReadLong();
 			command.moveFactor = bytestream->ReadLong();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorFriction: couldn't find sector: %d\n", temp106 );
+				CLIENT_PrintWarning( "SetSectorFriction: couldn't find sector: %d\n", temp103 );
 				return true;
 			}
 
@@ -3312,9 +3228,9 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORANGLEYOFFSET:
 		{
 			ServerCommands::SetSectorAngleYOffset command;
-			int temp107;
-			temp107 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp107 );
+			int temp104;
+			temp104 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp104 );
 			command.ceilingBaseAngle = bytestream->ReadLong();
 			command.ceilingBaseYOffset = bytestream->ReadLong();
 			command.floorBaseAngle = bytestream->ReadLong();
@@ -3322,7 +3238,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorAngleYOffset: couldn't find sector: %d\n", temp107 );
+				CLIENT_PrintWarning( "SetSectorAngleYOffset: couldn't find sector: %d\n", temp104 );
 				return true;
 			}
 
@@ -3341,14 +3257,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORGRAVITY:
 		{
 			ServerCommands::SetSectorGravity command;
-			int temp108;
-			temp108 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp108 );
+			int temp105;
+			temp105 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp105 );
 			command.gravity = bytestream->ReadFloat();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorGravity: couldn't find sector: %d\n", temp108 );
+				CLIENT_PrintWarning( "SetSectorGravity: couldn't find sector: %d\n", temp105 );
 				return true;
 			}
 
@@ -3367,15 +3283,15 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORREFLECTION:
 		{
 			ServerCommands::SetSectorReflection command;
-			int temp109;
-			temp109 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp109 );
+			int temp106;
+			temp106 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp106 );
 			command.ceilingReflection = bytestream->ReadFloat();
 			command.floorReflection = bytestream->ReadFloat();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorReflection: couldn't find sector: %d\n", temp109 );
+				CLIENT_PrintWarning( "SetSectorReflection: couldn't find sector: %d\n", temp106 );
 				return true;
 			}
 
@@ -3394,16 +3310,16 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSECTORLINK:
 		{
 			ServerCommands::SetSectorLink command;
-			int temp110;
-			temp110 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp110 );
+			int temp107;
+			temp107 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp107 );
 			command.tag = bytestream->ReadShort();
 			command.ceiling = bytestream->ReadByte();
 			command.moveType = bytestream->ReadByte();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SetSectorLink: couldn't find sector: %d\n", temp110 );
+				CLIENT_PrintWarning( "SetSectorLink: couldn't find sector: %d\n", temp107 );
 				return true;
 			}
 
@@ -3422,13 +3338,13 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_STOPSECTORLIGHTEFFECT:
 		{
 			ServerCommands::StopSectorLightEffect command;
-			int temp111;
-			temp111 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp111 );
+			int temp108;
+			temp108 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp108 );
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "StopSectorLightEffect: couldn't find sector: %d\n", temp111 );
+				CLIENT_PrintWarning( "StopSectorLightEffect: couldn't find sector: %d\n", temp108 );
 				return true;
 			}
 
@@ -3454,16 +3370,16 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_STARTSECTORSEQUENCE:
 		{
 			ServerCommands::StartSectorSequence command;
-			int temp112;
-			temp112 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp112 );
+			int temp109;
+			temp109 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp109 );
 			command.channel = bytestream->ReadByte();
 			command.sequence = bytestream->ReadString();
 			command.modeNum = bytestream->ReadByte();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "StartSectorSequence: couldn't find sector: %d\n", temp112 );
+				CLIENT_PrintWarning( "StartSectorSequence: couldn't find sector: %d\n", temp109 );
 				return true;
 			}
 
@@ -3482,13 +3398,13 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_STOPSECTORSEQUENCE:
 		{
 			ServerCommands::StopSectorSequence command;
-			int temp113;
-			temp113 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp113 );
+			int temp110;
+			temp110 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp110 );
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "StopSectorSequence: couldn't find sector: %d\n", temp113 );
+				CLIENT_PrintWarning( "StopSectorSequence: couldn't find sector: %d\n", temp110 );
 				return true;
 			}
 
@@ -3507,15 +3423,15 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_DOSECTORLIGHTFIREFLICKER:
 		{
 			ServerCommands::DoSectorLightFireFlicker command;
-			int temp114;
-			temp114 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp114 );
+			int temp111;
+			temp111 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp111 );
 			command.maxLight = bytestream->ReadShort();
 			command.minLight = bytestream->ReadShort();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "DoSectorLightFireFlicker: couldn't find sector: %d\n", temp114 );
+				CLIENT_PrintWarning( "DoSectorLightFireFlicker: couldn't find sector: %d\n", temp111 );
 				return true;
 			}
 
@@ -3534,15 +3450,15 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_DOSECTORLIGHTFLICKER:
 		{
 			ServerCommands::DoSectorLightFlicker command;
-			int temp115;
-			temp115 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp115 );
+			int temp112;
+			temp112 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp112 );
 			command.maxLight = bytestream->ReadShort();
 			command.minLight = bytestream->ReadShort();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "DoSectorLightFlicker: couldn't find sector: %d\n", temp115 );
+				CLIENT_PrintWarning( "DoSectorLightFlicker: couldn't find sector: %d\n", temp112 );
 				return true;
 			}
 
@@ -3561,15 +3477,15 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_DOSECTORLIGHTLIGHTFLASH:
 		{
 			ServerCommands::DoSectorLightLightFlash command;
-			int temp116;
-			temp116 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp116 );
+			int temp113;
+			temp113 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp113 );
 			command.maxLight = bytestream->ReadShort();
 			command.minLight = bytestream->ReadShort();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "DoSectorLightLightFlash: couldn't find sector: %d\n", temp116 );
+				CLIENT_PrintWarning( "DoSectorLightLightFlash: couldn't find sector: %d\n", temp113 );
 				return true;
 			}
 
@@ -3588,9 +3504,9 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_DOSECTORLIGHTSTROBE:
 		{
 			ServerCommands::DoSectorLightStrobe command;
-			int temp117;
-			temp117 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp117 );
+			int temp114;
+			temp114 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp114 );
 			command.darkTime = bytestream->ReadShort();
 			command.brightTime = bytestream->ReadShort();
 			command.maxLight = bytestream->ReadShort();
@@ -3599,7 +3515,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "DoSectorLightStrobe: couldn't find sector: %d\n", temp117 );
+				CLIENT_PrintWarning( "DoSectorLightStrobe: couldn't find sector: %d\n", temp114 );
 				return true;
 			}
 
@@ -3618,13 +3534,13 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_DOSECTORLIGHTGLOW:
 		{
 			ServerCommands::DoSectorLightGlow command;
-			int temp118;
-			temp118 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp118 );
+			int temp115;
+			temp115 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp115 );
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "DoSectorLightGlow: couldn't find sector: %d\n", temp118 );
+				CLIENT_PrintWarning( "DoSectorLightGlow: couldn't find sector: %d\n", temp115 );
 				return true;
 			}
 
@@ -3643,9 +3559,9 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_DOSECTORLIGHTGLOW2:
 		{
 			ServerCommands::DoSectorLightGlow2 command;
-			int temp119;
-			temp119 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp119 );
+			int temp116;
+			temp116 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp116 );
 			command.startLight = bytestream->ReadShort();
 			command.endLight = bytestream->ReadShort();
 			command.tics = bytestream->ReadShort();
@@ -3654,7 +3570,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "DoSectorLightGlow2: couldn't find sector: %d\n", temp119 );
+				CLIENT_PrintWarning( "DoSectorLightGlow2: couldn't find sector: %d\n", temp116 );
 				return true;
 			}
 
@@ -3673,15 +3589,15 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_DOSECTORLIGHTPHASED:
 		{
 			ServerCommands::DoSectorLightPhased command;
-			int temp120;
-			temp120 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp120 );
+			int temp117;
+			temp117 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp117 );
 			command.baseLevel = bytestream->ReadShort();
 			command.phase = bytestream->ReadByte();
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "DoSectorLightPhased: couldn't find sector: %d\n", temp120 );
+				CLIENT_PrintWarning( "DoSectorLightPhased: couldn't find sector: %d\n", temp117 );
 				return true;
 			}
 
@@ -3700,14 +3616,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETLINEALPHA:
 		{
 			ServerCommands::SetLineAlpha command;
-			int temp121;
-			temp121 = bytestream->ReadShort();
-			command.line = CLIENT_FindLineByID( temp121 );
+			int temp118;
+			temp118 = bytestream->ReadShort();
+			command.line = CLIENT_FindLineByID( temp118 );
 			command.alpha = bytestream->ReadLong();
 
 			if ( command.line == NULL )
 			{
-				CLIENT_PrintWarning( "SetLineAlpha: couldn't find line: %d\n", temp121 );
+				CLIENT_PrintWarning( "SetLineAlpha: couldn't find line: %d\n", temp118 );
 				return true;
 			}
 
@@ -3726,16 +3642,16 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETLINETEXTURE:
 		{
 			ServerCommands::SetLineTexture command;
-			int temp122;
-			temp122 = bytestream->ReadShort();
-			command.line = CLIENT_FindLineByID( temp122 );
+			int temp119;
+			temp119 = bytestream->ReadShort();
+			command.line = CLIENT_FindLineByID( temp119 );
 			command.textureName = bytestream->ReadString();
 			command.side = bytestream->ReadBit();
 			command.position = bytestream->ReadByte();
 
 			if ( command.line == NULL )
 			{
-				CLIENT_PrintWarning( "SetLineTexture: couldn't find line: %d\n", temp122 );
+				CLIENT_PrintWarning( "SetLineTexture: couldn't find line: %d\n", temp119 );
 				return true;
 			}
 
@@ -3769,17 +3685,75 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 		}
 		return true;
 
+	case SVC_SETLINETEXTUREOFFSET:
+		{
+			ServerCommands::SetLineTextureOffset command;
+			int temp120;
+			temp120 = bytestream->ReadShort();
+			command.line = CLIENT_FindLineByID( temp120 );
+			command.XOffset = bytestream->ReadLong();
+			command.YOffset = bytestream->ReadLong();
+			command.side = bytestream->ReadBit();
+			command.position = bytestream->ReadByte();
+
+			if ( command.line == NULL )
+			{
+				CLIENT_PrintWarning( "SetLineTextureOffset: couldn't find line: %d\n", temp120 );
+				return true;
+			}
+
+
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "SetLineTextureOffset: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC_SETLINETEXTURESCALE:
+		{
+			ServerCommands::SetLineTextureScale command;
+			int temp121;
+			temp121 = bytestream->ReadShort();
+			command.line = CLIENT_FindLineByID( temp121 );
+			command.XScale = bytestream->ReadLong();
+			command.YScale = bytestream->ReadLong();
+			command.side = bytestream->ReadBit();
+			command.position = bytestream->ReadByte();
+
+			if ( command.line == NULL )
+			{
+				CLIENT_PrintWarning( "SetLineTextureScale: couldn't find line: %d\n", temp121 );
+				return true;
+			}
+
+
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "SetLineTextureScale: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
 	case SVC_SETSOMELINEFLAGS:
 		{
 			ServerCommands::SetSomeLineFlags command;
-			int temp123;
-			temp123 = bytestream->ReadShort();
-			command.line = CLIENT_FindLineByID( temp123 );
+			int temp122;
+			temp122 = bytestream->ReadShort();
+			command.line = CLIENT_FindLineByID( temp122 );
 			command.blockFlags = bytestream->ReadLong();
 
 			if ( command.line == NULL )
 			{
-				CLIENT_PrintWarning( "SetSomeLineFlags: couldn't find line: %d\n", temp123 );
+				CLIENT_PrintWarning( "SetSomeLineFlags: couldn't find line: %d\n", temp122 );
 				return true;
 			}
 
@@ -3798,14 +3772,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SETSIDEFLAGS:
 		{
 			ServerCommands::SetSideFlags command;
-			int temp124;
-			temp124 = bytestream->ReadLong();
-			command.side = CLIENT_FindSideByID( temp124 );
+			int temp123;
+			temp123 = bytestream->ReadLong();
+			command.side = CLIENT_FindSideByID( temp123 );
 			command.flags = bytestream->ReadByte();
 
 			if ( command.side == NULL )
 			{
-				CLIENT_PrintWarning( "SetSideFlags: couldn't find side: %d\n", temp124 );
+				CLIENT_PrintWarning( "SetSideFlags: couldn't find side: %d\n", temp123 );
 				return true;
 			}
 
@@ -3842,13 +3816,13 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SOUNDACTOR:
 		{
 			ServerCommands::SoundActor command;
-			int temp125;
-			temp125 = bytestream->ReadShort();
+			int temp124;
+			temp124 = bytestream->ReadShort();
 			command.channel = bytestream->ReadShort();
 			command.sound = bytestream->ReadString();
 			command.volume = bytestream->ReadByte();
 			command.attenuation = bytestream->ReadByte();
-			if ( CLIENT_ReadActorFromNetID( temp125, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp124, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SoundActor", "actor" ) == false )
 			{
@@ -3870,13 +3844,13 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SOUNDACTORIFNOTPLAYING:
 		{
 			ServerCommands::SoundActorIfNotPlaying command;
-			int temp126;
-			temp126 = bytestream->ReadShort();
+			int temp125;
+			temp125 = bytestream->ReadShort();
 			command.channel = bytestream->ReadShort();
 			command.sound = bytestream->ReadString();
 			command.volume = bytestream->ReadByte();
 			command.attenuation = bytestream->ReadByte();
-			if ( CLIENT_ReadActorFromNetID( temp126, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp125, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SoundActorIfNotPlaying", "actor" ) == false )
 			{
@@ -3934,15 +3908,15 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SPAWNMISSILE:
 		{
 			ServerCommands::SpawnMissile command;
-			int temp127;
+			int temp126;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
 			command.velX = bytestream->ReadLong();
 			command.velY = bytestream->ReadLong();
 			command.velZ = bytestream->ReadLong();
-			temp127 = bytestream->ReadShort();
-			command.missileType = NETWORK_GetClassFromIdentification( temp127 );
+			temp126 = bytestream->ReadShort();
+			command.missileType = NETWORK_GetClassFromIdentification( temp126 );
 
 			if ( command.missileType->IsDescendantOf( RUNTIME_CLASS( AActor )) == false )
 				command.missileType = NULL;
@@ -3953,7 +3927,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.missileType == NULL )
 			{
-				CLIENT_PrintWarning( "SpawnMissile: unknown class ID for missileType: %d\n", temp127 );
+				CLIENT_PrintWarning( "SpawnMissile: unknown class ID for missileType: %d\n", temp126 );
 				return true;
 			}
 
@@ -3972,15 +3946,15 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_SPAWNMISSILEEXACT:
 		{
 			ServerCommands::SpawnMissileExact command;
-			int temp128;
+			int temp127;
 			command.x = bytestream->ReadLong();
 			command.y = bytestream->ReadLong();
 			command.z = bytestream->ReadLong();
 			command.velX = bytestream->ReadLong();
 			command.velY = bytestream->ReadLong();
 			command.velZ = bytestream->ReadLong();
-			temp128 = bytestream->ReadShort();
-			command.missileType = NETWORK_GetClassFromIdentification( temp128 );
+			temp127 = bytestream->ReadShort();
+			command.missileType = NETWORK_GetClassFromIdentification( temp127 );
 
 			if ( command.missileType->IsDescendantOf( RUNTIME_CLASS( AActor )) == false )
 				command.missileType = NULL;
@@ -3991,7 +3965,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.missileType == NULL )
 			{
-				CLIENT_PrintWarning( "SpawnMissileExact: unknown class ID for missileType: %d\n", temp128 );
+				CLIENT_PrintWarning( "SpawnMissileExact: unknown class ID for missileType: %d\n", temp127 );
 				return true;
 			}
 
@@ -4010,13 +3984,13 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_MISSILEEXPLODE:
 		{
 			ServerCommands::MissileExplode command;
-			int temp129;
-			temp129 = bytestream->ReadShort();
+			int temp128;
+			temp128 = bytestream->ReadShort();
 			command.lineId = bytestream->ReadShort();
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
-			if ( CLIENT_ReadActorFromNetID( temp129, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp128, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.missile ),
 											"MissileExplode", "missile" ) == false )
 			{
@@ -4038,14 +4012,14 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_WEAPONSOUND:
 		{
 			ServerCommands::WeaponSound command;
-			int temp130;
+			int temp129;
 			command.player = &players[bytestream->ReadByte()];
 			command.sound = bytestream->ReadString();
-			temp130 = command.player - players;
+			temp129 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp130 ) == false )
+			if ( PLAYER_IsValidPlayer( temp129 ) == false )
 			{
-				CLIENT_PrintWarning( "WeaponSound: Invalid player number: %d\n", temp130 );
+				CLIENT_PrintWarning( "WeaponSound: Invalid player number: %d\n", temp129 );
 				return true;
 			}
 
@@ -4067,21 +4041,21 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_WEAPONCHANGE:
 		{
 			ServerCommands::WeaponChange command;
+			int temp130;
 			int temp131;
-			int temp132;
 			command.player = &players[bytestream->ReadByte()];
-			temp131 = bytestream->ReadShort();
-			command.weaponType = NETWORK_GetClassFromIdentification( temp131 );
+			temp130 = bytestream->ReadShort();
+			command.weaponType = NETWORK_GetClassFromIdentification( temp130 );
 
 			if ( command.weaponType->IsDescendantOf( RUNTIME_CLASS( AWeapon )) == false )
 				command.weaponType = NULL;
 
 
-			temp132 = command.player - players;
+			temp131 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp132 ) == false )
+			if ( PLAYER_IsValidPlayer( temp131 ) == false )
 			{
-				CLIENT_PrintWarning( "WeaponChange: Invalid player number: %d\n", temp132 );
+				CLIENT_PrintWarning( "WeaponChange: Invalid player number: %d\n", temp131 );
 				return true;
 			}
 
@@ -4092,7 +4066,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 
 			if ( command.weaponType == NULL )
 			{
-				CLIENT_PrintWarning( "WeaponChange: unknown class ID for weaponType: %d\n", temp131 );
+				CLIENT_PrintWarning( "WeaponChange: unknown class ID for weaponType: %d\n", temp130 );
 				return true;
 			}
 
@@ -4111,9 +4085,9 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_WEAPONRAILGUN:
 		{
 			ServerCommands::WeaponRailgun command;
-			int temp133;
-				int temp134;
-			temp133 = bytestream->ReadShort();
+			int temp132;
+				int temp133;
+			temp132 = bytestream->ReadShort();
 			command.start.X = bytestream->ReadFloat();
 			command.start.Y = bytestream->ReadFloat();
 			command.start.Z = bytestream->ReadFloat();
@@ -4128,13 +4102,13 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			if ( command.CheckExtended() )
 			{
 				command.angleoffset = bytestream->ReadLong();
-				temp134 = bytestream->ReadShort();
-				command.spawnclass = NETWORK_GetClassFromIdentification( temp134 );
+				temp133 = bytestream->ReadShort();
+				command.spawnclass = NETWORK_GetClassFromIdentification( temp133 );
 				command.duration = bytestream->ReadShort();
 				command.sparsity = bytestream->ReadFloat();
 				command.drift = bytestream->ReadFloat();
 			}
-			if ( CLIENT_ReadActorFromNetID( temp133, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp132, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.source ),
 											"WeaponRailgun", "source" ) == false )
 			{
@@ -4159,9 +4133,9 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 	case SVC_ACSSCRIPTEXECUTE:
 		{
 			ServerCommands::ACSScriptExecute command;
-			int temp135;
+			int temp134;
 			command.netid = bytestream->ReadShort();
-			temp135 = bytestream->ReadShort();
+			temp134 = bytestream->ReadShort();
 			command.lineid = bytestream->ReadShort();
 			command.levelnum = bytestream->ReadByte();
 			command.arg0 = bytestream->ReadVariable();
@@ -4170,7 +4144,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			command.arg3 = bytestream->ReadVariable();
 			command.backSide = bytestream->ReadBit();
 			command.always = bytestream->ReadBit();
-			if ( CLIENT_ReadActorFromNetID( temp135, RUNTIME_CLASS( AActor ), true,
+			if ( CLIENT_ReadActorFromNetID( temp134, RUNTIME_CLASS( AActor ), true,
 											reinterpret_cast<AActor *&>( command.activator ),
 											"ACSScriptExecute", "activator" ) == false )
 			{
@@ -4225,7 +4199,7 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SETMAPNUMTOTALSECRETS:
 		{
 			ServerCommands::SetMapNumTotalSecrets command;
-			command.totalSecrets = bytestream->ReadShort();
+			command.totalSecrets = bytestream->ReadVariable();
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
 				CLIENT_PrintWarning( "SetMapNumTotalSecrets: Packet contained %td too few bytes\n",
@@ -4256,10 +4230,10 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SECRETFOUND:
 		{
 			ServerCommands::SecretFound command;
-			int temp136;
-			temp136 = bytestream->ReadShort();
+			int temp135;
+			temp135 = bytestream->ReadShort();
 			command.secretFlags = bytestream->ReadByte();
-			if ( CLIENT_ReadActorFromNetID( temp136, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp135, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SecretFound", "actor" ) == false )
 			{
@@ -4281,13 +4255,13 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SECRETMARKSECTORFOUND:
 		{
 			ServerCommands::SecretMarkSectorFound command;
-			int temp137;
-			temp137 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp137 );
+			int temp136;
+			temp136 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp136 );
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SecretMarkSectorFound: couldn't find sector: %d\n", temp137 );
+				CLIENT_PrintWarning( "SecretMarkSectorFound: couldn't find sector: %d\n", temp136 );
 				return true;
 			}
 
@@ -4303,23 +4277,89 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 		}
 		return true;
 
+	case SVC2_DAMAGEPLAYERWITHTYPE:
+		{
+			ServerCommands::DamagePlayerWithType command;
+			int temp137;
+			int temp138;
+			command.player = &players[bytestream->ReadByte()];
+			command.health = bytestream->ReadVariable();
+			command.armor = bytestream->ReadVariable();
+			command.damageType = bytestream->ReadString();
+			temp137 = bytestream->ReadShort();
+			temp138 = command.player - players;
+
+			if ( PLAYER_IsValidPlayer( temp138 ) == false )
+			{
+				CLIENT_PrintWarning( "DamagePlayerWithType: Invalid player number: %d\n", temp138 );
+				return true;
+			}
+
+
+			if ( command.player->mo == NULL )
+				return true;
+
+			if ( CLIENT_ReadActorFromNetID( temp137, RUNTIME_CLASS( AActor ), true,
+											reinterpret_cast<AActor *&>( command.attacker ),
+											"DamagePlayerWithType", "attacker" ) == false )
+			{
+				return true;
+			}
+
+
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "DamagePlayerWithType: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
 	case SVC2_SETPLAYERACCOUNTNAME:
 		{
 			ServerCommands::SetPlayerAccountName command;
-			int temp138;
+			int temp139;
 			command.player = &players[bytestream->ReadByte()];
 			command.accountName = bytestream->ReadString();
-			temp138 = command.player - players;
+			temp139 = command.player - players;
 
-			if (( temp138 < 0 ) || ( temp138 >= MAXPLAYERS ))
+			if (( temp139 < 0 ) || ( temp139 >= MAXPLAYERS ))
 			{
-				CLIENT_PrintWarning( "SetPlayerAccountName: Invalid player number: %d\n", temp138 );
+				CLIENT_PrintWarning( "SetPlayerAccountName: Invalid player number: %d\n", temp139 );
 				return true;
 			}
 
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
 				CLIENT_PrintWarning( "SetPlayerAccountName: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_SETPLAYERDEATHS:
+		{
+			ServerCommands::SetPlayerDeaths command;
+			int temp140;
+			command.player = &players[bytestream->ReadByte()];
+			command.deaths = bytestream->ReadVariable();
+			temp140 = command.player - players;
+
+			if ( PLAYER_IsValidPlayer( temp140 ) == false )
+			{
+				CLIENT_PrintWarning( "SetPlayerDeaths: Invalid player number: %d\n", temp140 );
+				return true;
+			}
+
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "SetPlayerDeaths: Packet contained %td too few bytes\n",
 					bytestream->pbStream - bytestream->pbStreamEnd );
 				return true;
 			}
@@ -4347,17 +4387,17 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_GIVEWEAPONHOLDER:
 		{
 			ServerCommands::GiveWeaponHolder command;
-			int temp139;
-			int temp140;
+			int temp141;
+			int temp142;
 			command.player = &players[bytestream->ReadByte()];
 			command.pieceMask = bytestream->ReadShort();
-			temp139 = bytestream->ReadShort();
-			command.pieceWeapon = NETWORK_GetClassFromIdentification( temp139 );
-			temp140 = command.player - players;
+			temp141 = bytestream->ReadShort();
+			command.pieceWeapon = NETWORK_GetClassFromIdentification( temp141 );
+			temp142 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp140 ) == false )
+			if ( PLAYER_IsValidPlayer( temp142 ) == false )
 			{
-				CLIENT_PrintWarning( "GiveWeaponHolder: Invalid player number: %d\n", temp140 );
+				CLIENT_PrintWarning( "GiveWeaponHolder: Invalid player number: %d\n", temp142 );
 				return true;
 			}
 
@@ -4368,7 +4408,7 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 
 			if ( command.pieceWeapon == NULL )
 			{
-				CLIENT_PrintWarning( "GiveWeaponHolder: unknown class ID for pieceWeapon: %d\n", temp139 );
+				CLIENT_PrintWarning( "GiveWeaponHolder: unknown class ID for pieceWeapon: %d\n", temp141 );
 				return true;
 			}
 
@@ -4387,18 +4427,18 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SETHEXENARMORSLOTS:
 		{
 			ServerCommands::SetHexenArmorSlots command;
-			int temp141;
+			int temp143;
 			command.player = &players[bytestream->ReadByte()];
 			command.slot0 = bytestream->ReadLong();
 			command.slot1 = bytestream->ReadLong();
 			command.slot2 = bytestream->ReadLong();
 			command.slot3 = bytestream->ReadLong();
 			command.slot4 = bytestream->ReadLong();
-			temp141 = command.player - players;
+			temp143 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp141 ) == false )
+			if ( PLAYER_IsValidPlayer( temp143 ) == false )
 			{
-				CLIENT_PrintWarning( "SetHexenArmorSlots: Invalid player number: %d\n", temp141 );
+				CLIENT_PrintWarning( "SetHexenArmorSlots: Invalid player number: %d\n", temp143 );
 				return true;
 			}
 
@@ -4420,17 +4460,17 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_LEVELSPAWNTHING:
 		{
 			ServerCommands::LevelSpawnThing command;
-			int temp142;
+			int temp144;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
-			temp142 = bytestream->ReadShort();
-			command.type = NETWORK_GetClassFromIdentification( temp142 );
+			temp144 = bytestream->ReadShort();
+			command.type = NETWORK_GetClassFromIdentification( temp144 );
 			command.id = bytestream->ReadShort();
 
 			if ( command.type == NULL )
 			{
-				CLIENT_PrintWarning( "LevelSpawnThing: unknown class ID for type: %d\n", temp142 );
+				CLIENT_PrintWarning( "LevelSpawnThing: unknown class ID for type: %d\n", temp144 );
 				return true;
 			}
 
@@ -4449,16 +4489,16 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_LEVELSPAWNTHINGNONETID:
 		{
 			ServerCommands::LevelSpawnThingNoNetID command;
-			int temp143;
+			int temp145;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
-			temp143 = bytestream->ReadShort();
-			command.type = NETWORK_GetClassFromIdentification( temp143 );
+			temp145 = bytestream->ReadShort();
+			command.type = NETWORK_GetClassFromIdentification( temp145 );
 
 			if ( command.type == NULL )
 			{
-				CLIENT_PrintWarning( "LevelSpawnThingNoNetID: unknown class ID for type: %d\n", temp143 );
+				CLIENT_PrintWarning( "LevelSpawnThingNoNetID: unknown class ID for type: %d\n", temp145 );
 				return true;
 			}
 
@@ -4474,13 +4514,39 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 		}
 		return true;
 
+	case SVC2_SETTHINGSTRINGPROPERTY:
+		{
+			ServerCommands::SetThingStringProperty command;
+			int temp146;
+			temp146 = bytestream->ReadShort();
+			command.property = bytestream->ReadByte();
+			command.value = bytestream->ReadString();
+			if ( CLIENT_ReadActorFromNetID( temp146, RUNTIME_CLASS( AActor ), false,
+											reinterpret_cast<AActor *&>( command.actor ),
+											"SetThingStringProperty", "actor" ) == false )
+			{
+				return true;
+			}
+
+
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "SetThingStringProperty: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
 	case SVC2_SETTHINGREACTIONTIME:
 		{
 			ServerCommands::SetThingReactionTime command;
-			int temp144;
-			temp144 = bytestream->ReadShort();
+			int temp147;
+			temp147 = bytestream->ReadShort();
 			command.reactiontime = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp144, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp147, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingReactionTime", "actor" ) == false )
 			{
@@ -4502,8 +4568,8 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SETTHINGSCALE:
 		{
 			ServerCommands::SetThingScale command;
-			int temp145;
-			temp145 = bytestream->ReadShort();
+			int temp148;
+			temp148 = bytestream->ReadShort();
 			command.scaleflags = bytestream->ReadByte();
 			if ( command.ContainsScaleX() )
 			{
@@ -4513,7 +4579,7 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 			{
 				command.scaleY = bytestream->ReadLong();
 			}
-			if ( CLIENT_ReadActorFromNetID( temp145, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp148, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingScale", "actor" ) == false )
 			{
@@ -4538,12 +4604,50 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 		}
 		return true;
 
+	case SVC2_SETLINETEXTUREOFFSETBYID:
+		{
+			ServerCommands::SetLineTextureOffsetByID command;
+			command.lineID = bytestream->ReadShort();
+			command.XOffset = bytestream->ReadLong();
+			command.YOffset = bytestream->ReadLong();
+			command.side = bytestream->ReadBit();
+			command.flags = bytestream->ReadByte();
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "SetLineTextureOffsetByID: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_SETLINETEXTURESCALEBYID:
+		{
+			ServerCommands::SetLineTextureScaleByID command;
+			command.lineID = bytestream->ReadShort();
+			command.XScale = bytestream->ReadLong();
+			command.YScale = bytestream->ReadLong();
+			command.side = bytestream->ReadBit();
+			command.flags = bytestream->ReadByte();
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "SetLineTextureScaleByID: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
 	case SVC2_SOUNDSECTOR:
 		{
 			ServerCommands::SoundSector command;
-			int temp146;
-			temp146 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp146 );
+			int temp149;
+			temp149 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp149 );
 			command.channel = bytestream->ReadShort();
 			command.sound = bytestream->ReadString();
 			command.volume = bytestream->ReadByte();
@@ -4551,7 +4655,7 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SoundSector: couldn't find sector: %d\n", temp146 );
+				CLIENT_PrintWarning( "SoundSector: couldn't find sector: %d\n", temp149 );
 				return true;
 			}
 
@@ -4567,13 +4671,64 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 		}
 		return true;
 
+	case SVC2_STOPSOUND:
+		{
+			ServerCommands::StopSound command;
+			int temp150;
+			temp150 = bytestream->ReadShort();
+			command.channel = bytestream->ReadByte();
+			if ( CLIENT_ReadActorFromNetID( temp150, RUNTIME_CLASS( AActor ), false,
+											reinterpret_cast<AActor *&>( command.actor ),
+											"StopSound", "actor" ) == false )
+			{
+				return true;
+			}
+
+
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "StopSound: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_ACSSENDSTRING:
+		{
+			ServerCommands::ACSSendString command;
+			int temp151;
+			command.netid = bytestream->ReadShort();
+			temp151 = bytestream->ReadShort();
+			command.string = bytestream->ReadString();
+			if ( CLIENT_ReadActorFromNetID( temp151, RUNTIME_CLASS( AActor ), true,
+											reinterpret_cast<AActor *&>( command.activator ),
+											"ACSSendString", "activator" ) == false )
+			{
+				return true;
+			}
+
+
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "ACSSendString: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
 	case SVC2_SYNCJOINQUEUE:
 		{
 			ServerCommands::SyncJoinQueue command;
-			unsigned int temp147;
-			temp147 = bytestream->ReadByte();
-			command.slots.Reserve( temp147 );
-			for ( unsigned int i = 0; i < temp147; ++i )
+			unsigned int temp152;
+			temp152 = bytestream->ReadByte();
+			command.slots.Reserve( temp152 );
+			for ( unsigned int i = 0; i < temp152; ++i )
 			{
 				command.slots[i].player = bytestream->ReadByte();
 				command.slots[i].team = bytestream->ReadByte();
@@ -4584,6 +4739,34 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
 				CLIENT_PrintWarning( "SyncJoinQueue: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_SYNCMAPROTATION:
+		{
+			ServerCommands::SyncMapRotation command;
+			unsigned int temp153;
+			temp153 = bytestream->ReadByte();
+			command.entries.Reserve( temp153 );
+			for ( unsigned int i = 0; i < temp153; ++i )
+			{
+				command.entries[i].name = bytestream->ReadString();
+				command.entries[i].isUsed = bytestream->ReadByte();
+				command.entries[i].minPlayers = bytestream->ReadByte();
+				command.entries[i].maxPlayers = bytestream->ReadByte();
+			}
+			command.currentPosition = bytestream->ReadShort();
+			for ( unsigned int i = 0; i < command.entries.Size(); ++i )
+			{
+			}
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "SyncMapRotation: Packet contained %td too few bytes\n",
 					bytestream->pbStream - bytestream->pbStreamEnd );
 				return true;
 			}
@@ -4627,7 +4810,7 @@ NetCommand ServerCommands::Ping::BuildNetCommand() const
 	return command;
 }
 
-void ServerCommands::Ping::SetTime( int value )
+void ServerCommands::Ping::SetTime( unsigned int value )
 {
 	this->time = value;
 	this->_timeInitialized = true;
@@ -4660,6 +4843,7 @@ NetCommand ServerCommands::MapLoad::BuildNetCommand() const
 	}
 	NetCommand command ( SVC_MAPLOAD );
 	command.addString( this->mapName );
+	command.addShort( this->currentPosition );
 	return command;
 }
 
@@ -4667,6 +4851,12 @@ void ServerCommands::MapLoad::SetMapName( const FString & value )
 {
 	this->mapName = value;
 	this->_mapNameInitialized = true;
+}
+
+void ServerCommands::MapLoad::SetCurrentPosition( int value )
+{
+	this->currentPosition = value;
+	this->_currentPositionInitialized = true;
 }
 
 NetCommand ServerCommands::MapNew::BuildNetCommand() const
@@ -4756,7 +4946,7 @@ NetCommand ServerCommands::SetMapNumKilledMonsters::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETMAPNUMKILLEDMONSTERS );
-	command.addShort( this->killedMonsters );
+	command.addVariable( this->killedMonsters );
 	return command;
 }
 
@@ -4774,7 +4964,7 @@ NetCommand ServerCommands::SetMapNumFoundItems::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETMAPNUMFOUNDITEMS );
-	command.addShort( this->foundItems );
+	command.addVariable( this->foundItems );
 	return command;
 }
 
@@ -4792,7 +4982,7 @@ NetCommand ServerCommands::SetMapNumFoundSecrets::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETMAPNUMFOUNDSECRETS );
-	command.addShort( this->foundSecrets );
+	command.addVariable( this->foundSecrets );
 	return command;
 }
 
@@ -4810,7 +5000,7 @@ NetCommand ServerCommands::SetMapNumTotalMonsters::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETMAPNUMTOTALMONSTERS );
-	command.addShort( this->totalMonsters );
+	command.addVariable( this->totalMonsters );
 	return command;
 }
 
@@ -4828,7 +5018,7 @@ NetCommand ServerCommands::SetMapNumTotalItems::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETMAPNUMTOTALITEMS );
-	command.addShort( this->totalItems );
+	command.addVariable( this->totalItems );
 	return command;
 }
 
@@ -4846,7 +5036,7 @@ NetCommand ServerCommands::SetMapNumTotalSecrets::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC2_SETMAPNUMTOTALSECRETS );
-	command.addShort( this->totalSecrets );
+	command.addVariable( this->totalSecrets );
 	return command;
 }
 
@@ -4939,7 +5129,7 @@ NetCommand ServerCommands::SecretFound::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC2_SECRETFOUND );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addByte( this->secretFlags );
 	return command;
 }
@@ -5073,8 +5263,7 @@ NetCommand ServerCommands::SpawnPlayer::BuildNetCommand() const
 	}
 	NetCommand command ( SVC_SPAWNPLAYER );
 	command.addByte( this->player - players );
-	command.addByte( this->priorState );
-	command.addByte( this->playerState );
+	command.addShortByte( this->priorState, 4 );
 	command.addBit( this->isBot );
 	command.addBit( this->isSpectating );
 	command.addBit( this->isDeadSpectator );
@@ -5103,12 +5292,6 @@ void ServerCommands::SpawnPlayer::SetPriorState( int value )
 {
 	this->priorState = value;
 	this->_priorStateInitialized = true;
-}
-
-void ServerCommands::SpawnPlayer::SetPlayerState( int value )
-{
-	this->playerState = value;
-	this->_playerStateInitialized = true;
 }
 
 void ServerCommands::SpawnPlayer::SetIsBot( bool value )
@@ -5205,10 +5388,18 @@ NetCommand ServerCommands::MovePlayer::BuildNetCommand() const
 		command.addLong( this->y );
 		command.addShort( this->z >> FRACBITS );
 		command.addLong( this->angle );
+	}
+	if ( IsMovingX() )
+	{
 		command.addShort( this->velx >> FRACBITS );
+	}
+	if ( IsMovingY() )
+	{
 		command.addShort( this->vely >> FRACBITS );
+	}
+	if ( IsMovingZ() )
+	{
 		command.addShort( this->velz >> FRACBITS );
-		command.addBit( this->isCrouching );
 	}
 	return command;
 }
@@ -5267,10 +5458,19 @@ void ServerCommands::MovePlayer::SetVelz( fixed_t value )
 	this->_velzInitialized = true;
 }
 
-void ServerCommands::MovePlayer::SetIsCrouching( bool value )
+bool ServerCommands::MovePlayer::IsMovingX() const
 {
-	this->isCrouching = value;
-	this->_isCrouchingInitialized = true;
+	return !!( (flags & PLAYER_VISIBLE) && (flags & PLAYER_SENDVELX) );
+}
+
+bool ServerCommands::MovePlayer::IsMovingY() const
+{
+	return !!( (flags & PLAYER_VISIBLE) && (flags & PLAYER_SENDVELY) );
+}
+
+bool ServerCommands::MovePlayer::IsMovingZ() const
+{
+	return !!( (flags & PLAYER_VISIBLE) && (flags & PLAYER_SENDVELZ) );
 }
 
 bool ServerCommands::MovePlayer::IsVisible() const
@@ -5287,9 +5487,9 @@ NetCommand ServerCommands::DamagePlayer::BuildNetCommand() const
 	}
 	NetCommand command ( SVC_DAMAGEPLAYER );
 	command.addByte( this->player - players );
-	command.addShort( this->health );
-	command.addShort( this->armor );
-	command.addShort( this->attacker ? this->attacker->lNetID : -1 );
+	command.addVariable( this->health );
+	command.addVariable( this->armor );
+	command.addShort( this->attacker ? this->attacker->NetID : -1 );
 	return command;
 }
 
@@ -5317,6 +5517,52 @@ void ServerCommands::DamagePlayer::SetAttacker( AActor * value )
 	this->_attackerInitialized = true;
 }
 
+NetCommand ServerCommands::DamagePlayerWithType::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: DamagePlayerWithType::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_DAMAGEPLAYERWITHTYPE );
+	command.addByte( this->player - players );
+	command.addVariable( this->health );
+	command.addVariable( this->armor );
+	command.addString( this->damageType );
+	command.addShort( this->attacker ? this->attacker->NetID : -1 );
+	return command;
+}
+
+void ServerCommands::DamagePlayerWithType::SetPlayer( player_t * value )
+{
+	this->player = value;
+	this->_playerInitialized = true;
+}
+
+void ServerCommands::DamagePlayerWithType::SetHealth( int value )
+{
+	this->health = value;
+	this->_healthInitialized = true;
+}
+
+void ServerCommands::DamagePlayerWithType::SetArmor( int value )
+{
+	this->armor = value;
+	this->_armorInitialized = true;
+}
+
+void ServerCommands::DamagePlayerWithType::SetDamageType( const FString & value )
+{
+	this->damageType = value;
+	this->_damageTypeInitialized = true;
+}
+
+void ServerCommands::DamagePlayerWithType::SetAttacker( AActor * value )
+{
+	this->attacker = value;
+	this->_attackerInitialized = true;
+}
+
 NetCommand ServerCommands::KillPlayer::BuildNetCommand() const
 {
 	if ( AllParametersInitialized() == false )
@@ -5326,8 +5572,8 @@ NetCommand ServerCommands::KillPlayer::BuildNetCommand() const
 	}
 	NetCommand command ( SVC_KILLPLAYER );
 	command.addByte( this->player - players );
-	command.addShort( this->source ? this->source->lNetID : -1 );
-	command.addShort( this->inflictor ? this->inflictor->lNetID : -1 );
+	command.addShort( this->source ? this->source->NetID : -1 );
+	command.addShort( this->inflictor ? this->inflictor->NetID : -1 );
 	command.addShort( this->health );
 	command.addString( this->MOD );
 	command.addString( this->damageType );
@@ -5386,7 +5632,7 @@ NetCommand ServerCommands::SetPlayerHealth::BuildNetCommand() const
 	}
 	NetCommand command ( SVC_SETPLAYERHEALTH );
 	command.addByte( this->player - players );
-	command.addShort( this->health );
+	command.addVariable( this->health );
 	return command;
 }
 
@@ -5411,7 +5657,7 @@ NetCommand ServerCommands::SetPlayerArmor::BuildNetCommand() const
 	}
 	NetCommand command ( SVC_SETPLAYERARMOR );
 	command.addByte( this->player - players );
-	command.addShort( this->armorAmount );
+	command.addVariable( this->armorAmount );
 	command.addString( this->armorIcon );
 	return command;
 }
@@ -5523,7 +5769,7 @@ NetCommand ServerCommands::SetPlayerFrags::BuildNetCommand() const
 	}
 	NetCommand command ( SVC_SETPLAYERFRAGS );
 	command.addByte( this->player - players );
-	command.addShort( this->fragCount );
+	command.addVariable( this->fragCount );
 	return command;
 }
 
@@ -5548,7 +5794,7 @@ NetCommand ServerCommands::SetPlayerPoints::BuildNetCommand() const
 	}
 	NetCommand command ( SVC_SETPLAYERPOINTS );
 	command.addByte( this->player - players );
-	command.addShort( this->pointCount );
+	command.addVariable( this->pointCount );
 	return command;
 }
 
@@ -5573,7 +5819,7 @@ NetCommand ServerCommands::SetPlayerWins::BuildNetCommand() const
 	}
 	NetCommand command ( SVC_SETPLAYERWINS );
 	command.addByte( this->player - players );
-	command.addByte( this->wins );
+	command.addVariable( this->wins );
 	return command;
 }
 
@@ -5589,6 +5835,31 @@ void ServerCommands::SetPlayerWins::SetWins( int value )
 	this->_winsInitialized = true;
 }
 
+NetCommand ServerCommands::SetPlayerDeaths::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: SetPlayerDeaths::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_SETPLAYERDEATHS );
+	command.addByte( this->player - players );
+	command.addVariable( this->deaths );
+	return command;
+}
+
+void ServerCommands::SetPlayerDeaths::SetPlayer( player_t * value )
+{
+	this->player = value;
+	this->_playerInitialized = true;
+}
+
+void ServerCommands::SetPlayerDeaths::SetDeaths( int value )
+{
+	this->deaths = value;
+	this->_deathsInitialized = true;
+}
+
 NetCommand ServerCommands::SetPlayerKillCount::BuildNetCommand() const
 {
 	if ( AllParametersInitialized() == false )
@@ -5598,7 +5869,7 @@ NetCommand ServerCommands::SetPlayerKillCount::BuildNetCommand() const
 	}
 	NetCommand command ( SVC_SETPLAYERKILLCOUNT );
 	command.addByte( this->player - players );
-	command.addShort( this->killCount );
+	command.addVariable( this->killCount );
 	return command;
 }
 
@@ -5614,104 +5885,36 @@ void ServerCommands::SetPlayerKillCount::SetKillCount( int value )
 	this->_killCountInitialized = true;
 }
 
-NetCommand ServerCommands::SetPlayerChatStatus::BuildNetCommand() const
+NetCommand ServerCommands::SetPlayerStatus::BuildNetCommand() const
 {
 	if ( AllParametersInitialized() == false )
 	{
-		Printf( "WARNING: SetPlayerChatStatus::BuildNetCommand: not all parameters were initialized:\n" );
+		Printf( "WARNING: SetPlayerStatus::BuildNetCommand: not all parameters were initialized:\n" );
 		PrintMissingParameters();
 	}
-	NetCommand command ( SVC_SETPLAYERCHATSTATUS );
+	NetCommand command ( SVC_SETPLAYERSTATUS );
 	command.addByte( this->player - players );
-	command.addBit( this->chatting );
+	command.addShortByte( this->type, 7 );
+	command.addBit( this->value );
 	return command;
 }
 
-void ServerCommands::SetPlayerChatStatus::SetPlayer( player_t * value )
+void ServerCommands::SetPlayerStatus::SetPlayer( player_t * value )
 {
 	this->player = value;
 	this->_playerInitialized = true;
 }
 
-void ServerCommands::SetPlayerChatStatus::SetChatting( bool value )
+void ServerCommands::SetPlayerStatus::SetType( int value )
 {
-	this->chatting = value;
-	this->_chattingInitialized = true;
+	this->type = value;
+	this->_typeInitialized = true;
 }
 
-NetCommand ServerCommands::SetPlayerConsoleStatus::BuildNetCommand() const
+void ServerCommands::SetPlayerStatus::SetValue( bool value )
 {
-	if ( AllParametersInitialized() == false )
-	{
-		Printf( "WARNING: SetPlayerConsoleStatus::BuildNetCommand: not all parameters were initialized:\n" );
-		PrintMissingParameters();
-	}
-	NetCommand command ( SVC_SETPLAYERCONSOLESTATUS );
-	command.addByte( this->player - players );
-	command.addBit( this->inConsole );
-	return command;
-}
-
-void ServerCommands::SetPlayerConsoleStatus::SetPlayer( player_t * value )
-{
-	this->player = value;
-	this->_playerInitialized = true;
-}
-
-void ServerCommands::SetPlayerConsoleStatus::SetInConsole( bool value )
-{
-	this->inConsole = value;
-	this->_inConsoleInitialized = true;
-}
-
-NetCommand ServerCommands::SetPlayerLaggingStatus::BuildNetCommand() const
-{
-	if ( AllParametersInitialized() == false )
-	{
-		Printf( "WARNING: SetPlayerLaggingStatus::BuildNetCommand: not all parameters were initialized:\n" );
-		PrintMissingParameters();
-	}
-	NetCommand command ( SVC_SETPLAYERLAGGINGSTATUS );
-	command.addByte( this->player - players );
-	command.addBit( this->lagging );
-	return command;
-}
-
-void ServerCommands::SetPlayerLaggingStatus::SetPlayer( player_t * value )
-{
-	this->player = value;
-	this->_playerInitialized = true;
-}
-
-void ServerCommands::SetPlayerLaggingStatus::SetLagging( bool value )
-{
-	this->lagging = value;
-	this->_laggingInitialized = true;
-}
-
-NetCommand ServerCommands::SetPlayerReadyToGoOnStatus::BuildNetCommand() const
-{
-	if ( AllParametersInitialized() == false )
-	{
-		Printf( "WARNING: SetPlayerReadyToGoOnStatus::BuildNetCommand: not all parameters were initialized:\n" );
-		PrintMissingParameters();
-	}
-	NetCommand command ( SVC_SETPLAYERREADYTOGOONSTATUS );
-	command.addByte( this->player - players );
-	command.addBit( this->readyToGoOn );
-	return command;
-}
-
-void ServerCommands::SetPlayerReadyToGoOnStatus::SetPlayer( player_t * value )
-{
-	this->player = value;
-	this->_playerInitialized = true;
-}
-
-void ServerCommands::SetPlayerReadyToGoOnStatus::SetReadyToGoOn( bool value )
-{
-	this->readyToGoOn = value;
-	this->_readyToGoOnInitialized = true;
+	this->value = value;
+	this->_valueInitialized = true;
 }
 
 NetCommand ServerCommands::SetPlayerTeam::BuildNetCommand() const
@@ -5747,7 +5950,7 @@ NetCommand ServerCommands::SetPlayerCamera::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETPLAYERCAMERA );
-	command.addShort( this->camera ? this->camera->lNetID : -1 );
+	command.addShort( this->camera ? this->camera->NetID : -1 );
 	command.addBit( this->revertPlease );
 	return command;
 }
@@ -6586,13 +6789,42 @@ NetCommand ServerCommands::PrintHUDMessage::BuildNetCommand() const
 	command.addString( this->message );
 	command.addFloat( this->x );
 	command.addFloat( this->y );
-	command.addShort( this->hudWidth );
-	command.addShort( this->hudHeight );
-	command.addByte( this->color );
+	command.addShort( this->type );
+	command.addShort( this->color );
 	command.addFloat( this->holdTime );
-	command.addString( this->fontName );
-	command.addBit( this->log );
 	command.addLong( this->id );
+	if ( ContainsInTime() )
+	{
+		command.addFloat( this->inTime );
+	}
+	if ( ContainsOutTime() )
+	{
+		command.addFloat( this->outTime );
+	}
+	if ( ContainsHUDSize() )
+	{
+		command.addShort( this->hudWidth );
+		command.addShort( this->hudHeight );
+	}
+	if ( ContainsClippingRectangle() )
+	{
+		command.addShort( this->clipRectLeft );
+		command.addShort( this->clipRectTop );
+		command.addShort( this->clipRectWidth );
+		command.addShort( this->clipRectHeight );
+	}
+	if ( ContainsWrapWidth() )
+	{
+		command.addShort( this->wrapWidth );
+	}
+	if ( ContainsFontName() )
+	{
+		command.addString( this->fontName );
+	}
+	if ( ContainsAlpha() )
+	{
+		command.addLong( this->alpha );
+	}
 	return command;
 }
 
@@ -6614,16 +6846,10 @@ void ServerCommands::PrintHUDMessage::SetY( float value )
 	this->_yInitialized = true;
 }
 
-void ServerCommands::PrintHUDMessage::SetHudWidth( int value )
+void ServerCommands::PrintHUDMessage::SetType( int value )
 {
-	this->hudWidth = value;
-	this->_hudWidthInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessage::SetHudHeight( int value )
-{
-	this->hudHeight = value;
-	this->_hudHeightInitialized = true;
+	this->type = value;
+	this->_typeInitialized = true;
 }
 
 void ServerCommands::PrintHUDMessage::SetColor( int value )
@@ -6638,300 +6864,111 @@ void ServerCommands::PrintHUDMessage::SetHoldTime( float value )
 	this->_holdTimeInitialized = true;
 }
 
-void ServerCommands::PrintHUDMessage::SetFontName( const FString & value )
-{
-	this->fontName = value;
-	this->_fontNameInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessage::SetLog( bool value )
-{
-	this->log = value;
-	this->_logInitialized = true;
-}
-
 void ServerCommands::PrintHUDMessage::SetId( int value )
 {
 	this->id = value;
 	this->_idInitialized = true;
 }
 
-NetCommand ServerCommands::PrintHUDMessageFadeOut::BuildNetCommand() const
+void ServerCommands::PrintHUDMessage::SetInTime( float value )
 {
-	if ( AllParametersInitialized() == false )
-	{
-		Printf( "WARNING: PrintHUDMessageFadeOut::BuildNetCommand: not all parameters were initialized:\n" );
-		PrintMissingParameters();
-	}
-	NetCommand command ( SVC_PRINTHUDMESSAGEFADEOUT );
-	command.addString( this->message );
-	command.addFloat( this->x );
-	command.addFloat( this->y );
-	command.addShort( this->hudWidth );
-	command.addShort( this->hudHeight );
-	command.addByte( this->color );
-	command.addFloat( this->holdTime );
-	command.addFloat( this->fadeOutTime );
-	command.addString( this->fontName );
-	command.addBit( this->log );
-	command.addLong( this->id );
-	return command;
+	this->inTime = value;
+	this->_inTimeInitialized = true;
 }
 
-void ServerCommands::PrintHUDMessageFadeOut::SetMessage( const FString & value )
+void ServerCommands::PrintHUDMessage::SetOutTime( float value )
 {
-	this->message = value;
-	this->_messageInitialized = true;
+	this->outTime = value;
+	this->_outTimeInitialized = true;
 }
 
-void ServerCommands::PrintHUDMessageFadeOut::SetX( float value )
-{
-	this->x = value;
-	this->_xInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageFadeOut::SetY( float value )
-{
-	this->y = value;
-	this->_yInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageFadeOut::SetHudWidth( int value )
+void ServerCommands::PrintHUDMessage::SetHudWidth( int value )
 {
 	this->hudWidth = value;
 	this->_hudWidthInitialized = true;
 }
 
-void ServerCommands::PrintHUDMessageFadeOut::SetHudHeight( int value )
+void ServerCommands::PrintHUDMessage::SetHudHeight( int value )
 {
 	this->hudHeight = value;
 	this->_hudHeightInitialized = true;
 }
 
-void ServerCommands::PrintHUDMessageFadeOut::SetColor( int value )
+void ServerCommands::PrintHUDMessage::SetClipRectLeft( int value )
 {
-	this->color = value;
-	this->_colorInitialized = true;
+	this->clipRectLeft = value;
+	this->_clipRectLeftInitialized = true;
 }
 
-void ServerCommands::PrintHUDMessageFadeOut::SetHoldTime( float value )
+void ServerCommands::PrintHUDMessage::SetClipRectTop( int value )
 {
-	this->holdTime = value;
-	this->_holdTimeInitialized = true;
+	this->clipRectTop = value;
+	this->_clipRectTopInitialized = true;
 }
 
-void ServerCommands::PrintHUDMessageFadeOut::SetFadeOutTime( float value )
+void ServerCommands::PrintHUDMessage::SetClipRectWidth( int value )
 {
-	this->fadeOutTime = value;
-	this->_fadeOutTimeInitialized = true;
+	this->clipRectWidth = value;
+	this->_clipRectWidthInitialized = true;
 }
 
-void ServerCommands::PrintHUDMessageFadeOut::SetFontName( const FString & value )
+void ServerCommands::PrintHUDMessage::SetClipRectHeight( int value )
+{
+	this->clipRectHeight = value;
+	this->_clipRectHeightInitialized = true;
+}
+
+void ServerCommands::PrintHUDMessage::SetWrapWidth( int value )
+{
+	this->wrapWidth = value;
+	this->_wrapWidthInitialized = true;
+}
+
+void ServerCommands::PrintHUDMessage::SetFontName( const FString & value )
 {
 	this->fontName = value;
 	this->_fontNameInitialized = true;
 }
 
-void ServerCommands::PrintHUDMessageFadeOut::SetLog( bool value )
+void ServerCommands::PrintHUDMessage::SetAlpha( fixed_t value )
 {
-	this->log = value;
-	this->_logInitialized = true;
+	this->alpha = value;
+	this->_alphaInitialized = true;
 }
 
-void ServerCommands::PrintHUDMessageFadeOut::SetId( int value )
+bool ServerCommands::PrintHUDMessage::ContainsOutTime() const
 {
-	this->id = value;
-	this->_idInitialized = true;
+	return !!( (type & HUDMESSAGETYPE_MASK) != HUDMESSAGETYPE_NORMAL );
 }
 
-NetCommand ServerCommands::PrintHUDMessageFadeInOut::BuildNetCommand() const
+bool ServerCommands::PrintHUDMessage::ContainsInTime() const
 {
-	if ( AllParametersInitialized() == false )
-	{
-		Printf( "WARNING: PrintHUDMessageFadeInOut::BuildNetCommand: not all parameters were initialized:\n" );
-		PrintMissingParameters();
-	}
-	NetCommand command ( SVC_PRINTHUDMESSAGEFADEINOUT );
-	command.addString( this->message );
-	command.addFloat( this->x );
-	command.addFloat( this->y );
-	command.addShort( this->hudWidth );
-	command.addShort( this->hudHeight );
-	command.addByte( this->color );
-	command.addFloat( this->holdTime );
-	command.addFloat( this->fadeInTime );
-	command.addFloat( this->fadeOutTime );
-	command.addString( this->fontName );
-	command.addBit( this->log );
-	command.addLong( this->id );
-	return command;
+	return !!( (type & HUDMESSAGETYPE_MASK) == HUDMESSAGETYPE_TYPEONFADEOUT || (type & HUDMESSAGETYPE_MASK) == HUDMESSAGETYPE_FADEINOUT );
 }
 
-void ServerCommands::PrintHUDMessageFadeInOut::SetMessage( const FString & value )
+bool ServerCommands::PrintHUDMessage::ContainsAlpha() const
 {
-	this->message = value;
-	this->_messageInitialized = true;
+	return !!( (type & HUDMESSAGE_ACS) && (type & HUDMESSAGE_NET_ALPHA) );
 }
 
-void ServerCommands::PrintHUDMessageFadeInOut::SetX( float value )
+bool ServerCommands::PrintHUDMessage::ContainsClippingRectangle() const
 {
-	this->x = value;
-	this->_xInitialized = true;
+	return !!( (type & HUDMESSAGE_ACS) && (type & HUDMESSAGE_SEND_CLIPRECT) );
 }
 
-void ServerCommands::PrintHUDMessageFadeInOut::SetY( float value )
+bool ServerCommands::PrintHUDMessage::ContainsWrapWidth() const
 {
-	this->y = value;
-	this->_yInitialized = true;
+	return !!( (type & HUDMESSAGE_ACS) && (type & HUDMESSAGE_SEND_WRAPWIDTH) );
 }
 
-void ServerCommands::PrintHUDMessageFadeInOut::SetHudWidth( int value )
+bool ServerCommands::PrintHUDMessage::ContainsFontName() const
 {
-	this->hudWidth = value;
-	this->_hudWidthInitialized = true;
+	return !!( type & HUDMESSAGE_SEND_FONT );
 }
 
-void ServerCommands::PrintHUDMessageFadeInOut::SetHudHeight( int value )
+bool ServerCommands::PrintHUDMessage::ContainsHUDSize() const
 {
-	this->hudHeight = value;
-	this->_hudHeightInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageFadeInOut::SetColor( int value )
-{
-	this->color = value;
-	this->_colorInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageFadeInOut::SetHoldTime( float value )
-{
-	this->holdTime = value;
-	this->_holdTimeInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageFadeInOut::SetFadeInTime( float value )
-{
-	this->fadeInTime = value;
-	this->_fadeInTimeInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageFadeInOut::SetFadeOutTime( float value )
-{
-	this->fadeOutTime = value;
-	this->_fadeOutTimeInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageFadeInOut::SetFontName( const FString & value )
-{
-	this->fontName = value;
-	this->_fontNameInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageFadeInOut::SetLog( bool value )
-{
-	this->log = value;
-	this->_logInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageFadeInOut::SetId( int value )
-{
-	this->id = value;
-	this->_idInitialized = true;
-}
-
-NetCommand ServerCommands::PrintHUDMessageTypeOnFadeOut::BuildNetCommand() const
-{
-	if ( AllParametersInitialized() == false )
-	{
-		Printf( "WARNING: PrintHUDMessageTypeOnFadeOut::BuildNetCommand: not all parameters were initialized:\n" );
-		PrintMissingParameters();
-	}
-	NetCommand command ( SVC_PRINTHUDMESSAGETYPEONFADEOUT );
-	command.addString( this->message );
-	command.addFloat( this->x );
-	command.addFloat( this->y );
-	command.addShort( this->hudWidth );
-	command.addShort( this->hudHeight );
-	command.addByte( this->color );
-	command.addFloat( this->typeOnTime );
-	command.addFloat( this->holdTime );
-	command.addFloat( this->fadeOutTime );
-	command.addString( this->fontName );
-	command.addBit( this->log );
-	command.addLong( this->id );
-	return command;
-}
-
-void ServerCommands::PrintHUDMessageTypeOnFadeOut::SetMessage( const FString & value )
-{
-	this->message = value;
-	this->_messageInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageTypeOnFadeOut::SetX( float value )
-{
-	this->x = value;
-	this->_xInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageTypeOnFadeOut::SetY( float value )
-{
-	this->y = value;
-	this->_yInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageTypeOnFadeOut::SetHudWidth( int value )
-{
-	this->hudWidth = value;
-	this->_hudWidthInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageTypeOnFadeOut::SetHudHeight( int value )
-{
-	this->hudHeight = value;
-	this->_hudHeightInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageTypeOnFadeOut::SetColor( int value )
-{
-	this->color = value;
-	this->_colorInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageTypeOnFadeOut::SetTypeOnTime( float value )
-{
-	this->typeOnTime = value;
-	this->_typeOnTimeInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageTypeOnFadeOut::SetHoldTime( float value )
-{
-	this->holdTime = value;
-	this->_holdTimeInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageTypeOnFadeOut::SetFadeOutTime( float value )
-{
-	this->fadeOutTime = value;
-	this->_fadeOutTimeInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageTypeOnFadeOut::SetFontName( const FString & value )
-{
-	this->fontName = value;
-	this->_fontNameInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageTypeOnFadeOut::SetLog( bool value )
-{
-	this->log = value;
-	this->_logInitialized = true;
-}
-
-void ServerCommands::PrintHUDMessageTypeOnFadeOut::SetId( int value )
-{
-	this->id = value;
-	this->_idInitialized = true;
+	return !!( type & HUDMESSAGE_SEND_HUDSIZE );
 }
 
 NetCommand ServerCommands::SpawnThing::BuildNetCommand() const
@@ -7197,7 +7234,7 @@ NetCommand ServerCommands::MoveThing::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_MOVETHING );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addShort( this->bits );
 	if ( ContainsNewX() )
 	{
@@ -7402,7 +7439,7 @@ NetCommand ServerCommands::MoveThingExact::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_MOVETHINGEXACT );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addShort( this->bits );
 	if ( ContainsNewX() )
 	{
@@ -7607,11 +7644,11 @@ NetCommand ServerCommands::KillThing::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_KILLTHING );
-	command.addShort( this->victim ? this->victim->lNetID : -1 );
-	command.addShort( this->health );
+	command.addShort( this->victim ? this->victim->NetID : -1 );
+	command.addVariable( this->health );
 	command.addString( this->damageType );
-	command.addShort( this->source ? this->source->lNetID : -1 );
-	command.addShort( this->inflictor ? this->inflictor->lNetID : -1 );
+	command.addShort( this->source ? this->source->NetID : -1 );
+	command.addShort( this->inflictor ? this->inflictor->NetID : -1 );
 	return command;
 }
 
@@ -7653,7 +7690,7 @@ NetCommand ServerCommands::SetThingState::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGSTATE );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addByte( this->state );
 	return command;
 }
@@ -7678,8 +7715,8 @@ NetCommand ServerCommands::SetThingTarget::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGTARGET );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
-	command.addShort( this->target ? this->target->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
+	command.addShort( this->target ? this->target->NetID : -1 );
 	return command;
 }
 
@@ -7703,7 +7740,7 @@ NetCommand ServerCommands::DestroyThing::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_DESTROYTHING );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	return command;
 }
 
@@ -7721,7 +7758,7 @@ NetCommand ServerCommands::SetThingAngle::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGANGLE );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addShort( this->angle >> FRACBITS );
 	return command;
 }
@@ -7746,7 +7783,7 @@ NetCommand ServerCommands::SetThingAngleExact::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGANGLEEXACT );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addLong( this->angle );
 	return command;
 }
@@ -7771,7 +7808,7 @@ NetCommand ServerCommands::SetThingWaterLevel::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGWATERLEVEL );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addByte( this->waterlevel );
 	return command;
 }
@@ -7796,7 +7833,7 @@ NetCommand ServerCommands::SetThingFlags::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGFLAGS );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addByte( this->flagset );
 	command.addLong( this->flags );
 	return command;
@@ -7828,7 +7865,7 @@ NetCommand ServerCommands::SetThingArguments::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGARGUMENTS );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addLong( this->arg0 );
 	command.addLong( this->arg1 );
 	command.addLong( this->arg2 );
@@ -7881,7 +7918,7 @@ NetCommand ServerCommands::SetThingTranslation::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGTRANSLATION );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addLong( this->translation );
 	return command;
 }
@@ -7906,7 +7943,7 @@ NetCommand ServerCommands::SetThingProperty::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGPROPERTY );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addByte( this->property );
 	command.addLong( this->value );
 	return command;
@@ -7930,6 +7967,38 @@ void ServerCommands::SetThingProperty::SetValue( int value )
 	this->_valueInitialized = true;
 }
 
+NetCommand ServerCommands::SetThingStringProperty::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: SetThingStringProperty::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_SETTHINGSTRINGPROPERTY );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
+	command.addByte( this->property );
+	command.addString( this->value );
+	return command;
+}
+
+void ServerCommands::SetThingStringProperty::SetActor( AActor * value )
+{
+	this->actor = value;
+	this->_actorInitialized = true;
+}
+
+void ServerCommands::SetThingStringProperty::SetProperty( int value )
+{
+	this->property = value;
+	this->_propertyInitialized = true;
+}
+
+void ServerCommands::SetThingStringProperty::SetValue( const FString & value )
+{
+	this->value = value;
+	this->_valueInitialized = true;
+}
+
 NetCommand ServerCommands::SetThingSound::BuildNetCommand() const
 {
 	if ( AllParametersInitialized() == false )
@@ -7938,7 +8007,7 @@ NetCommand ServerCommands::SetThingSound::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGSOUND );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addByte( this->soundType );
 	command.addString( this->sound );
 	return command;
@@ -7970,7 +8039,7 @@ NetCommand ServerCommands::SetThingSpawnPoint::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGSPAWNPOINT );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addLong( this->spawnPointX );
 	command.addLong( this->spawnPointY );
 	command.addLong( this->spawnPointZ );
@@ -8009,7 +8078,7 @@ NetCommand ServerCommands::SetThingSpecial1::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGSPECIAL1 );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addShort( this->special1 );
 	return command;
 }
@@ -8034,7 +8103,7 @@ NetCommand ServerCommands::SetThingSpecial2::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGSPECIAL2 );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addShort( this->special2 );
 	return command;
 }
@@ -8059,7 +8128,7 @@ NetCommand ServerCommands::SetThingTics::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGTICS );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addShort( this->tics );
 	return command;
 }
@@ -8084,7 +8153,7 @@ NetCommand ServerCommands::SetThingTID::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGTID );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addLong( this->tid );
 	return command;
 }
@@ -8109,7 +8178,7 @@ NetCommand ServerCommands::SetThingReactionTime::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC2_SETTHINGREACTIONTIME );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addShort( this->reactiontime );
 	return command;
 }
@@ -8134,7 +8203,7 @@ NetCommand ServerCommands::SetThingGravity::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGGRAVITY );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addLong( this->gravity );
 	return command;
 }
@@ -8159,7 +8228,7 @@ NetCommand ServerCommands::SetThingFrame::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGFRAME );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addShort( this->stateOwner ? this->stateOwner->getActorNetworkIndex() : -1 );
 	command.addShort( this->offset );
 	return command;
@@ -8191,7 +8260,7 @@ NetCommand ServerCommands::SetThingFrameNF::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETTHINGFRAMENF );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addShort( this->stateOwner ? this->stateOwner->getActorNetworkIndex() : -1 );
 	command.addShort( this->offset );
 	return command;
@@ -8223,7 +8292,7 @@ NetCommand ServerCommands::SetWeaponAmmoGive::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SETWEAPONAMMOGIVE );
-	command.addShort( this->weapon ? this->weapon->lNetID : -1 );
+	command.addShort( this->weapon ? this->weapon->NetID : -1 );
 	command.addShort( this->ammoGive1 );
 	command.addShort( this->ammoGive2 );
 	return command;
@@ -8255,7 +8324,7 @@ NetCommand ServerCommands::SetThingScale::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC2_SETTHINGSCALE );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addByte( this->scaleflags );
 	if ( ContainsScaleX() )
 	{
@@ -8310,7 +8379,7 @@ NetCommand ServerCommands::ThingIsCorpse::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_THINGISCORPSE );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addBit( this->isMonster );
 	return command;
 }
@@ -8335,7 +8404,7 @@ NetCommand ServerCommands::HideThing::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_HIDETHING );
-	command.addShort( this->item ? this->item->lNetID : -1 );
+	command.addShort( this->item ? this->item->NetID : -1 );
 	return command;
 }
 
@@ -8353,7 +8422,7 @@ NetCommand ServerCommands::TeleportThing::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_TELEPORTTHING );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addShort( this->x >> FRACBITS );
 	command.addShort( this->y >> FRACBITS );
 	command.addShort( this->z >> FRACBITS );
@@ -8448,8 +8517,8 @@ NetCommand ServerCommands::ThingActivate::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_THINGACTIVATE );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
-	command.addShort( this->activator ? this->activator->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
+	command.addShort( this->activator ? this->activator->NetID : -1 );
 	return command;
 }
 
@@ -8473,8 +8542,8 @@ NetCommand ServerCommands::ThingDeactivate::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_THINGDEACTIVATE );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
-	command.addShort( this->activator ? this->activator->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
+	command.addShort( this->activator ? this->activator->NetID : -1 );
 	return command;
 }
 
@@ -8498,7 +8567,7 @@ NetCommand ServerCommands::RespawnDoomThing::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_RESPAWNDOOMTHING );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addBit( this->fog );
 	return command;
 }
@@ -8523,7 +8592,7 @@ NetCommand ServerCommands::RespawnRavenThing::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_RESPAWNRAVENTHING );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	return command;
 }
 
@@ -8546,7 +8615,7 @@ NetCommand ServerCommands::SpawnBlood::BuildNetCommand() const
 	command.addShort( this->z >> FRACBITS );
 	command.addShort( this->dir >> FRACBITS );
 	command.addByte( this->damage );
-	command.addShort( this->originator ? this->originator->lNetID : -1 );
+	command.addShort( this->originator ? this->originator->NetID : -1 );
 	return command;
 }
 
@@ -8597,7 +8666,7 @@ NetCommand ServerCommands::SpawnBloodSplatter::BuildNetCommand() const
 	command.addShort( this->x >> FRACBITS );
 	command.addShort( this->y >> FRACBITS );
 	command.addShort( this->z >> FRACBITS );
-	command.addShort( this->originator ? this->originator->lNetID : -1 );
+	command.addShort( this->originator ? this->originator->NetID : -1 );
 	return command;
 }
 
@@ -8636,7 +8705,7 @@ NetCommand ServerCommands::SpawnBloodSplatter2::BuildNetCommand() const
 	command.addShort( this->x >> FRACBITS );
 	command.addShort( this->y >> FRACBITS );
 	command.addShort( this->z >> FRACBITS );
-	command.addShort( this->originator ? this->originator->lNetID : -1 );
+	command.addShort( this->originator ? this->originator->NetID : -1 );
 	return command;
 }
 
@@ -9900,7 +9969,7 @@ NetCommand ServerCommands::SetLineTextureByID::BuildNetCommand() const
 	return command;
 }
 
-void ServerCommands::SetLineTextureByID::SetLineID( int value )
+void ServerCommands::SetLineTextureByID::SetLineID( unsigned int value )
 {
 	this->lineID = value;
 	this->_lineIDInitialized = true;
@@ -9922,6 +9991,190 @@ void ServerCommands::SetLineTextureByID::SetPosition( int value )
 {
 	this->position = value;
 	this->_positionInitialized = true;
+}
+
+NetCommand ServerCommands::SetLineTextureOffset::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: SetLineTextureOffset::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC_SETLINETEXTUREOFFSET );
+	command.addShort( this->line ? this->line - lines : -1 );
+	command.addLong( this->XOffset );
+	command.addLong( this->YOffset );
+	command.addBit( this->side );
+	command.addByte( this->position );
+	return command;
+}
+
+void ServerCommands::SetLineTextureOffset::SetLine( line_t * value )
+{
+	this->line = value;
+	this->_lineInitialized = true;
+}
+
+void ServerCommands::SetLineTextureOffset::SetXOffset( fixed_t value )
+{
+	this->XOffset = value;
+	this->_XOffsetInitialized = true;
+}
+
+void ServerCommands::SetLineTextureOffset::SetYOffset( fixed_t value )
+{
+	this->YOffset = value;
+	this->_YOffsetInitialized = true;
+}
+
+void ServerCommands::SetLineTextureOffset::SetSide( bool value )
+{
+	this->side = value;
+	this->_sideInitialized = true;
+}
+
+void ServerCommands::SetLineTextureOffset::SetPosition( int value )
+{
+	this->position = value;
+	this->_positionInitialized = true;
+}
+
+NetCommand ServerCommands::SetLineTextureOffsetByID::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: SetLineTextureOffsetByID::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_SETLINETEXTUREOFFSETBYID );
+	command.addShort( this->lineID );
+	command.addLong( this->XOffset );
+	command.addLong( this->YOffset );
+	command.addBit( this->side );
+	command.addByte( this->flags );
+	return command;
+}
+
+void ServerCommands::SetLineTextureOffsetByID::SetLineID( unsigned int value )
+{
+	this->lineID = value;
+	this->_lineIDInitialized = true;
+}
+
+void ServerCommands::SetLineTextureOffsetByID::SetXOffset( fixed_t value )
+{
+	this->XOffset = value;
+	this->_XOffsetInitialized = true;
+}
+
+void ServerCommands::SetLineTextureOffsetByID::SetYOffset( fixed_t value )
+{
+	this->YOffset = value;
+	this->_YOffsetInitialized = true;
+}
+
+void ServerCommands::SetLineTextureOffsetByID::SetSide( bool value )
+{
+	this->side = value;
+	this->_sideInitialized = true;
+}
+
+void ServerCommands::SetLineTextureOffsetByID::SetFlags( int value )
+{
+	this->flags = value;
+	this->_flagsInitialized = true;
+}
+
+NetCommand ServerCommands::SetLineTextureScale::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: SetLineTextureScale::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC_SETLINETEXTURESCALE );
+	command.addShort( this->line ? this->line - lines : -1 );
+	command.addLong( this->XScale );
+	command.addLong( this->YScale );
+	command.addBit( this->side );
+	command.addByte( this->position );
+	return command;
+}
+
+void ServerCommands::SetLineTextureScale::SetLine( line_t * value )
+{
+	this->line = value;
+	this->_lineInitialized = true;
+}
+
+void ServerCommands::SetLineTextureScale::SetXScale( fixed_t value )
+{
+	this->XScale = value;
+	this->_XScaleInitialized = true;
+}
+
+void ServerCommands::SetLineTextureScale::SetYScale( fixed_t value )
+{
+	this->YScale = value;
+	this->_YScaleInitialized = true;
+}
+
+void ServerCommands::SetLineTextureScale::SetSide( bool value )
+{
+	this->side = value;
+	this->_sideInitialized = true;
+}
+
+void ServerCommands::SetLineTextureScale::SetPosition( int value )
+{
+	this->position = value;
+	this->_positionInitialized = true;
+}
+
+NetCommand ServerCommands::SetLineTextureScaleByID::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: SetLineTextureScaleByID::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_SETLINETEXTURESCALEBYID );
+	command.addShort( this->lineID );
+	command.addLong( this->XScale );
+	command.addLong( this->YScale );
+	command.addBit( this->side );
+	command.addByte( this->flags );
+	return command;
+}
+
+void ServerCommands::SetLineTextureScaleByID::SetLineID( unsigned int value )
+{
+	this->lineID = value;
+	this->_lineIDInitialized = true;
+}
+
+void ServerCommands::SetLineTextureScaleByID::SetXScale( fixed_t value )
+{
+	this->XScale = value;
+	this->_XScaleInitialized = true;
+}
+
+void ServerCommands::SetLineTextureScaleByID::SetYScale( fixed_t value )
+{
+	this->YScale = value;
+	this->_YScaleInitialized = true;
+}
+
+void ServerCommands::SetLineTextureScaleByID::SetSide( bool value )
+{
+	this->side = value;
+	this->_sideInitialized = true;
+}
+
+void ServerCommands::SetLineTextureScaleByID::SetFlags( int value )
+{
+	this->flags = value;
+	this->_flagsInitialized = true;
 }
 
 NetCommand ServerCommands::SetSomeLineFlags::BuildNetCommand() const
@@ -10021,7 +10274,7 @@ NetCommand ServerCommands::SoundActor::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SOUNDACTOR );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addShort( this->channel );
 	command.addString( this->sound );
 	command.addByte( this->volume );
@@ -10067,7 +10320,7 @@ NetCommand ServerCommands::SoundActorIfNotPlaying::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_SOUNDACTORIFNOTPLAYING );
-	command.addShort( this->actor ? this->actor->lNetID : -1 );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
 	command.addShort( this->channel );
 	command.addString( this->sound );
 	command.addByte( this->volume );
@@ -10197,6 +10450,31 @@ void ServerCommands::AnnouncerSound::SetSound( const FString & value )
 {
 	this->sound = value;
 	this->_soundInitialized = true;
+}
+
+NetCommand ServerCommands::StopSound::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: StopSound::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_STOPSOUND );
+	command.addShort( this->actor ? this->actor->NetID : -1 );
+	command.addByte( this->channel );
+	return command;
+}
+
+void ServerCommands::StopSound::SetActor( AActor * value )
+{
+	this->actor = value;
+	this->_actorInitialized = true;
+}
+
+void ServerCommands::StopSound::SetChannel( int value )
+{
+	this->channel = value;
+	this->_channelInitialized = true;
 }
 
 NetCommand ServerCommands::SpawnMissile::BuildNetCommand() const
@@ -10355,7 +10633,7 @@ NetCommand ServerCommands::MissileExplode::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_MISSILEEXPLODE );
-	command.addShort( this->missile ? this->missile->lNetID : -1 );
+	command.addShort( this->missile ? this->missile->NetID : -1 );
 	command.addShort( this->lineId );
 	command.addShort( this->x >> FRACBITS );
 	command.addShort( this->y >> FRACBITS );
@@ -10451,7 +10729,7 @@ NetCommand ServerCommands::WeaponRailgun::BuildNetCommand() const
 		PrintMissingParameters();
 	}
 	NetCommand command ( SVC_WEAPONRAILGUN );
-	command.addShort( this->source ? this->source->lNetID : -1 );
+	command.addShort( this->source ? this->source->NetID : -1 );
 	command.addFloat( this->start.X );
 	command.addFloat( this->start.Y );
 	command.addFloat( this->start.Z );
@@ -10566,7 +10844,7 @@ NetCommand ServerCommands::ACSScriptExecute::BuildNetCommand() const
 	}
 	NetCommand command ( SVC_ACSSCRIPTEXECUTE );
 	command.addShort( this->netid );
-	command.addShort( this->activator ? this->activator->lNetID : -1 );
+	command.addShort( this->activator ? this->activator->NetID : -1 );
 	command.addShort( this->lineid );
 	command.addByte( this->levelnum );
 	command.addVariable( this->arg0 );
@@ -10638,6 +10916,38 @@ void ServerCommands::ACSScriptExecute::SetAlways( bool value )
 	this->_alwaysInitialized = true;
 }
 
+NetCommand ServerCommands::ACSSendString::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: ACSSendString::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_ACSSENDSTRING );
+	command.addShort( this->netid );
+	command.addShort( this->activator ? this->activator->NetID : -1 );
+	command.addString( this->string );
+	return command;
+}
+
+void ServerCommands::ACSSendString::SetNetid( int value )
+{
+	this->netid = value;
+	this->_netidInitialized = true;
+}
+
+void ServerCommands::ACSSendString::SetActivator( AActor * value )
+{
+	this->activator = value;
+	this->_activatorInitialized = true;
+}
+
+void ServerCommands::ACSSendString::SetString( const FString & value )
+{
+	this->string = value;
+	this->_stringInitialized = true;
+}
+
 NetCommand ServerCommands::SyncJoinQueue::BuildNetCommand() const
 {
 	if ( AllParametersInitialized() == false )
@@ -10659,6 +10969,38 @@ void ServerCommands::SyncJoinQueue::SetSlots( const TArray<struct JoinSlot> & va
 {
 	this->slots = value;
 	this->_slotsInitialized = true;
+}
+
+NetCommand ServerCommands::SyncMapRotation::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: SyncMapRotation::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_SYNCMAPROTATION );
+	command.addByte( entries.Size() );
+	for ( unsigned int i = 0; i < entries.Size(); ++i )
+	{
+		command.addString( this->entries[i].name );
+		command.addByte( this->entries[i].isUsed );
+		command.addByte( this->entries[i].minPlayers );
+		command.addByte( this->entries[i].maxPlayers );
+	}
+	command.addShort( this->currentPosition );
+	return command;
+}
+
+void ServerCommands::SyncMapRotation::SetEntries( const TArray<struct MapRotationEntry> & value )
+{
+	this->entries = value;
+	this->_entriesInitialized = true;
+}
+
+void ServerCommands::SyncMapRotation::SetCurrentPosition( int value )
+{
+	this->currentPosition = value;
+	this->_currentPositionInitialized = true;
 }
 
 NetCommand ServerCommands::ReplaceTextures::BuildNetCommand() const
