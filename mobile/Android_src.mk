@@ -291,6 +291,7 @@ GAME_ALL = \
 	s_sound.cpp \
 	sc_man.cpp \
 	scoreboard.cpp \
+	scoreboard_margin.cpp \
 	sectinfo.cpp \
 	st_stuff.cpp \
 	statistics.cpp \

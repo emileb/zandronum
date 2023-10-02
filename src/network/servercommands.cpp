@@ -1,4 +1,4 @@
-// 4fbc61d6bd3594084c82855135974418
+// 6733be247db4612b5ac1d0ee86859195
 // This file has been automatically generated. Do not edit by hand.
 #include "cl_main.h"
 #include "servercommands.h"
@@ -4318,17 +4318,42 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 		}
 		return true;
 
-	case SVC2_SETPLAYERACCOUNTNAME:
+	case SVC2_SETPLAYERCOUNTRY:
 		{
-			ServerCommands::SetPlayerAccountName command;
+			ServerCommands::SetPlayerCountry command;
 			int temp139;
 			command.player = &players[bytestream->ReadByte()];
-			command.accountName = bytestream->ReadString();
+			command.country = bytestream->ReadByte();
 			temp139 = command.player - players;
 
 			if (( temp139 < 0 ) || ( temp139 >= MAXPLAYERS ))
 			{
-				CLIENT_PrintWarning( "SetPlayerAccountName: Invalid player number: %d\n", temp139 );
+				CLIENT_PrintWarning( "SetPlayerCountry: Invalid player number: %d\n", temp139 );
+				return true;
+			}
+
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "SetPlayerCountry: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_SETPLAYERACCOUNTNAME:
+		{
+			ServerCommands::SetPlayerAccountName command;
+			int temp140;
+			command.player = &players[bytestream->ReadByte()];
+			command.accountName = bytestream->ReadString();
+			temp140 = command.player - players;
+
+			if (( temp140 < 0 ) || ( temp140 >= MAXPLAYERS ))
+			{
+				CLIENT_PrintWarning( "SetPlayerAccountName: Invalid player number: %d\n", temp140 );
 				return true;
 			}
 
@@ -4346,14 +4371,14 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SETPLAYERDEATHS:
 		{
 			ServerCommands::SetPlayerDeaths command;
-			int temp140;
+			int temp141;
 			command.player = &players[bytestream->ReadByte()];
 			command.deaths = bytestream->ReadVariable();
-			temp140 = command.player - players;
+			temp141 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp140 ) == false )
+			if ( PLAYER_IsValidPlayer( temp141 ) == false )
 			{
-				CLIENT_PrintWarning( "SetPlayerDeaths: Invalid player number: %d\n", temp140 );
+				CLIENT_PrintWarning( "SetPlayerDeaths: Invalid player number: %d\n", temp141 );
 				return true;
 			}
 
@@ -4387,17 +4412,17 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_GIVEWEAPONHOLDER:
 		{
 			ServerCommands::GiveWeaponHolder command;
-			int temp141;
 			int temp142;
+			int temp143;
 			command.player = &players[bytestream->ReadByte()];
 			command.pieceMask = bytestream->ReadShort();
-			temp141 = bytestream->ReadShort();
-			command.pieceWeapon = NETWORK_GetClassFromIdentification( temp141 );
-			temp142 = command.player - players;
+			temp142 = bytestream->ReadShort();
+			command.pieceWeapon = NETWORK_GetClassFromIdentification( temp142 );
+			temp143 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp142 ) == false )
+			if ( PLAYER_IsValidPlayer( temp143 ) == false )
 			{
-				CLIENT_PrintWarning( "GiveWeaponHolder: Invalid player number: %d\n", temp142 );
+				CLIENT_PrintWarning( "GiveWeaponHolder: Invalid player number: %d\n", temp143 );
 				return true;
 			}
 
@@ -4408,7 +4433,7 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 
 			if ( command.pieceWeapon == NULL )
 			{
-				CLIENT_PrintWarning( "GiveWeaponHolder: unknown class ID for pieceWeapon: %d\n", temp141 );
+				CLIENT_PrintWarning( "GiveWeaponHolder: unknown class ID for pieceWeapon: %d\n", temp142 );
 				return true;
 			}
 
@@ -4427,18 +4452,18 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SETHEXENARMORSLOTS:
 		{
 			ServerCommands::SetHexenArmorSlots command;
-			int temp143;
+			int temp144;
 			command.player = &players[bytestream->ReadByte()];
 			command.slot0 = bytestream->ReadLong();
 			command.slot1 = bytestream->ReadLong();
 			command.slot2 = bytestream->ReadLong();
 			command.slot3 = bytestream->ReadLong();
 			command.slot4 = bytestream->ReadLong();
-			temp143 = command.player - players;
+			temp144 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp143 ) == false )
+			if ( PLAYER_IsValidPlayer( temp144 ) == false )
 			{
-				CLIENT_PrintWarning( "SetHexenArmorSlots: Invalid player number: %d\n", temp143 );
+				CLIENT_PrintWarning( "SetHexenArmorSlots: Invalid player number: %d\n", temp144 );
 				return true;
 			}
 
@@ -4460,17 +4485,17 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_LEVELSPAWNTHING:
 		{
 			ServerCommands::LevelSpawnThing command;
-			int temp144;
+			int temp145;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
-			temp144 = bytestream->ReadShort();
-			command.type = NETWORK_GetClassFromIdentification( temp144 );
+			temp145 = bytestream->ReadShort();
+			command.type = NETWORK_GetClassFromIdentification( temp145 );
 			command.id = bytestream->ReadShort();
 
 			if ( command.type == NULL )
 			{
-				CLIENT_PrintWarning( "LevelSpawnThing: unknown class ID for type: %d\n", temp144 );
+				CLIENT_PrintWarning( "LevelSpawnThing: unknown class ID for type: %d\n", temp145 );
 				return true;
 			}
 
@@ -4489,16 +4514,16 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_LEVELSPAWNTHINGNONETID:
 		{
 			ServerCommands::LevelSpawnThingNoNetID command;
-			int temp145;
+			int temp146;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
-			temp145 = bytestream->ReadShort();
-			command.type = NETWORK_GetClassFromIdentification( temp145 );
+			temp146 = bytestream->ReadShort();
+			command.type = NETWORK_GetClassFromIdentification( temp146 );
 
 			if ( command.type == NULL )
 			{
-				CLIENT_PrintWarning( "LevelSpawnThingNoNetID: unknown class ID for type: %d\n", temp145 );
+				CLIENT_PrintWarning( "LevelSpawnThingNoNetID: unknown class ID for type: %d\n", temp146 );
 				return true;
 			}
 
@@ -4517,11 +4542,11 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SETTHINGSTRINGPROPERTY:
 		{
 			ServerCommands::SetThingStringProperty command;
-			int temp146;
-			temp146 = bytestream->ReadShort();
+			int temp147;
+			temp147 = bytestream->ReadShort();
 			command.property = bytestream->ReadByte();
 			command.value = bytestream->ReadString();
-			if ( CLIENT_ReadActorFromNetID( temp146, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp147, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingStringProperty", "actor" ) == false )
 			{
@@ -4543,10 +4568,10 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SETTHINGREACTIONTIME:
 		{
 			ServerCommands::SetThingReactionTime command;
-			int temp147;
-			temp147 = bytestream->ReadShort();
+			int temp148;
+			temp148 = bytestream->ReadShort();
 			command.reactiontime = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp147, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp148, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingReactionTime", "actor" ) == false )
 			{
@@ -4568,8 +4593,8 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SETTHINGSCALE:
 		{
 			ServerCommands::SetThingScale command;
-			int temp148;
-			temp148 = bytestream->ReadShort();
+			int temp149;
+			temp149 = bytestream->ReadShort();
 			command.scaleflags = bytestream->ReadByte();
 			if ( command.ContainsScaleX() )
 			{
@@ -4579,7 +4604,7 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 			{
 				command.scaleY = bytestream->ReadLong();
 			}
-			if ( CLIENT_ReadActorFromNetID( temp148, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp149, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingScale", "actor" ) == false )
 			{
@@ -4645,9 +4670,9 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SOUNDSECTOR:
 		{
 			ServerCommands::SoundSector command;
-			int temp149;
-			temp149 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp149 );
+			int temp150;
+			temp150 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp150 );
 			command.channel = bytestream->ReadShort();
 			command.sound = bytestream->ReadString();
 			command.volume = bytestream->ReadByte();
@@ -4655,7 +4680,7 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SoundSector: couldn't find sector: %d\n", temp149 );
+				CLIENT_PrintWarning( "SoundSector: couldn't find sector: %d\n", temp150 );
 				return true;
 			}
 
@@ -4674,10 +4699,10 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_STOPSOUND:
 		{
 			ServerCommands::StopSound command;
-			int temp150;
-			temp150 = bytestream->ReadShort();
+			int temp151;
+			temp151 = bytestream->ReadShort();
 			command.channel = bytestream->ReadByte();
-			if ( CLIENT_ReadActorFromNetID( temp150, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp151, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"StopSound", "actor" ) == false )
 			{
@@ -4699,11 +4724,11 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_ACSSENDSTRING:
 		{
 			ServerCommands::ACSSendString command;
-			int temp151;
+			int temp152;
 			command.netid = bytestream->ReadShort();
-			temp151 = bytestream->ReadShort();
+			temp152 = bytestream->ReadShort();
 			command.string = bytestream->ReadString();
-			if ( CLIENT_ReadActorFromNetID( temp151, RUNTIME_CLASS( AActor ), true,
+			if ( CLIENT_ReadActorFromNetID( temp152, RUNTIME_CLASS( AActor ), true,
 											reinterpret_cast<AActor *&>( command.activator ),
 											"ACSSendString", "activator" ) == false )
 			{
@@ -4725,10 +4750,10 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SYNCJOINQUEUE:
 		{
 			ServerCommands::SyncJoinQueue command;
-			unsigned int temp152;
-			temp152 = bytestream->ReadByte();
-			command.slots.Reserve( temp152 );
-			for ( unsigned int i = 0; i < temp152; ++i )
+			unsigned int temp153;
+			temp153 = bytestream->ReadByte();
+			command.slots.Reserve( temp153 );
+			for ( unsigned int i = 0; i < temp153; ++i )
 			{
 				command.slots[i].player = bytestream->ReadByte();
 				command.slots[i].team = bytestream->ReadByte();
@@ -4750,10 +4775,10 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SYNCMAPROTATION:
 		{
 			ServerCommands::SyncMapRotation command;
-			unsigned int temp153;
-			temp153 = bytestream->ReadByte();
-			command.entries.Reserve( temp153 );
-			for ( unsigned int i = 0; i < temp153; ++i )
+			unsigned int temp154;
+			temp154 = bytestream->ReadByte();
+			command.entries.Reserve( temp154 );
+			for ( unsigned int i = 0; i < temp154; ++i )
 			{
 				command.entries[i].name = bytestream->ReadString();
 				command.entries[i].isUsed = bytestream->ReadByte();
@@ -4767,6 +4792,39 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
 				CLIENT_PrintWarning( "SyncMapRotation: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_SETCUSTOMPLAYERVALUE:
+		{
+			ServerCommands::SetCustomPlayerValue command;
+			command.index = bytestream->ReadByte();
+			command.player = bytestream->ReadByte();
+			command.value = bytestream->ReadString();
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "SetCustomPlayerValue: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_RESETCUSTOMPLAYERVALUE:
+		{
+			ServerCommands::ResetCustomPlayerValue command;
+			command.index = bytestream->ReadByte();
+			command.player = bytestream->ReadByte();
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "ResetCustomPlayerValue: Packet contained %td too few bytes\n",
 					bytestream->pbStream - bytestream->pbStreamEnd );
 				return true;
 			}
@@ -5733,6 +5791,31 @@ void ServerCommands::SetPlayerUserInfo::SetCvars( const TArray<struct CVar> & va
 {
 	this->cvars = value;
 	this->_cvarsInitialized = true;
+}
+
+NetCommand ServerCommands::SetPlayerCountry::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: SetPlayerCountry::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_SETPLAYERCOUNTRY );
+	command.addByte( this->player - players );
+	command.addByte( this->country );
+	return command;
+}
+
+void ServerCommands::SetPlayerCountry::SetPlayer( player_t * value )
+{
+	this->player = value;
+	this->_playerInitialized = true;
+}
+
+void ServerCommands::SetPlayerCountry::SetCountry( int value )
+{
+	this->country = value;
+	this->_countryInitialized = true;
 }
 
 NetCommand ServerCommands::SetPlayerAccountName::BuildNetCommand() const
@@ -11033,5 +11116,62 @@ void ServerCommands::ReplaceTextures::SetTextureFlags( int value )
 {
 	this->textureFlags = value;
 	this->_textureFlagsInitialized = true;
+}
+
+NetCommand ServerCommands::SetCustomPlayerValue::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: SetCustomPlayerValue::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_SETCUSTOMPLAYERVALUE );
+	command.addByte( this->index );
+	command.addByte( this->player );
+	command.addString( this->value );
+	return command;
+}
+
+void ServerCommands::SetCustomPlayerValue::SetIndex( int value )
+{
+	this->index = value;
+	this->_indexInitialized = true;
+}
+
+void ServerCommands::SetCustomPlayerValue::SetPlayer( int value )
+{
+	this->player = value;
+	this->_playerInitialized = true;
+}
+
+void ServerCommands::SetCustomPlayerValue::SetValue( const FString & value )
+{
+	this->value = value;
+	this->_valueInitialized = true;
+}
+
+NetCommand ServerCommands::ResetCustomPlayerValue::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: ResetCustomPlayerValue::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_RESETCUSTOMPLAYERVALUE );
+	command.addByte( this->index );
+	command.addByte( this->player );
+	return command;
+}
+
+void ServerCommands::ResetCustomPlayerValue::SetIndex( int value )
+{
+	this->index = value;
+	this->_indexInitialized = true;
+}
+
+void ServerCommands::ResetCustomPlayerValue::SetPlayer( int value )
+{
+	this->player = value;
+	this->_playerInitialized = true;
 }
 

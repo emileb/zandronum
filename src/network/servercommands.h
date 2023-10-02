@@ -1,4 +1,4 @@
-// d1256fcdb68191eca819fa33f43eeff9
+// bca28782c1a3599b56e71a5e42fdb0ba
 // This file has been automatically generated. Do not edit by hand.
 #pragma once
 #include "actor.h"
@@ -1160,6 +1160,37 @@ namespace ServerCommands
 		TArray<struct CVar> cvars;
 		bool _playerInitialized;
 		bool _cvarsInitialized;
+	};
+
+	class SetPlayerCountry : public BaseServerCommand
+	{
+	public:
+		SetPlayerCountry() :
+			_playerInitialized( false ),
+			_countryInitialized( false ) {}
+		void SetPlayer( player_t * value );
+		void SetCountry( int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _playerInitialized
+				&& _countryInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _playerInitialized == false )
+				Printf( "Missing: player\n" );
+			if ( _countryInitialized == false )
+				Printf( "Missing: country\n" );
+		}
+
+	protected:
+		player_t *player;
+		int country;
+		bool _playerInitialized;
+		bool _countryInitialized;
 	};
 
 	class SetPlayerAccountName : public BaseServerCommand
@@ -7077,6 +7108,75 @@ namespace ServerCommands
 		bool _fromTextureInitialized;
 		bool _toTextureInitialized;
 		bool _textureFlagsInitialized;
+	};
+
+	class SetCustomPlayerValue : public BaseServerCommand
+	{
+	public:
+		SetCustomPlayerValue() :
+			_indexInitialized( false ),
+			_playerInitialized( false ),
+			_valueInitialized( false ) {}
+		void SetIndex( int value );
+		void SetPlayer( int value );
+		void SetValue( const FString & value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _indexInitialized
+				&& _playerInitialized
+				&& _valueInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _indexInitialized == false )
+				Printf( "Missing: index\n" );
+			if ( _playerInitialized == false )
+				Printf( "Missing: player\n" );
+			if ( _valueInitialized == false )
+				Printf( "Missing: value\n" );
+		}
+
+	protected:
+		int index;
+		int player;
+		FString value;
+		bool _indexInitialized;
+		bool _playerInitialized;
+		bool _valueInitialized;
+	};
+
+	class ResetCustomPlayerValue : public BaseServerCommand
+	{
+	public:
+		ResetCustomPlayerValue() :
+			_indexInitialized( false ),
+			_playerInitialized( false ) {}
+		void SetIndex( int value );
+		void SetPlayer( int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _indexInitialized
+				&& _playerInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _indexInitialized == false )
+				Printf( "Missing: index\n" );
+			if ( _playerInitialized == false )
+				Printf( "Missing: player\n" );
+		}
+
+	protected:
+		int index;
+		int player;
+		bool _indexInitialized;
+		bool _playerInitialized;
 	};
 
 }
