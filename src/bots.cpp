@@ -89,6 +89,7 @@
 #include "sbar.h"
 #include "doomerrors.h"
 #include "chat.h"
+#include "scoreboard.h"
 
 //*****************************************************************************
 //	VARIABLES
@@ -595,6 +596,9 @@ void BOTS_RemoveBot( ULONG ulPlayerIdx, bool bExitMsg )
 
 	// [AK] Clear all the saved chat messages this bot said.
 	CHAT_ClearChatMessages( ulPlayerIdx );
+
+	// [AK] Reset this player's custom values to their default values.
+	PLAYER_ResetCustomValues( ulPlayerIdx );
 
 	// [BB] Morphed bots need to be unmorphed before disconnecting.
 	if (players[ulPlayerIdx].morphTics)
@@ -1696,6 +1700,9 @@ CSkullBot::CSkullBot( char *pszName, char *pszTeamName, ULONG ulPlayerNum )
 	m_pPlayer->bIsBot = true;
 	m_pPlayer->bSpectating = false;
 	m_pPlayer->bDeadSpectator = false;
+
+	// [AK] Bots have a local connection to the host, so set their country index to LAN.
+	m_pPlayer->ulCountryIndex = COUNTRYINDEX_LAN;
 
 	// Update the playeringame slot.
 	playeringame[ulPlayerNum] = true;
@@ -3592,8 +3599,6 @@ void CSkullBot::HandleAiming( void )
 			}
 		}
 	}
-	else
-		m_pPlayer->mo->pitch = 0;
 }
 
 //*****************************************************************************

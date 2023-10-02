@@ -1,0 +1,403 @@
+//*****************************************************************************
+//
+// COLUMN BLOCKS
+//
+//*****************************************************************************
+
+Column "Name"
+{
+	AddFlag DONTSHOWHEADER
+	AddFlag ALWAYSUSESHORTESTWIDTH
+}
+
+Column "Index"
+{
+	AddFlag ALWAYSUSESHORTESTWIDTH
+
+	DisplayName = "#"
+}
+
+Column "Time"
+{
+	AddFlag ALWAYSUSESHORTESTWIDTH
+
+	Alignment = Right
+	Size = 16
+}
+
+Column "Ping"
+{
+	AddFlag ONLINEONLY
+	AddFlag ALWAYSUSESHORTESTWIDTH
+
+	Alignment = Right
+	Size = 16
+}
+
+Column "Frags"
+{
+	AddFlag NOSPECTATORS
+	AddFlag ALWAYSUSESHORTESTWIDTH
+
+	Alignment = Right
+	GameType = Deathmatch, TeamGame
+	ShortName = "Frgs"
+	Size = 16
+}
+
+Column "Points"
+{
+	AddFlag NOSPECTATORS
+	AddFlag ALWAYSUSESHORTESTWIDTH
+
+	Alignment = Right
+	EarnType = Points
+	GameType = Deathmatch, TeamGame
+	ShortName = "Pts"
+	Size = 16
+}
+
+Column "Wins"
+{
+	AddFlag NOSPECTATORS
+	AddFlag ALWAYSUSESHORTESTWIDTH
+
+	Alignment = Right
+	EarnType = Wins
+	GameType = Deathmatch, TeamGame
+	Size = 16
+}
+
+
+Column "Kills"
+{
+	AddFlag NOSPECTATORS
+	AddFlag ALWAYSUSESHORTESTWIDTH
+	AddFlag CVARMUSTBEZERO
+
+	Alignment = Right
+	CVar = sv_awarddamageinsteadkills
+	EarnType = Kills
+	Size = 16
+}
+
+Column "Deaths"
+{
+	AddFlag REVERSEORDER
+	AddFlag NOSPECTATORS
+	AddFlag ALWAYSUSESHORTESTWIDTH
+
+	Alignment = Right
+	ShortName = "Dths"
+	Size = 16
+}
+
+Column "Secrets"
+{
+	AddFlag NOSPECTATORS
+	AddFlag ALWAYSUSESHORTESTWIDTH
+
+	Alignment = Right
+	GameType = Cooperative
+	ShortName = "Scrts"
+	Size = 16
+}
+
+Column "Lives"
+{
+	AddFlag NOSPECTATORS
+	AddFlag REQUIRESLIVES
+	AddFlag ALWAYSUSESHORTESTWIDTH
+
+	Alignment = Right
+	Size = 16
+}
+
+Column "Damage"
+{
+	AddFlag NOSPECTATORS
+	AddFlag ALWAYSUSESHORTESTWIDTH
+
+	Alignment = Right
+	CVar = sv_awarddamageinsteadkills
+	EarnType = Kills
+	ShortName = "Dmg"
+	Size = 16
+}
+
+Column "Handicap"
+{
+	AddFlag NOSPECTATORS
+	AddFlag ALWAYSUSESHORTESTWIDTH
+	AddFlag DISABLEIFEMPTY
+
+	Alignment = Right
+	ShortName = "H'Cap"
+	Size = 16
+}
+
+Column "JoinQueue"
+{
+	AddFlag DONTSHOWHEADER
+	AddFlag ALWAYSUSESHORTESTWIDTH
+	AddFlag DISABLEIFEMPTY
+
+	Suffix = "."
+}
+
+Column "Vote"
+{
+	AddFlag NOINTERMISSION
+	AddFlag ONLINEONLY
+	AddFlag ALWAYSUSESHORTESTWIDTH
+	AddFlag DISABLEIFEMPTY
+
+	Alignment = Right
+	DisplayName = "Voted"
+	ShortName = "Vote"
+}
+
+Column "PlayerColor"
+{
+	AddFlag FORBIDTEAMS
+	AddFlag DONTSHOWHEADER
+	AddFlag ALWAYSUSESHORTESTWIDTH
+
+	ClipRectHeight = -2
+	ClipRectWidth = 15
+}
+
+Column "StatusIcon"
+{
+	AddFlag DONTSHOWHEADER
+
+	ClipRectHeight = -2
+	Size = 13
+}
+
+Column "ReadyToGoIcon"
+{
+	AddFlag INTERMISSIONONLY
+	AddFlag DONTSHOWHEADER
+
+	ClipRectHeight = -2
+	Size = 8
+}
+
+Column "PlayerIcon"
+{
+	AddFlag NOSPECTATORS
+	AddFlag DONTSHOWHEADER
+	AddFlag ALWAYSUSESHORTESTWIDTH
+	AddFlag DISABLEIFEMPTY
+
+	Alignment = Center
+	ClipRectHeight = -2
+}
+
+Column "ArtifactIcon"
+{
+	AddFlag NOINTERMISSION
+	AddFlag DONTSHOWHEADER
+
+	Alignment = Center
+	ClipRectHeight = -2
+	GameMode = Terminator, Possession, TeamPossession, CTF, OneFlagCTF, Skulltag
+	Size = 13
+}
+
+Column "BotSkillIcon"
+{
+	AddFlag DONTSHOWHEADER
+	AddFlag ALWAYSUSESHORTESTWIDTH
+	AddFlag DISABLEIFEMPTY
+
+	Alignment = Center
+	ClipRectHeight = -2
+}
+
+Column "CountryFlag"
+{
+	AddFlag ONLINEONLY
+	AddFlag DONTSHOWHEADER
+	AddFlag ALWAYSUSESHORTESTWIDTH
+
+	Alignment = Center
+}
+
+CompositeColumn "ReadyToGoAndStatusIcons"
+{
+	AddFlag DONTSHOWHEADER
+	AddFlag ALWAYSUSESHORTESTWIDTH
+
+	Columns = "ReadyToGoIcon", "StatusIcon"
+	GapBetweenColumns = 4
+}
+
+CompositeColumn "Player"
+{
+	Columns = "PlayerColor", "JoinQueue", "Name"
+	GapBetweenColumns = 4
+	Size = 200
+}
+
+//*****************************************************************************
+//
+// SCOREBOARD BLOCK
+//
+//*****************************************************************************
+
+Scoreboard
+{
+	MainHeader
+	{
+		MultiLineBlock( horizontalalign = center )
+		{
+			DrawString( value = "Rankings", font = "BigFont", textcolor = "Red", bottompadding = 6 )
+
+			// [AK] Draw the name of the server if we're in an online game.
+			IfOnlineGame( true )
+			{
+				DrawString( value = cvar( sv_hostname ), textcolor = "Grey", bottompadding = 1 )
+			}
+
+			// [AK] Draw the name of the current game mode and level.
+			DrawString( value = gamemode + " - " + levellump + ": " + levelname, textcolor = "Gold", bottompadding = 1 )
+
+			// Draw the time, frags, points, or kills we have left until the level ends.
+			DrawString( value = limitstrings, textcolor = "Grey", bottompadding = 1 )
+
+			// Draw the team scores and their relation (tied, red leads, etc).
+			IfPlayersOnTeams( true )
+			{
+				IfEarnType( Frags, Points, Wins )
+				{
+					DrawString( value = pointstring, textcolor = "Grey", bottompadding = 1 )
+				}
+				// Draw my rank and my frags, points, etc. Don't draw it if we're in the intermission.
+				Else
+				{
+					IfIntermission( false )
+					{
+						IfShouldShowRank( true )
+						{
+							DrawString( value = placestring, textcolor = "Grey", bottompadding = 1 )
+						}
+					}
+				}
+			}
+			// Draw my rank and my frags, points, etc. Don't draw it if we're in the intermission.
+			Else
+			{
+				IfIntermission( false )
+				{
+					IfShouldShowRank( true )
+					{
+						DrawString( value = placestring, textcolor = "Grey", bottompadding = 1 )
+					}
+				}
+			}
+
+			// [JS] Intermission countdown display.
+			IfIntermission( true )
+			{
+				IfOnlineGame( true )
+				{
+					IfCVar( cl_intermissiontimer == true )
+					{
+						DrawString( value = "Entering " + nextlevellump + ": " + nextlevelname + " in " + intermissiontimeleft + " second(s)", textcolor = "Green" )
+					}
+				}
+			}
+		}
+	}
+
+	TeamHeader
+	{
+		MultiLineBlock( verticalalign = center )
+		{
+			RowBlock( )
+			{
+				DrawTexture( value = teamlogo, rightpadding = 2 )
+
+				MultiLineBlock( )
+				{
+					DrawString( value = teamname, font = "BigFont", textcolor = teamtextcolor, bottompadding = 1 )
+
+					IfPlayersHaveLives( false )
+					{
+						DrawString( value = "Total Players: " + teamplayercount, textcolor = teamtextcolor, bottompadding = 1 )
+					}
+					Else
+					{
+						DrawString( value = "Players Alive: " + teamliveplayercount + "/" + teamplayercount, textcolor = teamtextcolor, bottompadding = 1 )
+					}
+				}
+			}
+
+			// [AK] Use a width of INT_MAX to ensure this color box stretches across the entire margin.
+			DrawColor( value = teamcolor, width = 2147483648, height = 1, bottompadding = 2 )
+		}
+
+		MultiLineBlock( horizontalalign = right, verticalalign = center, bottompadding = 4 )
+		{
+			IfEarnType( Frags, Points, Wins )
+			{
+				IfEarnType( Frags )
+				{
+					DrawString( value = "Frags: " + teamfragcount, font = "BigFont", textcolor = teamtextcolor )
+				}
+				Else
+				{
+					IfEarnType( Points )
+					{
+						DrawString( value = "Points: " + teampointcount, font = "BigFont", textcolor = teamtextcolor, bottompadding = 1 )
+					}
+					Else
+					{
+						DrawString( value = "Wins: " + teamwincount, font = "BigFont", textcolor = teamtextcolor, bottompadding = 1 )
+					}
+
+					DrawString( value = "Frags: " + teamfragcount, textcolor = teamtextcolor )
+				}
+			}
+		}
+	}
+
+	SpectatorHeader
+	{
+		MultiLineBlock( verticalalign = center )
+		{
+			DrawString( value = "Spectators (" + spectatorcount + ")", textcolor = "Grey", bottompadding = 1 )
+
+			// [AK] Use a width of INT_MAX to ensure this color box stretches across the entire margin.
+			DrawColor( value = "DD DD DD", width = 2147483648, height = 1, bottompadding = 2 )
+		}
+	}
+
+	HeaderFont = "SmallFont"
+	RowFont = "SmallFont"
+	HeaderColor = "Grey"
+	RowColor = "Grey"
+	LocalRowColor = "Green"
+	LocalRowDemoColor = "Gold"
+	BackgroundColor = "00 00 00"
+	BackgroundAmount = 0.5
+	BackgroundBorderSize = 4
+	LightRowBackgroundColor = "40 40 40"
+	DarkRowBackgroundColor = "20 20 20"
+	LocalRowBackgroundColor = "80 80 80"
+	RowBackgroundAmount = 0.65
+	DeadPlayerTextAlpha = 0.35
+	DeadPlayerRowBackgroundAmount = 0
+	GapBetweenHeaderAndRows = 2
+	GapBetweenColumns = 2
+	GapBetweenRows = 2
+	ColumnPadding = 1
+	HeaderHeight = -2
+	RowHeight = -2
+	ColumnOrder = "BotSkillIcon", "Index", "ReadyToGoAndStatusIcons", "ArtifactIcon", "PlayerIcon", "CountryFlag", "Player", "Vote", "Handicap", "Wins", "Points", "Frags", "Kills", "Damage", "Lives", "Secrets", "Deaths", "Time", "Ping"
+	RankOrder = "Wins", "Points", "Frags", "Kills", "Damage", "Lives", "Secrets", "Deaths"
+
+	AddFlag UseHeaderColorForBorders
+}

@@ -348,6 +348,7 @@ player_t::player_t()
   lIgnoreChatTicks( -1 ),
   ulPing( 0 ),
   ulPingAverages( 0 ),
+  ulCountryIndex( 0 ),
   bReadyToGoOn( 0 ),
   pCorpse( 0 ),
   OldPendingWeapon( 0 ),
@@ -513,6 +514,7 @@ player_t &player_t::operator=(const player_t &p)
 	lIgnoreChatTicks = p.lIgnoreChatTicks;
 	ulPing = p.ulPing;
 	ulPingAverages = p.ulPingAverages;
+	ulCountryIndex = p.ulCountryIndex;
 	bReadyToGoOn = p.bReadyToGoOn;
 	pCorpse = p.pCorpse;
 	OldPendingWeapon = p.OldPendingWeapon;
@@ -3804,6 +3806,7 @@ void P_PlayerThink (player_t *player)
 	if (player->bSpectating)
 	{
 		P_SetPsprite( player, ps_weapon, NULL );
+		P_SetPsprite( player, ps_flash, NULL );
 		return;
 	}
 

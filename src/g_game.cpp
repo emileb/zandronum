@@ -1147,7 +1147,7 @@ void G_FinishChangeSpy( ULONG ulPlayer )
 {
 	// [AK] If we're a spectator and want to teleport ourselves to the player we just
 	// spied on, do it when we switch back to our own view.
-	if (( cl_telespy ) && ( ulPlayer == consoleplayer ) && ( players[consoleplayer].bSpectating ))
+	if (( cl_telespy ) && ( static_cast<int>( ulPlayer ) == consoleplayer ) && ( players[consoleplayer].bSpectating ))
 	{
 		if (( players[consoleplayer].camera ) && ( players[consoleplayer].camera != players[consoleplayer].mo ))
 		{
@@ -2155,6 +2155,7 @@ void G_PlayerReborn (int player, bool bGiveInventory)
 	LONG		lIgnoreChatTicks;
 	ULONG		ulPing;
 	ULONG		ulPingAverages;
+	ULONG		ulCountryIndex;
 	ULONG		ulWins;
 	ULONG		ulTime;
 	int			timefreezer;
@@ -2193,6 +2194,7 @@ void G_PlayerReborn (int player, bool bGiveInventory)
 	lIgnoreChatTicks = p->lIgnoreChatTicks;
 	ulPing = p->ulPing;
 	ulPingAverages = p->ulPingAverages;
+	ulCountryIndex = p->ulCountryIndex;
 	ulWins = p->ulWins;
 	ulTime = p->ulTime;
 	timefreezer = p->timefreezer;
@@ -2256,6 +2258,7 @@ void G_PlayerReborn (int player, bool bGiveInventory)
 	p->lIgnoreChatTicks = lIgnoreChatTicks;
 	p->ulPing = ulPing;
 	p->ulPingAverages = ulPingAverages;
+	p->ulCountryIndex = ulCountryIndex;
 	p->ulWins = ulWins;
 	p->ulTime = ulTime;
 	// [BB] Players who were able to move while a APowerTimeFreezer is active,
@@ -2920,7 +2923,7 @@ ULONG GAME_CountTeamItem( void )
 	TThinkerIterator<TeamItem> iterator;
 	ULONG ulCounted = 0;
 
-	while ( pItem = iterator.Next( ))
+	while (( pItem = iterator.Next( )))
 		ulCounted++;
 
 	return ulCounted;
@@ -3331,6 +3334,10 @@ void P_LoadBehavior( MapData *pMap );
 
 void GAME_ResetScripts ( )
 {
+	// [AK] Reset all world and global ACS variables if ZACOMPATF_RESET_GLOBALVARS_ON_MAPRESET is on.
+	if ( zacompatflags & ZACOMPATF_RESET_GLOBALVARS_ON_MAPRESET )
+		P_ClearACSVars( true );
+
 	// Unload the ACS scripts so we can reload them.
 	FBehavior::StaticUnloadModules( );
 	if ( DACSThinker::ActiveThinker != NULL )
@@ -3460,10 +3467,6 @@ void GAME_ResetMap( bool bRunEnterScripts )
 				for ( int i = 0; i < 5; ++i )
 					pActor->args[i] = pActor->SavedArgs[i];
 		}
-
-		// [AK] Reset the world and global ACS variables on the clients if ZACOMPATF_RESET_GLOBALVARS_ON_MAPRESET is on.
-		if ( zacompatflags & ZACOMPATF_RESET_GLOBALVARS_ON_MAPRESET )
-			P_ClearACSVars( true );
 
 		// [BB] Clients may be running CLIENTSIDE scripts, so we also need to reset ACS scripts on the clients.
 		GAME_ResetScripts ( );
@@ -4235,10 +4238,6 @@ void GAME_ResetMap( bool bRunEnterScripts )
 	// If we're the server, tell clients to delete all their ceiling/floor movers.
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 		SERVERCOMMANDS_DestroyAllSectorMovers( );
-
-	// [AK] Reset all world and global ACS variables if ZACOMPATF_RESET_GLOBALVARS_ON_MAPRESET is on.
-	if ( zacompatflags & ZACOMPATF_RESET_GLOBALVARS_ON_MAPRESET )
-		P_ClearACSVars( true );
 
 	// [BB] Reset all ACS scripts.
 	GAME_ResetScripts ( );

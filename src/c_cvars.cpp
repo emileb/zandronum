@@ -69,6 +69,7 @@
 #include "v_text.h"
 #include "gi.h"
 #include "gameconfigfile.h"
+#include "scoreboard.h"
 
 struct FLatchedValue
 {
@@ -248,7 +249,7 @@ void FBaseCVar::SetGenericRep (UCVarValue value, ECVarType type)
 				// Also print the names of all affected locked flags.
 				for ( unsigned int i = 0; i < 32; i++ )
 				{
-					int bit = ( 1 << i );
+					unsigned int bit = ( 1 << i );
 
 					if ( changedBits & bit )
 					{
@@ -342,7 +343,7 @@ void FBaseCVar::SetGenericRep (UCVarValue value, ECVarType type)
 	}
 
 	// [TP] Inform RCON clients about server setting changes
-	if ( NETWORK_GetState() == NETSTATE_SERVER && ( Flags & ( CVAR_SENSITIVESERVERSETTING | CVAR_SERVERINFO )))
+	if (( NETWORK_GetState() == NETSTATE_SERVER ) && ( Flags & ( CVAR_SENSITIVESERVERSETTING | CVAR_SERVERINFO )))
 		SERVERCOMMANDS_SyncCVarToAdmins( *this );
 }
 

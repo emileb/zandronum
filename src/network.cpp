@@ -573,7 +573,7 @@ void NETWORK_Construct( USHORT usPort, bool bAllocateLANSocket )
 		if ( NETWORK_GetState() == NETSTATE_SERVER )
 		{
 			message.AppendFormat( "Please resolve these issues before hosting again.\n" );
-			I_FatalError( message );
+			I_FatalError( "%s", message.GetChars() );
 		}
 
 		message.AppendFormat( "These issues must be resolved if you plan on hosting these files in online games.\n" );
@@ -1110,20 +1110,45 @@ bool NETWORK_IsGeoIPAvailable ( void )
 }
 
 //*****************************************************************************
-// [BB] 
-FString NETWORK_GetCountryCodeFromAddress( NETADDRESS_s Address )
+// [BB/AK]
+ULONG NETWORK_GetCountryIndexFromAddress( NETADDRESS_s Address )
 {
-	const char * addressString = Address.ToStringNoPort();
+	const char *addressString = Address.ToStringNoPort();
 	if ( ( strnicmp( "10.", addressString, 3 ) == 0 ) ||
 		 ( strnicmp( "192.168.", addressString, 8 ) == 0 ) ||
 		 ( strnicmp( "127.", addressString, 4 ) == 0 ) )
+		return COUNTRYINDEX_LAN;
+
+	if ( NETWORK_IsGeoIPAvailable() == false )
+		return 0;
+
+	return GeoIP_id_by_addr ( g_GeoIPDB, addressString );
+}
+
+//*****************************************************************************
+// [AK] Helper function to reduce code duplication.
+const char *network_GetCountryStringFromIndex( ULONG ulIndex, const char *( *funcName )( int ))
+{
+	if ( ulIndex == COUNTRYINDEX_LAN )
 		return "LAN";
 
-	if ( g_GeoIPDB == NULL )
-		return "";
+	// [AK] Invalid indices (e.g. those greater than COUNTRYINDEX_LAN) should always return NULL.
+	const char *pszString = funcName( ulIndex );
+	return (( pszString == NULL ) || ( strlen( pszString ) == 0 )) ? "N/A" : pszString;
+}
 
-	FString country = GeoIP_country_code_by_addr ( g_GeoIPDB, Address.ToStringNoPort() );
-	return country.IsEmpty() ? "N/A" : country;
+//*****************************************************************************
+// [AK]
+const char *NETWORK_GetCountryCodeFromIndex( ULONG ulIndex, bool bGetAlpha3 )
+{
+	return network_GetCountryStringFromIndex( ulIndex, bGetAlpha3 ? GeoIP_code3_by_id : GeoIP_code_by_id );
+}
+
+//*****************************************************************************
+// [AK]
+const char *NETWORK_GetCountryNameFromIndex( ULONG ulIndex )
+{
+	return network_GetCountryStringFromIndex( ulIndex, GeoIP_name_by_id );
 }
 
 //*****************************************************************************
@@ -1683,8 +1708,8 @@ void I_DoSelect (void)
 
     FD_ZERO(&fdset);
     FD_SET(g_NetworkSocket, &fdset);
-    timeout.tv_sec = 1;
-    timeout.tv_usec = 0;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 1000000 / TICRATE;
     if (select (static_cast<int>(g_NetworkSocket)+1, &fdset, NULL, NULL, &timeout) == -1)
         return;
 */
@@ -1697,8 +1722,8 @@ void I_DoSelect (void)
     	FD_SET(0, &fdset);
 
     FD_SET(g_NetworkSocket, &fdset);
-    timeout.tv_sec = 1;
-    timeout.tv_usec = 0;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 1000000 / TICRATE;
     if (select (static_cast<int>(g_NetworkSocket)+1, &fdset, NULL, NULL, &timeout) == -1)
         return;
 

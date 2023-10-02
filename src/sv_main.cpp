@@ -122,6 +122,7 @@
 #include "network/packetarchive.h"
 #include "p_lnspec.h"
 #include "unlagged.h"
+#include "scoreboard.h"
 
 //*****************************************************************************
 //	MISC CRAP THAT SHOULDN'T BE HERE BUT HAS TO BE BECAUSE OF SLOPPY CODING
@@ -275,6 +276,7 @@ CVAR( Int, sv_colorstripmethod, 0, CVAR_ARCHIVE )
 CVAR( Bool, sv_minimizetosystray, true, CVAR_ARCHIVE )
 CVAR( Int, sv_queryignoretime, 10, CVAR_ARCHIVE )
 CVAR( Bool, sv_markchatlines, false, CVAR_ARCHIVE )
+CVAR( Int, sv_distinguishteamchatlines, 0, CVAR_ARCHIVE )
 CVAR( Flag, sv_nokill, dmflags2, DF2_NOSUICIDE )
 CVAR( Bool, sv_pure, true, CVAR_SERVERINFO | CVAR_LATCH )
 CVAR( Int, sv_maxclientsperip, 2, CVAR_ARCHIVE | CVAR_SERVERINFO )
@@ -1082,19 +1084,13 @@ void SERVER_CheckTimeouts( void )
 			// Have not heard from the client in at least one second; mark him as
 			// lagging and tell clients.
 			if ( players[ulIdx].bLagging == false )
-			{
-				players[ulIdx].bLagging = true;
-				SERVERCOMMANDS_SetPlayerStatus( ulIdx, PLAYERSTATUS_LAGGING );
-			}
+				PLAYER_SetStatus( &players[ulIdx], PLAYERSTATUS_LAGGING, true );
 		}
 		else
 		{
 			// Player is no longer lagging. Tell clients.
 			if ( players[ulIdx].bLagging )
-			{
-				players[ulIdx].bLagging = false;
-				SERVERCOMMANDS_SetPlayerStatus( ulIdx, PLAYERSTATUS_LAGGING );
-			}
+				PLAYER_SetStatus( &players[ulIdx], PLAYERSTATUS_LAGGING, false );
 		}
 	}
 }
@@ -1177,23 +1173,11 @@ void SERVER_SendChatMessage( ULONG ulPlayer, ULONG ulMode, const char *pszString
 
 	// Potentially prevent spectators from talking to active players during LMS games.
 	const bool bForbidChatToPlayers = GAMEMODE_IsClientForbiddenToChatToPlayers( ulPlayer );
-
 	FString cleanedChatString = pszString;
 
-	// [BB] Remove any kind of trailing crap.
-	// [AK] Temporarily uncolorize the chat string so that V_RemoveTrailingCrapFromFString removes trailing color codes.
-	V_UnColorizeString ( cleanedChatString );
-	V_RemoveTrailingCrapFromFString ( cleanedChatString );
-
-	// [K6] Idk why is this part processed as FString, but let me join in on the fun and possibly strip ascii control characters.
-	// ...except 28 which is TEXTCOLOR_ESCAPE.
-	CHAT_StripASCIIControlCharacters ( cleanedChatString );
-
 	// [BB] If the chat string is empty now, it only contained crap and is ignored.
-	if ( cleanedChatString.IsEmpty() )
+	if ( CHAT_CleanChatString( cleanedChatString ) == false )
 		return;
-
-	V_ColorizeString ( cleanedChatString );
 
 	// [BB] Replace the pointer to the chat string, with the cleaned version.
 	// This way the code below doesn't need to be altered.
@@ -1227,45 +1211,73 @@ void SERVER_SendChatMessage( ULONG ulPlayer, ULONG ulMode, const char *pszString
 			return;
 	}
 
+	FString message;
+
 	// [BB] This is to make the lines readily identifiable, necessary
 	// for MiX-MaN's IRC server control tool for example.
-	if( sv_markchatlines )
-		Printf( "CHAT " );
+	if ( sv_markchatlines )
+		message = "CHAT ";
+
+	// [AK] Distinguish team chat messages from normal chat messages if we want to.
+	if (( sv_distinguishteamchatlines > 0 ) && ( ulMode == CHATMODE_TEAM ))
+	{
+		if ( PLAYER_IsTrueSpectator( &players[ulPlayer] ))
+		{
+			message += "<SPEC> ";
+		}
+		else if ( players[ulPlayer].bOnTeam )
+		{
+			// [AK] If sv_distinguishteamchatlines is set to 1, then show the team's name.
+			// If it's greater than 1, then show the team's number instead.
+			if ( sv_distinguishteamchatlines == 1 )
+			{
+				FString teamName = TEAM_GetName( players[ulPlayer].Team );
+				teamName.ToUpper( );
+
+				message.AppendFormat( "<%s> ", teamName.GetChars( ));
+			}
+			else
+			{
+				message.AppendFormat( "<TEAM #%d> ", players[ulPlayer].Team + 1 );
+			}
+		}
+	}
+
 	// Print this message in the server's local window.
 	if ( strnicmp( "/me", pszString, 3 ) == 0 )
 	{
-		FString message;
 		pszString += 3;
 
 		if ( ulMode == CHATMODE_PRIVATE_SEND )
 		{
 			if ( ulPlayer == MAXPLAYERS )
-				message.Format( "<To %s> ", players[ulReceiver].userinfo.GetName() );
+				message.AppendFormat( "<To %s> ", players[ulReceiver].userinfo.GetName() );
 			else
-				message.Format( "<From %s> ", players[ulPlayer].userinfo.GetName() );
+				message.AppendFormat( "<From %s> ", players[ulPlayer].userinfo.GetName() );
 		}
 
 		// [AK] Don't print the same message twice for the current RCON client.
 		CONSOLE_ShouldPrintToRCONPlayer( false );
 		message.AppendFormat( "* %s%s", ulPlayer != MAXPLAYERS ? players[ulPlayer].userinfo.GetName() : "<Server>", pszString );
-		Printf( "%s\n", message.GetChars() );
 	}
 	else
 	{
 		if ( ulMode == CHATMODE_PRIVATE_SEND )
 		{
 			if ( ulPlayer == MAXPLAYERS )
-				Printf( "<To %s>: %s\n", players[ulReceiver].userinfo.GetName(), pszString );
+				message.AppendFormat( "<To %s>: %s", players[ulReceiver].userinfo.GetName(), pszString );
 			else
-				Printf( "<From %s>: %s\n", players[ulPlayer].userinfo.GetName(), pszString );
+				message.AppendFormat( "<From %s>: %s", players[ulPlayer].userinfo.GetName(), pszString );
 		}
 		else
 		{
 			// [AK] Don't print the same message twice for the current RCON client.
 			CONSOLE_ShouldPrintToRCONPlayer( false );
-			Printf( "%s: %s\n", ulPlayer != MAXPLAYERS ? players[ulPlayer].userinfo.GetName() : "<Server>", pszString );
+			message.AppendFormat( "%s: %s", ulPlayer != MAXPLAYERS ? players[ulPlayer].userinfo.GetName() : "<Server>", pszString );
 		}
 	}
+
+	Printf( "%s\n", message.GetChars() );
 }
 
 //*****************************************************************************
@@ -1559,6 +1571,35 @@ void SERVER_ConnectNewPlayer( BYTESTREAM_s *pByteStream )
 	// Send a snapshot of the level.
 	SERVER_SendFullUpdate( g_lCurrentClient );
 
+	// [AK] Tell the client everything they need to know about custom player values.
+	// This must be done after the client received the full update.
+	if ( gameinfo.CustomPlayerData.CountUsed( ) > 0 )
+	{
+		TMap<FName, PlayerData>::Iterator it( gameinfo.CustomPlayerData );
+		TMap<FName, PlayerData>::Pair *pair;
+
+		while ( it.NextPair( pair ))
+		{
+			const PlayerValue DefaultVal = pair->Value.GetDefaultValue( );
+
+			// [AK] First, tell them to reset everyone's values to default.
+			SERVERCOMMANDS_ResetCustomPlayerValue( pair->Value, MAXPLAYERS, g_lCurrentClient, SVCF_ONLYTHISCLIENT );
+
+			for ( ULONG ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
+			{
+				// [AK] Ignore the client themselves, or invalid players.
+				if (( ulIdx == static_cast<ULONG>( g_lCurrentClient )) || ( PLAYER_IsValidPlayer( ulIdx ) == false ))
+					continue;
+
+				// [AK] Don't bother sending out values that are already equal to the default value.
+				if ( pair->Value.GetValue( ulIdx ) == DefaultVal )
+					continue;
+
+				SERVERCOMMANDS_SetCustomPlayerValue( pair->Value, ulIdx, g_lCurrentClient, SVCF_ONLYTHISCLIENT );
+			}
+		}
+	}
+
 	// If we need to start this client's enter scripts, do that now.
 	if ( g_aClients[g_lCurrentClient].bRunEnterScripts )
 	{
@@ -1650,9 +1691,19 @@ void SERVER_ConnectNewPlayer( BYTESTREAM_s *pByteStream )
 	{
 		// [K6/BB] Show the player's country on connect, if the GeoIP db is available.
 		FString countryInfo;
+
+		// [AK] Always save the player's country index, even if they want to hide it.
+		players[g_lCurrentClient].ulCountryIndex = NETWORK_GetCountryIndexFromAddress( SERVER_GetClient( g_lCurrentClient )->Address );
+
 		// [BB] All players see the connect message, so only show the country code if the player doesn't want it to be hidden.
-		if ( NETWORK_IsGeoIPAvailable() && ( SERVER_GetClient( g_lCurrentClient )->bWantHideCountry == false ) )
-			countryInfo.AppendFormat ( " (from: %s)", NETWORK_GetCountryCodeFromAddress ( SERVER_GetClient( g_lCurrentClient )->Address ).GetChars() );
+		// [AK] Also don't show it if their country index is "N/A".
+		if (( SERVER_GetClient( g_lCurrentClient )->bWantHideCountry == false ) && ( players[g_lCurrentClient].ulCountryIndex > 0 ))
+		{
+			countryInfo.AppendFormat( " (from: %s)", NETWORK_GetCountryCodeFromIndex( players[g_lCurrentClient].ulCountryIndex, false ));
+
+			// [AK] Send this player's country index to everyone.
+			SERVERCOMMANDS_SetPlayerCountry( g_lCurrentClient );
+		}
 
 		FString message;
 		message.Format( "%s{ip} %s.%s\n", players[g_lCurrentClient].userinfo.GetName(),
@@ -1701,6 +1752,7 @@ void SERVER_DetermineConnectionType( BYTESTREAM_s *pByteStream )
 	ULONG	ulTime;
 	LONG	lCommand;
 	ULONG   ulFlags2 = 0; // [SB] extended flags
+	bool    bSendSegmentedResponse = false;
 
 	// If either this IP is in our flood protection queue, or the queue is full (DOS), ignore the request.
 	if ( g_floodProtectionIPQueue.isFull( ) || g_floodProtectionIPQueue.addressInQueue( NETWORK_GetFromAddress( )))
@@ -1745,6 +1797,7 @@ void SERVER_DetermineConnectionType( BYTESTREAM_s *pByteStream )
 			return;
 		// Launcher is querying this server.
 		case LAUNCHER_SERVER_CHALLENGE:
+		case LAUNCHER_SERVER_SEGMENTED_CHALLENGE: // [SB]
 
 			// Read in three more bytes, because it was a long that was sent to us.
 			pByteStream->ReadByte();
@@ -1757,15 +1810,34 @@ void SERVER_DetermineConnectionType( BYTESTREAM_s *pByteStream )
 			// Read in the time the launcher sent us.
 			ulTime = pByteStream->ReadLong();
 
-			// [SB] read extended flags
-			if ( ulFlags & SQF_EXTENDED_INFO )
-				ulFlags2 = pByteStream->ReadLong();
+			if ( lCommand == LAUNCHER_SERVER_SEGMENTED_CHALLENGE )
+			{
+				bSendSegmentedResponse = true;
+
+				// [SB] Read the extended flags, if any were sent.
+				if ( ulFlags & SQF_EXTENDED_INFO )
+					ulFlags2 = pByteStream->ReadLong();
+			}
+			else
+			{
+				// [SB] read extended flags
+				if ( ulFlags & SQF_EXTENDED_INFO )
+					ulFlags2 = pByteStream->ReadLong();
+
+				// [SB] Check if the launcher wants a segmented response.
+				if ( pByteStream->pbStream + 1 <= pByteStream->pbStreamEnd )
+					bSendSegmentedResponse = pByteStream->ReadByte() == 1;
+			}
 
 			// Received launcher query!
 			if ( sv_showlauncherqueries )
-				Printf( "Launcher challenge from: %s\n", NETWORK_GetFromAddress().ToString() );
+				Printf( "Launcher challenge%s%s from: %s\n",
+					lCommand == LAUNCHER_SERVER_CHALLENGE ? " (old)" : "",
+					bSendSegmentedResponse ? " (segmented)" : "",
+					NETWORK_GetFromAddress().ToString() 
+				);
 
-			SERVER_MASTER_SendServerInfo( NETWORK_GetFromAddress( ), ulFlags, ulTime, ulFlags2, false );
+			SERVER_MASTER_SendServerInfo( NETWORK_GetFromAddress( ), ulTime, ulFlags, ulFlags2, bSendSegmentedResponse, false );
 			return;
 		// [RC] Master server is sending us the holy banlist.
 		case MASTER_SERVER_BANLIST:
@@ -2034,6 +2106,10 @@ void SERVER_SetupNewConnection( BYTESTREAM_s *pByteStream, bool bNewPlayer )
 	// [AK] Clear any recent command gametics from the client.
 	g_aClients[lClient].recentMoveCMDs.clear();
 	g_aClients[lClient].recentSelectCMDs.clear();
+
+	// [AK] Clear whatever reason the previous client had for being muted.
+	if ( g_aClients[lClient].MutedReason.Len( ) > 0 )
+		g_aClients[lClient].MutedReason = "";
 
 	// [AK] Reset the client's tic buffer.
 	SERVER_ResetClientTicBuffer( lClient );
@@ -2515,7 +2591,7 @@ void SERVER_SendFullUpdate( ULONG ulClient )
 			SERVERCOMMANDS_SetPlayerCheats(  ulIdx, ulClient, SVCF_ONLYTHISCLIENT );
 
 		// [Dusk] Hexen armor values
-			SERVERCOMMANDS_SyncHexenArmorSlots( ulIdx, ulClient, SVCF_ONLYTHISCLIENT );
+		SERVERCOMMANDS_SyncHexenArmorSlots( ulIdx, ulClient, SVCF_ONLYTHISCLIENT );
 
 		// [WS] Update the player's properties if they changed.
 		SERVER_UpdateActorProperties( players[ulIdx].mo, ulClient );
@@ -2523,6 +2599,10 @@ void SERVER_SendFullUpdate( ULONG ulClient )
 		// [TP] Update the player's TID, if there is one.
 		if ( players[ulIdx].mo->tid )
 			SERVERCOMMANDS_SetThingTID( players[ulIdx].mo, ulClient, SVCF_ONLYTHISCLIENT );
+
+		// [AK] Update the player's country index if they're not a bot, they aren't hiding it, and it isn't "N/A".
+		if (( players[ulIdx].bIsBot == false ) && ( g_aClients[ulIdx].bWantHideCountry == false ) && ( players[ulIdx].ulCountryIndex > 0 ))
+			SERVERCOMMANDS_SetPlayerCountry( ulIdx, ulClient, SVCF_ONLYTHISCLIENT );
 
 		// [TP] Account name.
 		if ( g_aClients[ulIdx].WantHideAccount == false )
@@ -2974,7 +3054,7 @@ void SERVER_AdjustPlayersReactiontime( const ULONG ulPlayer )
 //
 void SERVER_DisconnectClient( ULONG ulClient, bool bBroadcast, bool bSaveInfo )
 {
-	ULONG	ulIdx;
+	const CLIENTSTATE_e OldState = g_aClients[ulClient].State;
 
 	if ( bBroadcast )
 	{
@@ -3000,6 +3080,9 @@ void SERVER_DisconnectClient( ULONG ulClient, bool bBroadcast, bool bSaveInfo )
 
 	// [AK] Clear all the saved chat messages this player said.
 	CHAT_ClearChatMessages( ulClient );
+
+	// [AK] Reset this player's custom values to their default values.
+	PLAYER_ResetCustomValues( ulClient );
 
 	// [BB] Morphed players need to be unmorphed before disconnecting.
 	if (players[ulClient].morphTics)
@@ -3067,11 +3150,9 @@ void SERVER_DisconnectClient( ULONG ulClient, bool bBroadcast, bool bSaveInfo )
 	playeringame[ulClient] = false;
 
 	// Run the disconnect scripts now that the player is leaving.
-	if (( players[ulClient].bSpectating == false ) ||
-		( players[ulClient].bDeadSpectator ))
-	{
+	// [AK] Only do this if the client is already spawned.
+	if (( OldState >= CLS_SPAWNED_BUT_NEEDS_AUTHENTICATION ) && (( players[ulClient].bSpectating == false ) || ( players[ulClient].bDeadSpectator )))
 		PLAYER_LeavesGame( ulClient );
-	}
 
 	// Redo the scoreboard.
 	SERVERCONSOLE_ReListPlayers( );
@@ -3091,7 +3172,7 @@ void SERVER_DisconnectClient( ULONG ulClient, bool bBroadcast, bool bSaveInfo )
 	PLAYER_ResetPlayerData( &players[ulClient] );
 
 	// If this player was the enemy of another bot, tell the bot.
-	for ( ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
+	for ( ULONG ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
 	{
 		if (( playeringame[ulIdx] == false ) || ( players[ulIdx].pSkullBot == NULL ))
 			continue;
@@ -4443,26 +4524,27 @@ void SERVER_FlagsetChanged( FIntCVar& flagset, int maxflags )
 		if ((( value ^ oldValue ) & bit ) == 0 )
 			continue;
 
-		// [AK] Print the name of the CVar and its new value while we still can.
-		if ( ++flagsChanged <= maxflags )
+		for ( FBaseCVar* cvar = CVars; cvar; cvar = cvar->GetNext( ))
 		{
-			for ( FBaseCVar* cvar = CVars; cvar; cvar = cvar->GetNext( ) )
+			// [AK] Make sure that this CVar is a flag.
+			if ( cvar->IsFlagCVar( ) == false )
+				continue;
+
+			FFlagCVar* flagCVar = static_cast<FFlagCVar*>( cvar );
+
+			// [AK] Check if this CVar belongs to the flagset and matches the corresponding bit.
+			if (( flagCVar->GetValueVar( ) == &flagset ) && ( flagCVar->GetBitVal( ) == bit ))
 			{
-				// [AK] Make sure that this CVar is a flag.
-				if ( cvar->IsFlagCVar( ) == false )
-					continue;
-
-				FFlagCVar* flagCVar = static_cast<FFlagCVar*>( cvar );
-
-				// [AK] Check if this CVar belongs to the flagset and matches the corresponding bit.
-				if (( flagCVar->GetValueVar( ) == &flagset ) && ( flagCVar->GetBitVal( ) == bit ))
+				// [AK] Print the name of the CVar and its new value while we still can.
+				if ( ++flagsChanged <= maxflags )
 				{
 					if ( flagsChanged > 1 )
 						result += ", ";
 
 					result.AppendFormat( "%s %s", flagCVar->GetName( ), ( value & bit ) ? "ON" : "OFF" );
-					break;
 				}
+
+				break;
 			}
 		}
 	}
@@ -4767,48 +4849,25 @@ bool SERVER_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 		if ( server_CheckForClientMinorCommandFlood ( g_lCurrentClient ) == true )
 			return ( true );
 
+		// Client is beginning to type.
 		if ( lCommand == CLC_STARTCHAT )
-		{
-			// Client is beginning to type.
-			players[g_lCurrentClient].bChatting = true;
-
-			// Tell clients about the change in this player's chatting status.
-			SERVERCOMMANDS_SetPlayerStatus( g_lCurrentClient, PLAYERSTATUS_CHATTING );
-		}
+			PLAYER_SetStatus( &players[g_lCurrentClient], PLAYERSTATUS_CHATTING, true, PLAYERSTATUS_SERVERSHOULDSKIPCLIENT );
+		// Client is done talking.
 		else if ( lCommand == CLC_ENDCHAT )
-		{
-			// Client is done talking.
-			players[g_lCurrentClient].bChatting = false;
-
-			// Tell clients about the change in this player's chatting status.
-			SERVERCOMMANDS_SetPlayerStatus( g_lCurrentClient, PLAYERSTATUS_CHATTING );
-		}
+			PLAYER_SetStatus( &players[g_lCurrentClient], PLAYERSTATUS_CHATTING, false, PLAYERSTATUS_SERVERSHOULDSKIPCLIENT );
+		// Player has entered the console - give him an icon.
 		else if ( lCommand == CLC_ENTERCONSOLE )
-		{
-
-			// Player has entered the console - give him an icon.
-			players[g_lCurrentClient].bInConsole = true;
-			SERVERCOMMANDS_SetPlayerStatus( g_lCurrentClient, PLAYERSTATUS_INCONSOLE );
-		}
+			PLAYER_SetStatus( &players[g_lCurrentClient], PLAYERSTATUS_INCONSOLE, true, PLAYERSTATUS_SERVERSHOULDSKIPCLIENT );
+		// Player has left the console - remove his icon.
 		else if ( lCommand == CLC_EXITCONSOLE )
-		{
-			// Player has left the console - remove his icon.
-			players[g_lCurrentClient].bInConsole = false;
-			SERVERCOMMANDS_SetPlayerStatus( g_lCurrentClient, PLAYERSTATUS_INCONSOLE );
-		}
+			PLAYER_SetStatus( &players[g_lCurrentClient], PLAYERSTATUS_INCONSOLE, false, PLAYERSTATUS_SERVERSHOULDSKIPCLIENT );
+		// Player has entered the menu - give him an icon.
 		else if ( lCommand == CLC_ENTERMENU )
-		{
-
-			// Player has entered the console - give him an icon.
-			players[g_lCurrentClient].bInMenu = true;
-			SERVERCOMMANDS_SetPlayerStatus( g_lCurrentClient, PLAYERSTATUS_INMENU );
-		}
+			PLAYER_SetStatus( &players[g_lCurrentClient], PLAYERSTATUS_INMENU, true, PLAYERSTATUS_SERVERSHOULDSKIPCLIENT );
+		// Player has left the menu - remove his icon.
 		else if ( lCommand == CLC_EXITMENU )
-		{
-			// Player has left the console - remove his icon.
-			players[g_lCurrentClient].bInMenu = false;
-			SERVERCOMMANDS_SetPlayerStatus( g_lCurrentClient, PLAYERSTATUS_INMENU );
-		}
+			PLAYER_SetStatus( &players[g_lCurrentClient], PLAYERSTATUS_INMENU, false, PLAYERSTATUS_SERVERSHOULDSKIPCLIENT );
+
 		return false;
 	case CLC_IGNORE:
 
@@ -4901,10 +4960,7 @@ bool SERVER_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 
 		// Toggle this player (specator)'s "ready to go on" status.
 		// [RC] Now a permanent choice.
-		players[g_lCurrentClient].bReadyToGoOn = true;
-
-		if ( SERVER_IsEveryoneReadyToGoOn( ) == false )
-			SERVERCOMMANDS_SetPlayerStatus( g_lCurrentClient, PLAYERSTATUS_READYTOGOON );
+		PLAYER_SetStatus( &players[g_lCurrentClient], PLAYERSTATUS_READYTOGOON, true );
 
 		return false;
 	case CLC_CHANGEDISPLAYPLAYER:
@@ -5577,6 +5633,53 @@ void SERVER_ResetClientExtrapolation( ULONG ulClient, bool bAfterBacktrace )
 
 //*****************************************************************************
 //
+void SERVER_PrintMutedMessageToPlayer( ULONG ulPlayer )
+{
+	// [AK] Make sure that this player is valid.
+	if ( SERVER_IsValidClient( ulPlayer ) == false )
+		return;
+
+	// [BB] Tell the player that (and for how long) he is muted.
+	// Except when the muting time is not limited.
+	FString message = "The server has muted you. Nobody can see your messages";
+	if ( players[ulPlayer].lIgnoreChatTicks != -1 )
+	{
+		// [EP] Print how many minutes and how many seconds are left.
+		int iMinutes = static_cast<int>( players[ulPlayer].lIgnoreChatTicks / ( TICRATE * MINUTE ));
+		int iSeconds = static_cast<int>(( players[ulPlayer].lIgnoreChatTicks / TICRATE ) % MINUTE );
+
+		if (( iMinutes > 0 ) && ( iSeconds > 0 ))
+		{
+			message.AppendFormat( " for %d minute%s and %d second%s", iMinutes, iMinutes == 1 ? "" : "s", iSeconds, iSeconds == 1 ? "" : "s" );
+		}
+		// [EP] If the time to wait is just some tics,
+		// tell the player that he can wait just a bit.
+		// There's no need to print the tics.
+		else if (( iMinutes == 0 ) && ( iSeconds == 0 ))
+		{
+			message += " for less than a second";
+		}
+		else
+		{
+			if ( iMinutes > 0 )
+				message.AppendFormat( " for %d minute%s", iMinutes, iMinutes == 1 ? "" : "s" );
+
+			if ( iSeconds > 0 )
+				message.AppendFormat( " for %d second%s", iSeconds, iSeconds == 1 ? "" : "s" );
+		}
+	}
+
+	message += '.';
+
+	// [JK] If a reason is provided, print it.
+	if ( g_aClients[ulPlayer].MutedReason.Len( ) > 0 )
+		message.AppendFormat( " Reason: %s", g_aClients[ulPlayer].MutedReason.GetChars( ));
+
+	SERVER_PrintfPlayer( ulPlayer, "%s\n", message.GetChars( ));
+}
+
+//*****************************************************************************
+//
 static bool server_Ignore( BYTESTREAM_s *pByteStream )
 {
 	ULONG	ulTargetIdx = pByteStream->ReadByte();
@@ -5761,49 +5864,7 @@ static bool server_Say( BYTESTREAM_s *pByteStream )
 	// [RC] Are this player's chats ignored?
 	if ( players[ulPlayer].bIgnoreChat )
 	{
-		// [BB] Tell the player that (and for how long) he is muted.
-		// Except when the muting time is not limited.
-		FString message = "The server has muted you. Nobody can see your messages";
-		if ( players[ulPlayer].lIgnoreChatTicks != -1 )
-		{
-			// [EP] Print how many minutes and how many seconds are left.
-			LONG lMinutes = players[ulPlayer].lIgnoreChatTicks / ( TICRATE * MINUTE );
-			LONG lSeconds = ( players[ulPlayer].lIgnoreChatTicks / TICRATE ) % MINUTE;
-			if ( ( lMinutes > 0 ) && ( lSeconds > 0 ) )
-			{
-				message.AppendFormat( " for %d minute%s and %d second%s",
-							static_cast<int>(lMinutes),
-							lMinutes == 1 ? "" : "s",
-							static_cast<int>(lSeconds),
-							lSeconds == 1 ? "" : "s");
-			}
-			// [EP] If the time to wait is just some tics,
-			// tell the player that he can wait just a bit.
-			// There's no need to print the tics.
-			else if ( ( lMinutes == 0 ) && ( lSeconds == 0 ) )
-			{
-				message += " for less than a second";
-			}
-			else
-			{
-				if ( lMinutes > 0 )
-				{
-					message.AppendFormat( " for %d minute%s",
-							static_cast<int>(lMinutes),
-							lMinutes == 1 ? "" : "s");
-				}
-
-				if ( lSeconds > 0 )
-				{
-					message.AppendFormat( " for %d second%s",
-							static_cast<int>(lSeconds),
-							lSeconds == 1 ? "" : "s");
-				}
-			}
-		}
-		message += ".\n";
-
-		SERVER_PrintfPlayer( ulPlayer, "%s", message.GetChars() );
+		SERVER_PrintMutedMessageToPlayer( ulPlayer );
 		return ( false );
 	}
 
@@ -6070,23 +6131,15 @@ bool ClientMoveCommand::process( const ULONG ulClient ) const
 	{
 		// [K6/BB] The client is pressing a button, so not afk.
 		g_aClients[ulClient].lLastActionTic = gametic;
+
 		if ( pPlayer->bChatting )
-		{
-			pPlayer->bChatting = false;
-			SERVERCOMMANDS_SetPlayerStatus( ulClient, PLAYERSTATUS_CHATTING );
-		}
+			PLAYER_SetStatus( &players[ulClient], PLAYERSTATUS_CHATTING, false );
 
 		if ( pPlayer->bInConsole )
-		{
-			pPlayer->bInConsole = false;
-			SERVERCOMMANDS_SetPlayerStatus( ulClient, PLAYERSTATUS_INCONSOLE );
-		}
+			PLAYER_SetStatus( &players[ulClient], PLAYERSTATUS_INCONSOLE, false );
 
 		if ( pPlayer->bInMenu )
-		{
-			pPlayer->bInMenu = false;
-			SERVERCOMMANDS_SetPlayerStatus( ulClient, PLAYERSTATUS_INMENU );
-		}
+			PLAYER_SetStatus( &players[ulClient], PLAYERSTATUS_INMENU, false );
 	}
 
 	return ( false );
@@ -7074,6 +7127,10 @@ static bool server_AuthenticateLevel( BYTESTREAM_s *pByteStream )
 	// weapon changes again.
 	SERVERCOMMANDS_SetIgnoreWeaponSelect( g_lCurrentClient, false );
 
+	// [AK] Update this player's own lagging status (this doen't happen in the full update).
+	// This prevents the client from having a lagging icon over their head indefinitely after a level change.
+	SERVERCOMMANDS_SetPlayerStatus( g_lCurrentClient, PLAYERSTATUS_LAGGING, g_lCurrentClient, SVCF_ONLYTHISCLIENT );
+
 	// Send a snapshot of the level.
 	SERVER_SendFullUpdate( g_lCurrentClient );
 
@@ -7257,7 +7314,7 @@ static bool server_CallVote( BYTESTREAM_s *pByteStream )
 		// and the parameter from each other.
 		if ( ulVoteCmd == VOTECMD_FLAG )
 		{
-			sprintf( szCommand, Parameters.Left( Parameters.IndexOf( ' ' )).GetChars( ));
+			sprintf( szCommand, "%s", Parameters.Left( Parameters.IndexOf( ' ' )).GetChars( ));
 			Parameters = Parameters.Right( Parameters.Len() - ( strlen( szCommand ) + 1 ));
 		}
 

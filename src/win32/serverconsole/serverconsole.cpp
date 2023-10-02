@@ -241,7 +241,7 @@ BOOL CALLBACK SERVERCONSOLE_ServerDialogBoxCallback( HWND hDlg, UINT Message, WP
 			ColumnData.pszText = szColumnTitle;
 			ColumnData.cchTextMax = 64;
 			ColumnData.iSubItem = 0;
-			lIndex = SendDlgItemMessage( hDlg, IDC_PLAYERLIST, LVM_INSERTCOLUMN, COLUMN_NAME, (LPARAM)&ColumnData );
+			lIndex = SendDlgItemMessage( hDlg, IDC_PLAYERLIST, LVM_INSERTCOLUMN, SERVERCONSOLE_COLUMN_NAME, (LPARAM)&ColumnData );
 
 			// Insert the frags column.
 			sprintf( szColumnTitle, "Frags" );
@@ -251,7 +251,7 @@ BOOL CALLBACK SERVERCONSOLE_ServerDialogBoxCallback( HWND hDlg, UINT Message, WP
 			ColumnData.pszText = szColumnTitle;
 			ColumnData.cchTextMax = 64;
 			ColumnData.iSubItem = 0;
-			lIndex = SendDlgItemMessage( hDlg, IDC_PLAYERLIST, LVM_INSERTCOLUMN, COLUMN_FRAGS, (LPARAM)&ColumnData );
+			lIndex = SendDlgItemMessage( hDlg, IDC_PLAYERLIST, LVM_INSERTCOLUMN, SERVERCONSOLE_COLUMN_FRAGS, (LPARAM)&ColumnData );
 
 			// Insert the ping column.
 			sprintf( szColumnTitle, "Ping" );
@@ -261,7 +261,7 @@ BOOL CALLBACK SERVERCONSOLE_ServerDialogBoxCallback( HWND hDlg, UINT Message, WP
 			ColumnData.pszText = szColumnTitle;
 			ColumnData.cchTextMax = 64;
 			ColumnData.iSubItem = 0;
-			lIndex = SendDlgItemMessage( hDlg, IDC_PLAYERLIST, LVM_INSERTCOLUMN, COLUMN_PING, (LPARAM)&ColumnData );
+			lIndex = SendDlgItemMessage( hDlg, IDC_PLAYERLIST, LVM_INSERTCOLUMN, SERVERCONSOLE_COLUMN_PING, (LPARAM)&ColumnData );
 
 			// Insert the time column.
 			sprintf( szColumnTitle, "Time" );
@@ -271,7 +271,7 @@ BOOL CALLBACK SERVERCONSOLE_ServerDialogBoxCallback( HWND hDlg, UINT Message, WP
 			ColumnData.pszText = szColumnTitle;
 			ColumnData.cchTextMax = 64;
 			ColumnData.iSubItem = 0;
-			lIndex = SendDlgItemMessage( hDlg, IDC_PLAYERLIST, LVM_INSERTCOLUMN, COLUMN_TIME, (LPARAM)&ColumnData );
+			lIndex = SendDlgItemMessage( hDlg, IDC_PLAYERLIST, LVM_INSERTCOLUMN, SERVERCONSOLE_COLUMN_TIME, (LPARAM)&ColumnData );
 
 			// Initialize the player indicies array.
 			for ( ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
@@ -497,6 +497,14 @@ BOOL CALLBACK SERVERCONSOLE_ServerDialogBoxCallback( HWND hDlg, UINT Message, WP
 					arguments.AppendFormat( "-iwad %s ", NETWORK_GetIWAD( ) );
 					arguments.AppendFormat( "-connect %s ", g_LocalAddress.ToString() );
 
+					// [AK] If we're forcing a connect password, include it as a parameter.
+					if (( sv_forcepassword ) && ( strlen( sv_password ) > 0 ))
+						arguments.AppendFormat( "+cl_password %s ", sv_password.GetGenericRep( CVAR_String ).String );
+
+					// [AK] If we're forcing a join password, include it as a parameter.
+					if (( sv_forcejoinpassword ) && ( strlen( sv_joinpassword ) > 0 ))
+						arguments.AppendFormat( "+cl_joinpassword %s ", sv_joinpassword.GetGenericRep( CVAR_String ).String );
+
 					// Run it!
 					ShellExecute( hDlg, "open", Args->GetArg( 0 ), arguments.GetChars( ), NULL, SW_SHOW );
 				}
@@ -646,7 +654,7 @@ void serverconsole_ScoreboardRightClicked( void )
 	pItem.pszText = szString;
 	pItem.mask = LVIF_TEXT;
 	pItem.iItem = ListView_GetHotItem( hList );
-	pItem.iSubItem = COLUMN_PING;
+	pItem.iSubItem = SERVERCONSOLE_COLUMN_PING;
 	pItem.cchTextMax = 16;
 
 	// If it fails, nothing is selected.
@@ -661,7 +669,7 @@ void serverconsole_ScoreboardRightClicked( void )
 		pItem.pszText = g_szScoreboard_SelectedUser;
 		pItem.mask = LVIF_TEXT;
 		pItem.iItem = ListView_GetHotItem(hList);
-		pItem.iSubItem = COLUMN_NAME;
+		pItem.iSubItem = SERVERCONSOLE_COLUMN_NAME;
 		pItem.cchTextMax = 64;
 
 		if ( !ListView_GetItem( hList, &pItem ) )
@@ -1835,7 +1843,7 @@ void SERVERCONSOLE_SetupColumns( void )
 {
 	LVCOLUMN	ColumnData;
 
-	if ( SendDlgItemMessage( g_hDlg, IDC_PLAYERLIST, LVM_GETCOLUMN, COLUMN_FRAGS, (LPARAM)&ColumnData ))
+	if ( SendDlgItemMessage( g_hDlg, IDC_PLAYERLIST, LVM_GETCOLUMN, SERVERCONSOLE_COLUMN_FRAGS, (LPARAM)&ColumnData ))
 	{
 		ColumnData.mask = LVCF_TEXT;
 
@@ -1848,7 +1856,7 @@ void SERVERCONSOLE_SetupColumns( void )
 		else
 			ColumnData.pszText = "Kills";
 
-		SendDlgItemMessage( g_hDlg, IDC_PLAYERLIST, LVM_SETCOLUMN, COLUMN_FRAGS, (LPARAM)&ColumnData );
+		SendDlgItemMessage( g_hDlg, IDC_PLAYERLIST, LVM_SETCOLUMN, SERVERCONSOLE_COLUMN_FRAGS, (LPARAM)&ColumnData );
 	}
 	else
 		Printf( "SERVERCONSOLE_SetupColumns: Couldn't get column!\n" );
@@ -1873,7 +1881,7 @@ void SERVERCONSOLE_ReListPlayers( void )
 	}
 
 	Item.mask = LVIF_TEXT;
-	Item.iSubItem = COLUMN_NAME;
+	Item.iSubItem = SERVERCONSOLE_COLUMN_NAME;
 	Item.iItem = MAXPLAYERS;
 
 	// Add each player.
@@ -1923,7 +1931,7 @@ void SERVERCONSOLE_UpdatePlayerInfo( LONG lPlayer, ULONG ulUpdateFlags )
 
 	if ( ulUpdateFlags & UDF_NAME )
 	{
-		Item.iSubItem = COLUMN_NAME;
+		Item.iSubItem = SERVERCONSOLE_COLUMN_NAME;
 		message = players[lPlayer].userinfo.GetName();
 		V_RemoveColorCodes( message );
 		Item.pszText = const_cast<char *>( message.GetChars());
@@ -1933,7 +1941,7 @@ void SERVERCONSOLE_UpdatePlayerInfo( LONG lPlayer, ULONG ulUpdateFlags )
 
 	if ( ulUpdateFlags & UDF_FRAGS )
 	{
-		Item.iSubItem = COLUMN_FRAGS;
+		Item.iSubItem = SERVERCONSOLE_COLUMN_FRAGS;
 		if ( PLAYER_IsTrueSpectator( &players[lPlayer] ))
 			message = "Spectating";
 		else if (( GAMEMODE_GetCurrentFlags( ) & GMF_PLAYERSONTEAMS ) && ( !players[lPlayer].bOnTeam ))
@@ -1959,7 +1967,7 @@ void SERVERCONSOLE_UpdatePlayerInfo( LONG lPlayer, ULONG ulUpdateFlags )
 
 	if ( ulUpdateFlags & UDF_PING )
 	{
-		Item.iSubItem = COLUMN_PING;
+		Item.iSubItem = SERVERCONSOLE_COLUMN_PING;
 		if ( players[lPlayer].bIsBot )
 			message = "Bot";
 		else
@@ -1971,7 +1979,7 @@ void SERVERCONSOLE_UpdatePlayerInfo( LONG lPlayer, ULONG ulUpdateFlags )
 
 	if ( ulUpdateFlags & UDF_TIME )
 	{
-		Item.iSubItem = COLUMN_TIME;
+		Item.iSubItem = SERVERCONSOLE_COLUMN_TIME;
 		message.Format( "%ld", ( players[lPlayer].ulTime / ( TICRATE * 60 )));
 		Item.pszText = const_cast<char *>( message.GetChars());
 

@@ -707,6 +707,9 @@ public:
 	// [BB] Over how many measurements has ulPing been averaged?
 	ULONG		ulPingAverages;
 
+	// [AK] The index of which country the player is connecting from (refer to GeoIP.c).
+	ULONG		ulCountryIndex;
+
 	// Last tick this player received a packet.
 //	ULONG		ulLastTick;
 
@@ -798,6 +801,8 @@ void	PLAYER_SetPoints( player_t *pPlayer, ULONG ulPoints );
 void	PLAYER_SetWins( player_t *pPlayer, ULONG ulWins );
 void	PLAYER_SetKills( player_t *pPlayer, ULONG ulKills );
 void	PLAYER_SetDeaths( player_t *pPlayer, ULONG ulDeaths, bool bInformClients = true );
+void	PLAYER_SetTime( player_t *pPlayer, ULONG ulTime );
+void	PLAYER_SetStatus( player_t *pPlayer, ULONG ulType, bool bEnable, ULONG ulFlags = 0 );
 // [BB] PLAYER_GetHealth and PLAYER_GetLivesLeft are helper functions for PLAYER_GetPlayerWithSingleHighestValue.
 LONG	PLAYER_GetHealth( ULONG ulPlayer );
 LONG	PLAYER_GetLivesLeft( ULONG ulPlayer );
@@ -828,6 +833,7 @@ bool	PLAYER_CannotAffectAllyWith( AActor *pActor1, AActor *pActor2, AActor *pInf
 LONG	PLAYER_CalcSpread( ULONG ulPlayer );
 ULONG	PLAYER_CalcRank( ULONG ulPlayer );
 void	PLAYER_ScaleDamageCountWithMaxHealth( player_t *pPlayer, int &damage );
+void	PLAYER_ResetCustomValues( const ULONG ulPlayer );
 
 void P_CheckPlayerSprite(AActor *mo, int &spritenum, fixed_t &scalex, fixed_t &scaley);
 

@@ -208,6 +208,7 @@ FStringCVar	*g_ChatMacros[10] =
 void	chat_SendMessage( ULONG ulMode, const char *pszString );
 void	chat_GetIgnoredPlayers( FString &Destination ); // [RC]
 void	chat_DoSubstitution( FString &Input ); // [CW]
+void	chat_UnmutePlayer( ULONG ulPlayer ); // [AK]
 bool	chat_IsPlayerValidReceiver( ULONG ulPlayer ); // [AK]
 
 //*****************************************************************************
@@ -544,12 +545,7 @@ void CHAT_Tick( void )
 
 		// Is it time to un-ignore him?
 		if ( players[i].lIgnoreChatTicks == 0 )
-		{
-			players[i].bIgnoreChat = false;
-			// [BB] The player is unignored indefinitely. If we wouldn't do this,
-			// bIgnoreChat would be set to false every tic once lIgnoreChatTicks reaches 0.
-			players[i].lIgnoreChatTicks = -1;
-		}
+			chat_UnmutePlayer( i );
 	}
 
 	// [AK] Reset the chat cursor's ticker if it goes too high.
@@ -666,7 +662,7 @@ bool CHAT_Input( event_t *pEvent )
 						else if ( tempPlayer > MAXPLAYERS )
 							tempPlayer = 0;
 
-						if ( tempPlayer == g_ulChatPlayer )
+						if ( static_cast<ULONG>( tempPlayer ) == g_ulChatPlayer )
 							break;
 					}
 					while ( chat_IsPlayerValidReceiver( tempPlayer ) == false );
@@ -845,22 +841,14 @@ void CHAT_SetChatMode( ULONG ulMode )
 
 		if ( ulMode != CHATMODE_NONE )
 		{
-			pPlayer->bChatting = true;
-
-			// Tell the server we're beginning to chat.
-			if ( NETWORK_GetState( ) == NETSTATE_CLIENT )
-				CLIENTCOMMANDS_StartChat( );
+			PLAYER_SetStatus( pPlayer, PLAYERSTATUS_CHATTING, true, PLAYERSTATUS_CLIENTSHOULDSENDUPDATE );
 
 			// [AK] Ensure that the cursor starts off as white.
 			g_ulChatTicker = 0;
 		}
 		else
 		{
-			pPlayer->bChatting = false;
-
-			// Tell the server we're done chatting.
-			if ( NETWORK_GetState( ) == NETSTATE_CLIENT )
-				CLIENTCOMMANDS_EndChat( );
+			PLAYER_SetStatus( pPlayer, PLAYERSTATUS_CHATTING, false, PLAYERSTATUS_CLIENTSHOULDSENDUPDATE );
 		}
 
 	}
@@ -933,10 +921,27 @@ void CHAT_SerializeMessages( FArchive &arc )
 
 //*****************************************************************************
 //
-void CHAT_StripASCIIControlCharacters( FString &ChatString )
+// [AK] Returns true if the string didn't only contain crap, or false if it did.
+//
+bool CHAT_CleanChatString( FString &ChatString )
 {
 	static const char strips[] = { 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,29,30,31,127,0 };
+
+	// [BB] Remove any kind of trailing crap.
+	// [AK] Temporarily uncolorize the chat string so that V_RemoveTrailingCrapFromFString removes trailing color codes.
+	V_UnColorizeString( ChatString );
+	V_RemoveTrailingCrapFromFString( ChatString );
+
+	// [K6] Idk why is this part processed as FString, but let me join in on the fun and possibly strip ascii control characters.
+	// ...except 28 which is TEXTCOLOR_ESCAPE.
 	ChatString.StripChars( strips );
+
+	// [BB] If the chat string is empty now, it only contained crap.
+	if ( ChatString.IsEmpty( ))
+		return false;
+
+	V_ColorizeString( ChatString );
+	return true;
 }
 
 //*****************************************************************************
@@ -1067,19 +1072,10 @@ void CHAT_PrintChatString( ULONG ulPlayer, ULONG ulMode, const char *pszString )
 	if ( con_colorinmessages == 2)
 		V_RemoveColorCodes( ChatString );
 
-	// [BB] Remove any kind of trailing crap.
-	// [AK] Temporarily uncolorize the chat string so that V_RemoveTrailingCrapFromFString removes trailing color codes.
-	V_UnColorizeString ( ChatString );
-	V_RemoveTrailingCrapFromFString ( ChatString );
-
-	// [AK] Also remove any unwanted ASCII control characters (except TEXTCOLOR_ESCAPE).
-	CHAT_StripASCIIControlCharacters ( ChatString );
-
 	// [BB] If the chat string is empty now, it only contained crap and is ignored.
-	if ( ChatString.IsEmpty() )
+	if ( CHAT_CleanChatString( ChatString ) == false )
 		return;
 
-	V_ColorizeString ( ChatString );
 	OutString += ChatString;
 
 	// [AK] Only save chat messages for non-private chat messages.
@@ -1088,14 +1084,10 @@ void CHAT_PrintChatString( ULONG ulPlayer, ULONG ulMode, const char *pszString )
 		// [AK] Remove any color codes that may still be in the original string.
 		V_RemoveColorCodes( ChatString );
 
-		// [AK] Remove any kind of trailing crap in the copy string and then save it. We shouldn't
-		// have to check if it's empty because we already did so in the original string. The only
-		// difference is that the copy is guaranteed to still have its color codes.
-		V_UnColorizeString( ChatStringToSave );
-		V_RemoveTrailingCrapFromFString( ChatStringToSave );
-		CHAT_StripASCIIControlCharacters( ChatStringToSave );
-
-		V_ColorizeString( ChatStringToSave );
+		// [AK] We shouldn't have to check if the copy string is empty (i.e. CHAT_CleanChatString
+		// returned false) because we already did so in the original string. The only difference
+		// is that the copy is guaranteed still have its color codes.
+		CHAT_CleanChatString( ChatStringToSave );
 		g_SavedChatMessages[ulPlayer].put( ChatStringToSave );
 
 		// [AK] Trigger an event script indicating that a chat message was received.
@@ -1346,6 +1338,28 @@ void chat_DoSubstitution( FString &Input )
 		}
 
 		Input = Output;
+	}
+}
+
+//*****************************************************************************
+//
+// [AK] Helper function to unmute a player.
+//
+void chat_UnmutePlayer( ULONG ulPlayer )
+{
+	if ( PLAYER_IsValidPlayer( ulPlayer ) == false )
+		return;
+
+	players[ulPlayer].bIgnoreChat = false;
+	// [BB] The player is unignored indefinitely. If we wouldn't do this,
+	// bIgnoreChat would be set to false every tic once lIgnoreChatTicks reaches 0.
+	players[ulPlayer].lIgnoreChatTicks = -1;
+
+	// [JK] Tell the client that they're no longer muted on the server.
+	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+	{
+		SERVER_GetClient( ulPlayer )->MutedReason = "";
+		SERVER_PrintfPlayer( ulPlayer, "You are no longer muted on the server.\n" );
 	}
 }
 
@@ -1713,14 +1727,23 @@ void chat_IgnorePlayer( FCommandLine &argv, const ULONG ulPlayer )
 		if ( PlayersIgnored.Len( ))
 			Printf( TEXTCOLOR_RED "Ignored players: " TEXTCOLOR_NORMAL "%s\nUse \"unignore\" or \"unignore_idx\" to undo.\n", PlayersIgnored.GetChars() );
 		else
-			Printf( "Ignores a certain player's chat messages.\nUsage: ignore <name> [duration, in minutes]\n" );
+		{
+			FString message = "Ignores a certain player's chat messages.\nUsage: ignore <name> [duration, in minutes]";
+
+			// [JK] Only the server can specify a reason.
+			if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+				message += " [reason]";
+
+			Printf( "%s\n", message.GetChars( ));
+		}
 
 		return;
 	}
 	
 	LONG	lTicks = -1;
 	const LONG lArgv2 = ( argv.argc( ) >= 3 ) ? atoi( argv[2] ) : -1;
-	
+	const char *pszReason = ( argv.argc( ) >= 4 ) ? argv[3] : NULL;
+
 	// Did the user specify a set duration?
 	if ( ( lArgv2 > 0 ) && ( lArgv2 < LONG_MAX / ( TICRATE * MINUTE )))
 		lTicks = lArgv2 * TICRATE * MINUTE;
@@ -1733,12 +1756,17 @@ void chat_IgnorePlayer( FCommandLine &argv, const ULONG ulPlayer )
 		Printf( "You're already ignoring %s.\n", players[ulPlayer].userinfo.GetName() );
 	else
 	{
+		FString message;
+
 		players[ulPlayer].bIgnoreChat = true;
 		players[ulPlayer].lIgnoreChatTicks = lTicks;
-		Printf( "%s will now be ignored", players[ulPlayer].userinfo.GetName() );
+
+		message.Format( "%s will now be ignored", players[ulPlayer].userinfo.GetName( ));
+
 		if ( lTicks > 0 )
-			Printf( ", for %d minutes", static_cast<int>(lArgv2));
-		Printf( ".\n" );
+			message.AppendFormat( ", for %d minutes", static_cast<int>( lArgv2 ));
+
+		Printf( "%s.\n", message.GetChars( ));
 
 		// Add a helpful note about bots.
 		if ( players[ulPlayer].bIsBot )
@@ -1746,7 +1774,15 @@ void chat_IgnorePlayer( FCommandLine &argv, const ULONG ulPlayer )
 
 		// Notify the server so that others using this IP are also ignored.
 		if ( NETWORK_GetState( ) == NETSTATE_CLIENT )
+		{
 			CLIENTCOMMANDS_Ignore( ulPlayer, true, lTicks );
+		}
+		// [JK] Tell the client that they've been muted on the server.
+		else if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+		{
+			SERVER_GetClient( ulPlayer )->MutedReason = pszReason;
+			SERVER_PrintMutedMessageToPlayer( ulPlayer );
+		}
 	}
 }
 
@@ -1801,8 +1837,7 @@ void chat_UnignorePlayer( FCommandLine &argv, const ULONG ulPlayer )
 		Printf( "You're not ignoring %s.\n", players[ulPlayer].userinfo.GetName() );
 	else 
 	{
-		players[ulPlayer].bIgnoreChat = false;
-		players[ulPlayer].lIgnoreChatTicks = -1;
+		chat_UnmutePlayer( ulPlayer );
 		Printf( "%s will no longer be ignored.\n", players[ulPlayer].userinfo.GetName() );
 
 		// Notify the server so that others using this IP are also ignored.

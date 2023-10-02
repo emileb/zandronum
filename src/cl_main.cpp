@@ -49,6 +49,14 @@
 //-----------------------------------------------------------------------------
 
 #include "networkheaders.h"
+
+// [AK] Including "networkheaders.h" in Windows also includes <wingdi.h> which
+// already defines OPAQUE. We need this constant for SVC2_FLASHSTEALTHMONSTER,
+// so we must undefine it here.
+#if defined( _WIN32 ) && defined( OPAQUE )
+#undef OPAQUE
+#endif // _WIN32 && OPAQUE
+
 #include "a_action.h"
 #include "a_sharedglobal.h"
 #include "a_doomglobal.h"
@@ -2211,11 +2219,12 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 			case SVC2_FLASHSTEALTHMONSTER:
 				{
 					AActor* mobj = CLIENT_FindThingByNetID( pByteStream->ReadShort());
+					SBYTE direction = pByteStream->ReadByte();
 
 					if ( mobj && ( mobj->flags & MF_STEALTH ))
 					{
 						mobj->alpha = OPAQUE;
-						mobj->visdir = -1;
+						mobj->visdir = direction;
 					}
 				}
 				break;
@@ -2637,7 +2646,7 @@ AActor *CLIENT_SpawnThing( const PClass *pType, fixed_t X, fixed_t Y, fixed_t Z,
 		}
 
 		pActor->NetID = lNetID;
-		g_NetIDList.useID ( lNetID, pActor );
+		g_ActorNetIDList.useID ( lNetID, pActor );
 
 		pActor->SpawnPoint[0] = X;
 		pActor->SpawnPoint[1] = Y;
@@ -2712,7 +2721,7 @@ void CLIENT_SpawnMissile( const PClass *pType, fixed_t X, fixed_t Y, fixed_t Z, 
 	pActor->angle = R_PointToAngle2( 0, 0, VelX, VelY );
 
 	pActor->NetID = lNetID;
-	g_NetIDList.useID ( lNetID, pActor );
+	g_ActorNetIDList.useID ( lNetID, pActor );
 
 	// Play the seesound if this missile has one.
 	if ( pActor->SeeSound )
@@ -2803,7 +2812,7 @@ bool CLIENT_GainingRCONAccess()
 //
 AActor *CLIENT_FindThingByNetID( LONG lNetID )
 {
-    return ( g_NetIDList.findPointerByID ( lNetID ) );
+    return ( g_ActorNetIDList.findPointerByID ( lNetID ) );
 }
 
 //*****************************************************************************
@@ -3060,6 +3069,7 @@ void PLAYER_ResetPlayerData( player_t *pPlayer )
 	pPlayer->bIsBot = 0;
 	pPlayer->ulPing = 0;
 	pPlayer->ulPingAverages = 0;
+	pPlayer->ulCountryIndex = 0;
 	pPlayer->bReadyToGoOn = 0;
 	pPlayer->pCorpse = NULL;
 	pPlayer->OldPendingWeapon = 0;
@@ -3342,6 +3352,9 @@ void ServerCommands::EndSnapshot::Execute()
 		StatusBar->NewGame( );
 	}
 
+	// [AK] Reset the scoreboard.
+	SCOREBOARD_Reset( );
+
 	// Display the message of the day.
 	C_MOTDPrint( g_MOTD );
 }
@@ -3377,13 +3390,13 @@ void ServerCommands::SpawnPlayer::Execute()
 		return;
 	}
 
-	AActor *pOldNetActor = g_NetIDList.findPointerByID ( netid );
+	AActor *pOldNetActor = g_ActorNetIDList.findPointerByID ( netid );
 
 	// If there's already an actor with this net ID, kill it!
 	if ( pOldNetActor != NULL )
 	{
 		pOldNetActor->Destroy( );
-		g_NetIDList.freeID ( netid );
+		g_ActorNetIDList.freeID ( netid );
 	}
 
 	// [BB] Potentially print the player number, position, and network ID of the player spawning.
@@ -3512,7 +3525,7 @@ void ServerCommands::SpawnPlayer::Execute()
 
 	// Set the network ID.
 	pPlayer->mo->NetID = netid;
-	g_NetIDList.useID ( netid, pPlayer->mo );
+	g_ActorNetIDList.useID ( netid, pPlayer->mo );
 
 	// Set the spectator variables [after G_PlayerReborn so our data doesn't get lost] [BB] Why?.
 	// [BB] To properly handle that true spectators don't get default inventory, we need to set this
@@ -3556,6 +3569,10 @@ void ServerCommands::SpawnPlayer::Execute()
 
 	// Set the player's bot status.
 	pPlayer->bIsBot = isBot;
+
+	// [AK] If this player is a bot, set their country index to LAN.
+	if ( pPlayer->bIsBot )
+		pPlayer->ulCountryIndex = COUNTRYINDEX_LAN;
 
 	// [BB] If this if not "our" player, clear the weapon selected from the inventory and wait for
 	// the server to tell us the selected weapon.
@@ -3965,7 +3982,7 @@ void ServerCommands::KillPlayer::Execute()
 */
 
 	// [AK] If we died and can respawn, show how long we must wait before we can respawn.
-	if (( CLIENTDEMO_IsPlaying( ) == false ) && ( player - players == consoleplayer ))
+	if (( CLIENTDEMO_IsPlaying( ) == false ) && (( zacompatflags & ZACOMPATF_INSTANTRESPAWN ) == false ) && ( player - players == consoleplayer ))
 	{
 		bool bNoMoreLivesLeft = ( GAMEMODE_AreLivesLimited( ) && GAMEMODE_IsGameInProgress( ) && ( player->ulLivesLeft == 0 ));
 		float fRespawnDelayTime = 1.0f;
@@ -4146,6 +4163,13 @@ void ServerCommands::SetPlayerUserInfo::Execute()
 
 //*****************************************************************************
 //
+void ServerCommands::SetPlayerCountry::Execute()
+{
+	players[player - players].ulCountryIndex = country;
+}
+
+//*****************************************************************************
+//
 void ServerCommands::SetPlayerAccountName::Execute()
 {
 	g_PlayerAccountNames[player - players] = accountName;
@@ -4190,28 +4214,7 @@ void ServerCommands::SetPlayerKillCount::Execute()
 //
 void ServerCommands::SetPlayerStatus::Execute()
 {
-	switch ( type )
-	{
-		case PLAYERSTATUS_CHATTING:
-			player->bChatting = value;
-			break;
-
-		case PLAYERSTATUS_INCONSOLE:
-			player->bInConsole = value;
-			break;
-
-		case PLAYERSTATUS_INMENU:
-			player->bInMenu = value;
-			break;
-
-		case PLAYERSTATUS_LAGGING:
-			player->bLagging = value;
-			break;
-
-		case PLAYERSTATUS_READYTOGOON:
-			player->bReadyToGoOn = value;
-			break;
-	}
+	PLAYER_SetStatus( player, type, value );
 }
 
 //*****************************************************************************
@@ -4437,7 +4440,7 @@ void ServerCommands::UpdatePlayerExtraData::Execute()
 //
 void ServerCommands::UpdatePlayerTime::Execute()
 {
-	player->ulTime = time * ( TICRATE * 60 );
+	PLAYER_SetTime( player, time * ( TICRATE * 60 ));
 }
 
 //*****************************************************************************
@@ -4549,6 +4552,9 @@ void ServerCommands::DisconnectPlayer::Execute()
 
 	// [AK] Clear all the saved chat messages this player said.
 	CHAT_ClearChatMessages( player - players );
+
+	// [AK] Reset this player's custom values to their default values.
+	PLAYER_ResetCustomValues( player - players );
 
 	// Zero out all the player information.
 	PLAYER_ResetPlayerData( player );
@@ -9258,6 +9264,59 @@ void ServerCommands::SyncMapRotation::Execute()
 
 //*****************************************************************************
 //
+static PlayerData *client_GetCustomPlayerData( const char *pszFunctionName, const int index )
+{
+	if ( pszFunctionName == NULL )
+		I_Error( "client_GetCustomPlayerData: a function name is missing!" );
+
+	// [AK] Make sure that there's actually custom data defined.
+	if ( gameinfo.CustomPlayerData.CountUsed( ) == 0 )
+	{
+		CLIENT_PrintWarning( "ServerCommands::%s::Execute: No custom data defined.\n", pszFunctionName );
+		return NULL;
+	}
+
+	TMap<FName, PlayerData>::Iterator it( gameinfo.CustomPlayerData );
+	TMap<FName, PlayerData>::Pair *pair;
+
+	while ( it.NextPair( pair ))
+	{
+		if ( pair->Value.GetIndex( ) == index )
+			return &pair->Value;
+	}
+
+	// [AK] If we reached here, then something went wrong. Print a warning message.
+	CLIENT_PrintWarning( "ServerCommands::%s::Execute: Couldn't find custom data with index %d.\n", pszFunctionName, index );
+	return NULL;
+}
+
+//*****************************************************************************
+//
+void ServerCommands::SetCustomPlayerValue::Execute()
+{
+	PlayerData *pData = client_GetCustomPlayerData( "SetCustomPlayerValue", index );
+
+	if ( pData != NULL )
+	{
+		PlayerValue Val;
+		Val.FromString( value, pData->GetDataType( ));
+
+		pData->SetValue( player, Val );
+	}
+}
+
+//*****************************************************************************
+//
+void ServerCommands::ResetCustomPlayerValue::Execute( )
+{
+	PlayerData *pData = client_GetCustomPlayerData( "ResetCustomPlayerValue", index );
+
+	if ( pData != NULL )
+		pData->ResetToDefault( player, false );
+}
+
+//*****************************************************************************
+//
 void STACK_ARGS CLIENT_PrintWarning( const char* format, ... )
 {
 	if ( cl_showwarnings )
@@ -9412,6 +9471,10 @@ CCMD( rcon )
 	char		szString[1024];
 	char		szAppend[256];
 
+	// [AK] This function may not be used by ConsoleCommand.
+	if ( ACS_IsCalledFromConsoleCommand( ))
+		return;
+
 	if ( g_ConnectionState != CTS_ACTIVE )
 		return;
 
@@ -9464,6 +9527,10 @@ CCMD( rcon )
 //
 CCMD( send_password )
 {
+	// [AK] This function may not be used by ConsoleCommand.
+	if ( ACS_IsCalledFromConsoleCommand( ))
+		return;
+
 	if ( argv.argc( ) <= 1 )
 	{
 		Printf( "Usage: send_password <password>\n" );
@@ -9478,6 +9545,10 @@ CCMD( send_password )
 //
 CCMD( rcon_logout )
 {
+	// [AK] This function may not be used by ConsoleCommand.
+	if ( ACS_IsCalledFromConsoleCommand( ))
+		return;
+
 	if ( g_ConnectionState == CTS_ACTIVE )
 		CLIENTCOMMANDS_ChangeRCONStatus( false, NULL );
 }

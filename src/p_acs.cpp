@@ -91,6 +91,7 @@
 #include "cl_main.h"
 #include "chat.h"
 #include "maprotation.h"
+#include "scoreboard.h"
 
 #include "g_shared/a_pickups.h"
 
@@ -5371,6 +5372,15 @@ enum EACSFunctions
 	ACSF_GetActorSectorLocation,
 	ACSF_ChangeTeamScore,
 	ACSF_SetGameplaySetting,
+	ACSF_SetCustomPlayerValue,
+	ACSF_GetCustomPlayerValue,
+	ACSF_ResetCustomDataToDefault,
+	ACSF_LumpOpen,
+	ACSF_LumpReadChar,
+	ACSF_LumpReadShort,
+	ACSF_LumpReadInt,
+	ACSF_LumpReadString,
+	ACSF_LumpSize,
 
 	// ZDaemon
 	ACSF_GetTeamScore = 19620,	// (int team)
@@ -7460,6 +7470,9 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 						if ( player->morphTics )
 							P_UndoPlayerMorph( player, player );
 
+						// [AK] Drop any important items this player might be carrying like flags, skulls, etc.
+						pmo->DropImportantItems( false );
+
 						// [AK] If we're the server, tell the clients to destroy the body.
 						if ( NETWORK_GetState() == NETSTATE_SERVER )
 							SERVERCOMMANDS_DestroyThing( pmo );
@@ -7869,6 +7882,192 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 				}
 
 				return 0;
+			}
+
+		case ACSF_SetCustomPlayerValue:
+			{
+				PlayerData *pData = gameinfo.CustomPlayerData.CheckKey( FBehavior::StaticLookupString( args[0] ));
+
+				// [AK] Make sure that the column and player are both valid.
+				if (( pData != NULL ) && ( PLAYER_IsValidPlayer( args[1] )))
+				{
+					PlayerValue Val;
+
+					switch ( pData->GetDataType( ))
+					{
+						case DATATYPE_INT:
+							Val.SetValue<int>( args[2] );
+							break;
+
+						case DATATYPE_BOOL:
+							Val.SetValue<bool>( !!args[2] );
+							break;
+
+						case DATATYPE_FLOAT:
+							Val.SetValue<float>( FIXED2FLOAT( args[2] ));
+							break;
+
+						case DATATYPE_COLOR:
+							Val.SetValue<PalEntry>( args[2] );
+							break;
+
+						case DATATYPE_STRING:
+						case DATATYPE_TEXTURE:
+						{
+							const char *pszValue = FBehavior::StaticLookupString( args[2] );
+
+							if ( pData->GetDataType( ) == DATATYPE_STRING )
+								Val.SetValue<const char *>( pszValue );
+							else
+								Val.SetValue<FTexture *>( TexMan.FindTexture( pszValue ));
+						}
+
+						default:
+							return 0;
+					}
+
+					pData->SetValue( args[1], Val );
+					return 1;
+				}
+
+				return 0;
+			}
+
+		case ACSF_GetCustomPlayerValue:
+			{
+				PlayerData *pData = gameinfo.CustomPlayerData.CheckKey( FBehavior::StaticLookupString( args[0] ));
+
+				// [AK] Make sure that the column and player are both valid.
+				if (( pData != NULL ) && ( PLAYER_IsValidPlayer( args[1] )))
+				{
+					const PlayerValue Val = pData->GetValue( args[1] );
+
+					switch ( Val.GetDataType( ))
+					{
+						case DATATYPE_INT:
+							return Val.GetValue<int>( );
+
+						case DATATYPE_BOOL:
+							return Val.GetValue<bool>( );
+
+						case DATATYPE_FLOAT:
+							return FLOAT2FIXED( Val.GetValue<float>( ));
+
+						case DATATYPE_STRING:
+							return GlobalACSStrings.AddString( Val.GetValue<const char *>( ));
+
+						case DATATYPE_COLOR:
+							return Val.GetValue<PalEntry>( );
+
+						case DATATYPE_TEXTURE:
+						{
+							FTexture *pTexture = Val.GetValue<FTexture *>( );
+							return GlobalACSStrings.AddString( pTexture != NULL ? pTexture->Name : "" );
+						}
+
+						default:
+							return 0;
+					}
+				}
+
+				return 0;
+			}
+
+		case ACSF_ResetCustomDataToDefault:
+			{
+				PlayerData *pData = gameinfo.CustomPlayerData.CheckKey( FBehavior::StaticLookupString( args[0] ));
+				const ULONG ulPlayer = args[1] < 0 ? MAXPLAYERS : args[1];
+
+				// [AK] Make sure that the column and player are both valid (unless we're resetting for all players).
+				if (( pData != NULL ) && (( ulPlayer == MAXPLAYERS ) || ( PLAYER_IsValidPlayer( ulPlayer ))))
+				{
+					pData->ResetToDefault( ulPlayer, true );
+					return 1;
+				}
+
+				return 0;
+			}
+
+		case ACSF_LumpOpen:
+			{
+				const char *name = FBehavior::StaticLookupString( args[0] );
+
+				if ( ( argCount > 1 ) && ( args[1] >= 0 ) )
+				{
+					int startLump = args[1] + 1;
+					return Wads.FindLump( name, &startLump );
+				}
+
+				return Wads.CheckNumForName( name );
+			}
+
+		case ACSF_LumpReadChar:
+		case ACSF_LumpReadShort:
+		case ACSF_LumpReadInt:
+			{
+				int size;
+				int32_t buf = 0;
+				FWadLump lump = Wads.OpenLumpNum( args[0] );
+				lump.Seek( args[1], SEEK_SET );
+
+				switch ( funcIndex )
+				{
+					case ACSF_LumpReadChar:
+						size = sizeof( int8_t );
+						break;
+
+					case ACSF_LumpReadShort:
+						size = sizeof( int16_t );
+						break;
+
+					case ACSF_LumpReadInt:
+						size = sizeof( int32_t );
+						break;
+
+					default:
+						I_Error( "Invalid lump reading function in ACS VM." );
+						break;
+				}
+
+				lump.Read( &buf, size );
+
+				if ( ( argCount < 3 ) || ( args[2] == 0 ) )
+				{
+					if ( size == sizeof( int8_t ) )
+						return static_cast<int8_t>( buf );
+
+					if ( size == sizeof( int16_t ) )
+						return static_cast<int16_t>( buf );
+				}
+
+				return buf;
+			}
+
+		case ACSF_LumpReadString:
+			{
+				auto len = Wads.LumpLength( args[0] ) - args[1];
+				if ( len <= 0 )
+					return GlobalACSStrings.AddString( "" );
+
+				// [TDRR] Null terminate just in case.
+				char *buf = new char[len + 1];
+				FWadLump lump = Wads.OpenLumpNum( args[0] );
+				lump.Seek( args[1], SEEK_SET );
+
+				lump.Read( buf, len );
+				buf[len] = '\0';
+
+				// [TDRR] Don't trim the string to the first null terminator here,
+				// since that happens after it's converted to an FString in AddString.
+				int strIndex = GlobalACSStrings.AddString( buf );
+				delete[] buf;
+
+				return strIndex;
+			}
+
+		case ACSF_LumpSize:
+			{
+				return Wads.LumpLength(args[0]);
 			}
 
 		case ACSF_GetActorFloorTexture:

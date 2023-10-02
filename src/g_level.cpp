@@ -107,6 +107,7 @@
 #include "survival.h"
 #include "network/nettraffic.h"
 #include "chat.h"
+#include "scoreboard.h"
 #include <set> // [CK] For CCMD listmusic
 
 #include "g_hub.h"
@@ -430,11 +431,17 @@ void G_InitNew (const char *mapname, bool bTitleLevel)
 	// [BC] Clear out the called vote if one is taking place.
 	CALLVOTE_ClearVote( );
 
-	// [AK] Clear out the saved chat messages from all players and the server.
 	if ( NETWORK_InClientMode( ) == false )
 	{
+		// [AK] Clear out the saved chat messages from all players and the server.
 		for ( ULONG ulPlayer = 0; ulPlayer <= MAXPLAYERS; ulPlayer++ )
 			CHAT_ClearChatMessages( ulPlayer );
+
+		// [AK] Reset custom values to their default values for all players.
+		PLAYER_ResetCustomValues( MAXPLAYERS );
+
+		// [AK] Reset the scoreboard at the start of a new game.
+		SCOREBOARD_Reset( );
 	}
 
 	if (StatusBar != NULL)
@@ -542,6 +549,10 @@ void G_InitNew (const char *mapname, bool bTitleLevel)
 		// force players to be initialized upon first level load
 		for (i = 0; i < MAXPLAYERS; i++)
 			players[i].playerstate = PST_ENTER;	// [BC]
+
+		// [AK] In offline games, always set the local player's country index to LAN.
+		if (( NETWORK_GetState( ) == NETSTATE_SINGLE ) || ( NETWORK_GetState( ) == NETSTATE_SINGLE_MULTIPLAYER ))
+			players[consoleplayer].ulCountryIndex = COUNTRYINDEX_LAN;
 
 		STAT_StartNewGame(mapname);
 	}
@@ -1426,7 +1437,7 @@ void G_DoLoadLevel (int position, bool autosave)
 				bSnapshotFound = true;
 		}
 		if ( bSnapshotFound == false )
-			g_NetIDList.clear( );
+			g_ActorNetIDList.clear( );
 	}
 
 	P_SetupLevel (level.mapname, position);
@@ -1874,7 +1885,7 @@ void G_FinishTravel ()
 
 			// [BC]
 			pawn->NetID = lSavedNetID;
-			g_NetIDList.useID ( pawn->NetID, pawn );
+			g_ActorNetIDList.useID ( pawn->NetID, pawn );
 
 			for (inv = pawn->Inventory; inv != NULL; inv = inv->Inventory)
 			{
@@ -2295,7 +2306,7 @@ void G_UnSnapshotLevel (bool hubLoad)
 	if (level.info->isValid())
 	{
 		// [BB] Make sure that the NetID list is valid. Loading a snapshot generates new NetIDs for the loaded actors.
-		g_NetIDList.rebuild();
+		g_ActorNetIDList.rebuild();
 
 		SaveVersion = level.info->snapshotVer;
 		level.info->snapshot->Reopen ();

@@ -1427,8 +1427,7 @@ void C_DrawConsole (bool hw2d)
 {
 	static int oldbottom = 0;
 	int lines, left, offset;
-	// [BC] String for drawing the version.
-	char	szString[64];
+
 	// [AK] Check if we should interpolate the console.
 	const bool bInterpolate = ((con_interpolate) && (ConsoleState == c_falling || ConsoleState == c_rising));
 
@@ -1492,15 +1491,18 @@ void C_DrawConsole (bool hw2d)
 
 		if (ConBottom >= 12)
 		{
+			// [AK] Use FString to create the version string.
+			FString versionString;
+
 			// [BC] In addition to drawing the program version, draw the ZDoom version as well.
 			// [RC] Also draw revision number, but break these up so it's legible.
-			sprintf( szString, "\\cIv%s (\\cD%s\\cI) \\ch%s", GetVersionString(), ZDOOMVERSIONSTR, GetGitTime() );
-			V_ColorizeString( szString );
+			versionString.Format( "v%s (" TEXTCOLOR_GREEN "%s" TEXTCOLOR_NORMAL ") ", GetVersionString( ), ZDOOMVERSIONSTR );
+			versionString.AppendFormat( TEXTCOLOR_BLUE "%s", GetGitTime( ));
 
 			screen->DrawText (ConFont, CR_ORANGE, SCREENWIDTH - 8 -
-				ConFont->StringWidth( szString ),
+				ConFont->StringWidth( versionString.GetChars( )),
 				ConBottom - ConFont->GetHeight( ) - 4,
-				szString, TAG_DONE );
+				versionString.GetChars( ), TAG_DONE );
 
 			if (TickerMax)
 			{
@@ -1693,27 +1695,14 @@ void C_ToggleConsole ()
 		TabbedLast = false;
 		TabbedList = false;
 
-		// [BB] Don't change the displayed console status when a demo is played.
-		if ( CLIENTDEMO_IsPlaying( ) == false )
-			players[consoleplayer].bInConsole = true;
-
-		// [RC] Tell the server so we get an "in console" icon.
-		if ( NETWORK_GetState( ) == NETSTATE_CLIENT )
-			CLIENTCOMMANDS_EnterConsole( );
+		PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_INCONSOLE, true, PLAYERSTATUS_CLIENTSHOULDSENDUPDATE );
 	}
 	else if (gamestate != GS_FULLCONSOLE && gamestate != GS_STARTUP)
 	{
 		ConsoleState = c_rising;
 		C_FlushDisplay ();
 
-		// [BB] Don't change the displayed console status when a demo is played.
-		if ( CLIENTDEMO_IsPlaying( ) == false )
-			players[consoleplayer].bInConsole = false;
-
-		// [RC] Tell the server so our "in console" icon is removed.
-		if ( NETWORK_GetState( ) == NETSTATE_CLIENT )
-			CLIENTCOMMANDS_ExitConsole( );
-
+		PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_INCONSOLE, false, PLAYERSTATUS_CLIENTSHOULDSENDUPDATE );
 	}
 }
 
@@ -1733,13 +1722,7 @@ void C_HideConsole ()
 		// [BB] We are not in console anymore, so set bInConsole if necessary.
 		if ( players[consoleplayer].bInConsole )
 		{
-			// [BB] Don't change the displayed console status when a demo is played.
-			if ( CLIENTDEMO_IsPlaying( ) == false )
-				players[consoleplayer].bInConsole = false;
-
-			// [RC] Tell the server so our "in console" icon is removed.
-			if ( NETWORK_GetState( ) == NETSTATE_CLIENT )
-				CLIENTCOMMANDS_ExitConsole( );
+			PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_INCONSOLE, false, PLAYERSTATUS_CLIENTSHOULDSENDUPDATE );
 		}
 	}
 }

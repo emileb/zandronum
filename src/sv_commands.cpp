@@ -606,6 +606,16 @@ void SERVERCOMMANDS_SetPlayerUserInfo( ULONG ulPlayer, const std::set<FName> &na
 
 //*****************************************************************************
 //
+void SERVERCOMMANDS_SetPlayerCountry( ULONG ulPlayer, ULONG ulPlayerExtra, ServerCommandFlags flags )
+{
+	ServerCommands::SetPlayerCountry command;
+	command.SetPlayer( &players[ulPlayer] );
+	command.SetCountry( players[ulPlayer].ulCountryIndex );
+	command.sendCommandToClients( ulPlayerExtra, flags );
+}
+
+//*****************************************************************************
+//
 void SERVERCOMMANDS_SetPlayerAccountName( ULONG ulPlayer, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
 	ServerCommands::SetPlayerAccountName command;
@@ -4001,13 +4011,14 @@ void SERVERCOMMANDS_UpdateThingScaleNotAtDefault( AActor* pActor, ULONG ulPlayer
 
 //*****************************************************************************
 //
-void SERVERCOMMANDS_FlashStealthMonster( AActor* pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
+void SERVERCOMMANDS_FlashStealthMonster( AActor* pActor, SBYTE direction, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
 	if ( EnsureActorHasNetID( pActor ) == false )
 		return;
 
 	NetCommand command ( SVC2_FLASHSTEALTHMONSTER );
 	command.addShort( pActor->NetID );
+	command.addByte( direction );
 	command.sendCommandToClients();
 }
 
@@ -5124,6 +5135,33 @@ void SERVERCOMMANDS_ResetMapRotation( ULONG ulPlayerExtra, ServerCommandFlags fl
 {
 	NetCommand command ( SVC2_UPDATEMAPROTATION );
 	command.addByte( UPDATE_MAPROTATION_RESET );
+	command.sendCommandToClients( ulPlayerExtra, flags );
+}
+
+//*****************************************************************************
+// [AK]
+void SERVERCOMMANDS_SetCustomPlayerValue( PlayerData &Data, ULONG ulPlayer, ULONG ulPlayerExtra, ServerCommandFlags flags )
+{
+	if ( PLAYER_IsValidPlayer( ulPlayer ) == false )
+		return;
+
+	ServerCommands::SetCustomPlayerValue command;
+	command.SetIndex( Data.GetIndex( ));
+	command.SetPlayer( ulPlayer );
+	command.SetValue( Data.GetValue( ulPlayer ).ToString( ));
+	command.sendCommandToClients( ulPlayerExtra, flags );
+}
+
+//*****************************************************************************
+// [AK]
+void SERVERCOMMANDS_ResetCustomPlayerValue( PlayerData &Data, ULONG ulPlayer, ULONG ulPlayerExtra, ServerCommandFlags flags )
+{
+	if (( ulPlayer != MAXPLAYERS ) && ( PLAYER_IsValidPlayer( ulPlayer ) == false ))
+		return;
+
+	ServerCommands::ResetCustomPlayerValue command;
+	command.SetIndex( Data.GetIndex( ));
+	command.SetPlayer( ulPlayer );
 	command.sendCommandToClients( ulPlayerExtra, flags );
 }
 

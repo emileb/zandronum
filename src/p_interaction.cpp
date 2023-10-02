@@ -1228,7 +1228,7 @@ int P_DamageMobj (AActor *target, AActor *inflictor, AActor *source, int damage,
 
 		// [TP] If we're the server, tell clients to flash this stealth monster
 		if ( NETWORK_GetState() == NETSTATE_SERVER )
-			SERVERCOMMANDS_FlashStealthMonster( target );
+			SERVERCOMMANDS_FlashStealthMonster( target, target->visdir );
 	}
 	// [BB] The clients may not do this.
 	if ( (target->flags & MF_SKULLFLY)
@@ -2821,6 +2821,138 @@ void PLAYER_SetDeaths( player_t *pPlayer, ULONG ulDeaths, bool bInformClients )
 
 //*****************************************************************************
 //
+void PLAYER_SetTime( player_t *pPlayer, ULONG ulTime )
+{
+	if ( pPlayer == NULL )
+		return;
+
+	// Set the player's time.
+	pPlayer->ulTime = ulTime;
+
+	// Potentially update the scoreboard or send out an update.
+	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+	{
+		if (( pPlayer->ulTime % ( TICRATE * 60 )) == 0 )
+		{
+			// Send out the updated time field to all clients.
+			SERVERCOMMANDS_UpdatePlayerTime( pPlayer - players );
+
+			// Update the console as well.
+			SERVERCONSOLE_UpdatePlayerInfo( pPlayer - players, UDF_TIME );
+		}
+	}
+}
+
+//*****************************************************************************
+//
+void PLAYER_SetStatus( player_t *pPlayer, ULONG ulType, bool bEnable, ULONG ulFlags )
+{
+	if ( pPlayer == NULL )
+		return;
+
+	switch ( ulType )
+	{
+		case PLAYERSTATUS_CHATTING:
+		{
+			if ( pPlayer->bChatting == bEnable )
+				return;
+
+			pPlayer->bChatting = bEnable;
+
+			// [AK] Tell the server we're beginning to or have stopped chatting.
+			if (( NETWORK_GetState( ) == NETSTATE_CLIENT ) && ( ulFlags & PLAYERSTATUS_CLIENTSHOULDSENDUPDATE ))
+			{
+				if ( bEnable )
+					CLIENTCOMMANDS_StartChat( );
+				else
+					CLIENTCOMMANDS_EndChat( );
+			}
+
+			break;
+		}
+
+		case PLAYERSTATUS_INCONSOLE:
+		{
+			// [BB] Don't change the displayed console status when a demo is played.
+			if (( CLIENTDEMO_IsPlaying( )) || ( pPlayer->bInConsole == bEnable ))
+				return;
+
+			pPlayer->bInConsole = bEnable;
+
+			// [AK] Tell the server that we entered or exited the console.
+			if (( NETWORK_GetState( ) == NETSTATE_CLIENT ) && ( ulFlags & PLAYERSTATUS_CLIENTSHOULDSENDUPDATE ))
+			{
+				if ( bEnable )
+					CLIENTCOMMANDS_EnterConsole( );
+				else
+					CLIENTCOMMANDS_ExitConsole( );
+			}
+
+			break;
+		}
+
+		case PLAYERSTATUS_INMENU:
+		{
+			// [BB] Don't change the displayed menu status when a demo is played.
+			if (( CLIENTDEMO_IsPlaying( )) || ( pPlayer->bInMenu == bEnable ))
+				return;
+
+			pPlayer->bInMenu = bEnable;
+
+			// [AK] Tell the server that we entered or exited the menu.
+			if (( NETWORK_GetState( ) == NETSTATE_CLIENT ) && ( ulFlags & PLAYERSTATUS_CLIENTSHOULDSENDUPDATE ))
+			{
+				if ( bEnable )
+					CLIENTCOMMANDS_EnterMenu( );
+				else
+					CLIENTCOMMANDS_ExitMenu( );
+			}
+
+			break;
+		}
+
+		case PLAYERSTATUS_LAGGING:
+		{
+			if ( pPlayer->bLagging == bEnable )
+				return;
+
+			pPlayer->bLagging = bEnable;
+			break;
+		}
+
+		case PLAYERSTATUS_READYTOGOON:
+		{
+			if ( pPlayer->bReadyToGoOn == bEnable )
+				return;
+
+			pPlayer->bReadyToGoOn = bEnable;
+			break;
+		}
+
+		default:
+			return;
+	}
+
+	// [AK] If we're the server, tell the clients that this player's status changed,
+	// except when we update this player's "ready to go on" status if everyone's ready.
+	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+	{
+		if (( ulType != PLAYERSTATUS_READYTOGOON ) || ( SERVER_IsEveryoneReadyToGoOn( ) == false ))
+		{
+			const ULONG ulPlayer = pPlayer - players;
+
+			// [AK] Should we skip sending an update to the client whose status we're changing?
+			// This is if the client already changed the status on their end.
+			if ( ulFlags & PLAYERSTATUS_SERVERSHOULDSKIPCLIENT )
+				SERVERCOMMANDS_SetPlayerStatus( ulPlayer, static_cast<PlayerStatusType>( ulType ), ulPlayer, SVCF_SKIPTHISCLIENT );
+			else
+				SERVERCOMMANDS_SetPlayerStatus( ulPlayer, static_cast<PlayerStatusType>( ulType ));
+		}
+	}
+}
+
+//*****************************************************************************
+//
 LONG PLAYER_GetHealth( ULONG ulPlayer )
 {
 	return players[ulPlayer].health;
@@ -3142,8 +3274,15 @@ void PLAYER_ClearWeapon( player_t *pPlayer )
 bool PLAYER_IsUsingWeaponSkin( AActor *pActor )
 {
 	// [AK] Only players can use weapons.
-	if ( pActor && pActor->player )
-		return (( pActor->player->ReadyWeapon ) && ( pActor->player->ReadyWeapon->PreferredSkin != NAME_None ));
+	if (( pActor ) && ( pActor->player ) && ( pActor->player->ReadyWeapon ))
+	{
+		if ( pActor->player->ReadyWeapon->PreferredSkin != NAME_None )
+		{
+			// [AK] Check if the weapon's PreferredSkin actually exists.
+			const int skin = R_FindSkin( pActor->player->ReadyWeapon->PreferredSkin, pActor->player->CurrentPlayerClass );
+			return ( skin != pActor->player->CurrentPlayerClass );
+		}
+	}
 
 	return ( false );
 }
@@ -3152,21 +3291,38 @@ bool PLAYER_IsUsingWeaponSkin( AActor *pActor )
 //
 void PLAYER_ApplySkinScaleToBody( player_t *pPlayer, AActor *pBody, AWeapon *pWeapon )
 {
-	// [AK] Don't apply a skin's scale to the body if it's not supposed to be visible.
-	if (( pBody->state == NULL ) || ( pBody->state->sprite != pBody->SpawnState->sprite ))
-		return;
+	bool bUsingWeaponSkin = false;
+	int skinIdx = 0;
 
-	const bool bUsingWeaponSkin = (( pWeapon ) && ( pWeapon->PreferredSkin != NAME_None ));
-	const int skinidx = bUsingWeaponSkin ? R_FindSkin( pWeapon->PreferredSkin, pPlayer->CurrentPlayerClass ) : pPlayer->userinfo.GetSkin( );
+	// [AK] Check if the weapon's PreferredSkin actually exists.
+	if (( pWeapon ) && ( pWeapon->PreferredSkin != NAME_None ))
+	{
+		const int weaponSkin = R_FindSkin( pWeapon->PreferredSkin, pPlayer->CurrentPlayerClass );
+
+		if ( weaponSkin != pPlayer->CurrentPlayerClass )
+		{
+			skinIdx = weaponSkin;
+			bUsingWeaponSkin = true;
+		}
+	}
+
+	// [AK] If the player isn't using a PreferredSkin, then use their personal skin instead.
+	if ( bUsingWeaponSkin == false )
+		skinIdx = pPlayer->userinfo.GetSkin( );
 
 	// [AK] PreferredSkin overrides NOSKIN.
-	if (( bUsingWeaponSkin ) || ( 0 != skinidx && ( pBody->flags4 & MF4_NOSKIN ) == false ))
+	if (( bUsingWeaponSkin ) || ( skinIdx != 0 && ( pBody->flags4 & MF4_NOSKIN ) == false ))
 	{
-		const AActor *const defaultActor = pBody->GetDefault( );
-		const FPlayerSkin &skin = skins[skinidx];
+		const FPlayerSkin &skin = skins[skinIdx];
 
-		pBody->scaleX = Scale( pBody->scaleX, skin.ScaleX, defaultActor->scaleX );
-		pBody->scaleY = Scale( pBody->scaleY, skin.ScaleY, defaultActor->scaleY );
+		// [AK] Don't apply a skin's scale to the body if it's not supposed to be visible.
+		if ( skin.sprite == pBody->sprite )
+		{
+			const AActor *const defaultActor = pBody->GetDefault( );
+
+			pBody->scaleX = Scale( pBody->scaleX, skin.ScaleX, defaultActor->scaleX );
+			pBody->scaleY = Scale( pBody->scaleY, skin.ScaleY, defaultActor->scaleY );
+		}
 	}
 }
 
@@ -3347,6 +3503,10 @@ bool PLAYER_CanRespawnWhereDied( player_t *pPlayer )
 			return false;
 	}
 
+	// [AK] Also handle extended sector damage types.
+	if ( mo->Sector->special & DAMAGE_MASK )
+		return false;
+
 	// [AK] Don't respawn the player in an instant death sector. Taken directly from P_PlayerSpawn.
 	if (( mo->Sector->Flags & SECF_NORESPAWN ) || (( mo->Sector->special & 255 ) == Damage_InstantDeath ))
 		return false;
@@ -3512,6 +3672,21 @@ void PLAYER_ScaleDamageCountWithMaxHealth( player_t *pPlayer, int &damage )
 	// [AK] The player's max health shouldn't be 100 if we want to scale the damage.
 	if ( maxHealth != 100 )
 		damage = ( damage * 100 ) / maxHealth;
+}
+
+//*****************************************************************************
+//
+void PLAYER_ResetCustomValues( const ULONG ulPlayer )
+{
+	// [AK] Don't do anything if there is no data.
+	if ( gameinfo.CustomPlayerData.CountUsed( ) == 0 )
+		return;
+
+	TMapIterator<FName, PlayerData> it( gameinfo.CustomPlayerData );
+	TMap<FName, PlayerData>::Pair *pair;
+
+	while ( it.NextPair( pair ))
+		pair->Value.ResetToDefault( ulPlayer, false );
 }
 
 //*****************************************************************************

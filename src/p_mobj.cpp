@@ -136,8 +136,7 @@ static FRandom pr_multiclasschoice ("MultiClassChoice");
 static FRandom pr_rockettrail("RocketTrail");
 static FRandom pr_uniquetid("UniqueTID");
 
-/*static*/	IDList<AActor> g_NetIDList;
-static	ULONG		g_ulFirstFreeNetID = 1;
+/*static*/	IDList<AActor> g_ActorNetIDList;
 
 static	LONG	g_lSpawnCount = 0;
 static	cycle_t	g_SpawnCycles;
@@ -389,8 +388,8 @@ void AActor::Serialize (FArchive &arc)
 		// [BB] If the the actor needs one, generate a new netID.
 		if ( !( NetworkFlags & NETFL_NONETID ) && !( NetworkFlags & NETFL_SERVERSIDEONLY ) )
 		{
-			NetID = g_NetIDList.getNewID( );
-			g_NetIDList.useID ( NetID, this );
+			NetID = g_ActorNetIDList.getNewID( );
+			g_ActorNetIDList.useID ( NetID, this );
 		}
 
 		touching_sectorlist = NULL;
@@ -552,7 +551,8 @@ bool AActor::SetState (FState *newstate, bool nofunction)
 			{ // okay to change sprite
 				// [AK] Check if the player is using a weapon with its own preferred skin, which overrides NOSKIN.
 				const bool bUsingWeaponSkin = PLAYER_IsUsingWeaponSkin( this );
-				if ((!(flags4 & MF4_NOSKIN) || bUsingWeaponSkin) && newsprite == SpawnState->sprite)
+				// [AK] Don't change to the skin's sprite if the new sprite is TNT1A0.
+				if ((!(flags4 & MF4_NOSKIN) || bUsingWeaponSkin) && newsprite == SpawnState->sprite && newsprite != SPR_TNT1)
 				{ // [RH] If the new sprite is the same as the original sprite, and
 				// this actor is attached to a player, use the player's skin's
 				// sprite. If a player is not attached, do not change the sprite
@@ -4836,7 +4836,7 @@ template class IDList<AActor>;
 
 void AActor::FreeNetID ()
 {
-	g_NetIDList.freeID ( NetID );
+	g_ActorNetIDList.freeID ( NetID );
 	NetID = -1;
 }
 
@@ -5050,8 +5050,8 @@ AActor *AActor::StaticSpawn (const PClass *type, fixed_t ix, fixed_t iy, fixed_t
 	if ((( actor->NetworkFlags & NETFL_NONETID ) == false ) && ( ( actor->NetworkFlags & NETFL_SERVERSIDEONLY ) == false ) &&
 		( NETWORK_InClientMode() == false ))
 	{
-		actor->NetID = g_NetIDList.getNewID( );
-		g_NetIDList.useID ( actor->NetID, actor );
+		actor->NetID = g_ActorNetIDList.getNewID( );
+		g_ActorNetIDList.useID ( actor->NetID, actor );
 		if ( ( NETWORK_GetState( ) == NETSTATE_SERVER ) && sv_showspawnnames )
 			Printf ( "%s %d\n", actor->GetClass()->TypeName.GetChars(), actor->NetID );
 	}
@@ -5292,7 +5292,7 @@ bool AActor::IsActive( void ) const
 void AActor::Destroy ()
 {
 	// [BC/BB] Free it's network ID.
-	g_NetIDList.freeID ( NetID );
+	g_ActorNetIDList.freeID ( NetID );
 
 	NetID = -1;
 
@@ -5417,41 +5417,47 @@ APlayerPawn *P_SpawnPlayer (FPlayerStart *mthing, int playernum, int flags)
 	// [BB] We may not filter coop inventory if the player changed the player class.
 	// Thus we need to keep track of the old class.
 	const BYTE oldPlayerClass = p->CurrentPlayerClass;
+	const bool bAllowChangingClass = (( p->userinfo.GetPlayerClassNum( ) != p->CurrentPlayerClass ) && ( p->playerstate != PST_LIVE ));
 
 	// [BB] The (p->userinfo.GetPlayerClassNum() != p->CurrentPlayerClass) check allows the player to change its class when respawning.
 	// We have to make sure though that the class is not changed when traveling from one map to the next, because a travelling
 	// player gets its inventory from the last map (which of course belongs to the previous class) after being spawned completely.
-	if (p->cls == NULL || ( (p->userinfo.GetPlayerClassNum() != p->CurrentPlayerClass) && ( p->playerstate != PST_LIVE ) ) )
+	if (p->cls == NULL || bAllowChangingClass)
 	{
-		// [GRB] Pick a class from player class list
-		if (PlayerClasses.Size () > 1)
+		// [AK] Only change the player's current class when they're not alive.
+		if ( bAllowChangingClass )
 		{
-			int type;
-
-			// [BC] Cooperative is !deathmatch && !teamgame.
-			// [BB] The server host always picks the multiplayer class choice.
-			if ( ((!deathmatch && !teamgame) || ( NETWORK_GetState( ) == NETSTATE_SINGLE )) && !( NETWORK_GetState( ) == NETSTATE_SERVER ) )
+			// [GRB] Pick a class from player class list
+			if (PlayerClasses.Size () > 1)
 			{
-				type = SinglePlayerClass[playernum];
+				int type;
+
+				// [BC] Cooperative is !deathmatch && !teamgame.
+				// [BB] The server host always picks the multiplayer class choice.
+				if ( ((!deathmatch && !teamgame) || ( NETWORK_GetState( ) == NETSTATE_SINGLE )) && !( NETWORK_GetState( ) == NETSTATE_SERVER ) )
+				{
+					type = SinglePlayerClass[playernum];
+				}
+				else
+				{
+					type = p->userinfo.GetPlayerClassNum();
+					if (type < 0)
+					{
+						// [BB] If the player is on a team, only a class valid for this team may be selected.
+						if ( p->bOnTeam )
+							type = TEAM_SelectRandomValidPlayerClass( p->Team );
+						else
+							type = pr_multiclasschoice() % PlayerClasses.Size ();
+					}
+				}
+				p->CurrentPlayerClass = type;
 			}
 			else
 			{
-				type = p->userinfo.GetPlayerClassNum();
-				if (type < 0)
-				{
-					// [BB] If the player is on a team, only a class valid for this team may be selected.
-					if ( p->bOnTeam )
-						type = TEAM_SelectRandomValidPlayerClass( p->Team );
-					else
-						type = pr_multiclasschoice() % PlayerClasses.Size ();
-				}
+				p->CurrentPlayerClass = 0;
 			}
-			p->CurrentPlayerClass = type;
 		}
-		else
-		{
-			p->CurrentPlayerClass = 0;
-		}
+
 		p->cls = PlayerClasses[p->CurrentPlayerClass].Type;
 	}
 
@@ -6470,8 +6476,8 @@ AActor *P_SpawnPuff (AActor *source, const PClass *pufftype, fixed_t x, fixed_t 
 		{
 			if ( puff->NetID == -1 )
 			{
-				puff->NetID = g_NetIDList.getNewID( );
-				g_NetIDList.useID ( puff->NetID , puff );
+				puff->NetID = g_ActorNetIDList.getNewID( );
+				g_ActorNetIDList.useID ( puff->NetID, puff );
 			}
 
 			SERVERCOMMANDS_SpawnPuff( puff );
