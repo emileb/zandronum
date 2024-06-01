@@ -255,7 +255,32 @@ void FGLRenderer::SetCameraPos(fixed_t viewx, fixed_t viewy, fixed_t viewz, angl
 // sets projection matrix
 //
 //-----------------------------------------------------------------------------
+#ifdef __ANDROID__
 
+static void setPerspective(GLdouble fovy, GLdouble aspect, GLdouble zNear, GLdouble zFar)
+{
+	GLdouble m[4][4];
+	double sine, cotangent, deltaZ;
+	double radians = fovy / 2 * M_PI / 180;
+
+	deltaZ = zFar - zNear;
+	sine = sin(radians);
+	if ((deltaZ == 0) || (sine == 0) || (aspect == 0)) {
+		return;
+	}
+	cotangent = cos(radians) / sine;
+
+	memset(m, 0, sizeof(m));
+	m[0][0] = cotangent / aspect;
+	m[1][1] = cotangent;
+	m[2][2] = -(zFar + zNear) / deltaZ;
+	m[2][3] = -1;
+	m[3][2] = -2 * zNear * zFar / deltaZ;
+	m[3][3] = 0;
+	glLoadMatrixd(&m[0][0]);
+}
+
+#endif
 void FGLRenderer::SetProjection(float fov, float ratio, float fovratio, float eyeShift) // [BB] Added eyeShift from GZ3Doom.
 {
 	glMatrixMode(GL_PROJECTION);
@@ -264,7 +289,11 @@ void FGLRenderer::SetProjection(float fov, float ratio, float fovratio, float ey
 	float fovy = 2 * RAD2DEG(atan(tan(DEG2RAD(fov) / 2) / fovratio));
 	// [BB] Added eyeShift from GZ3Doom.
 	if ( eyeShift == 0 )
+#ifdef __ANDROID__
+		setPerspective(fovy, ratio, 5.f, 65536.f);
+#else
 		gluPerspective(fovy, ratio, 5.f, 65536.f);
+#endif
 	else
 	{
 		const float zNear = 5.0f;
@@ -544,9 +573,11 @@ void FGLRenderer::RenderScene(int recursion)
 	// This will always be drawn like GLDL_PLAIN or GLDL_FOG, depending on the fog settings
 
 	// [BB] We may only do this when drawing the final eye.
+#ifndef __ANDROID__
 	GLint drawBuffer;
 	glGetIntegerv ( GL_DRAW_BUFFER, &drawBuffer );
 	if ( drawBuffer != GL_BACK_LEFT )
+#endif
 	{
 		glDepthMask(false);							// don't write to Z-buffer!
 		gl_RenderState.EnableFog(true);
@@ -791,8 +822,9 @@ void FGLRenderer::EndDrawScene(sector_t * viewsector)
 	}
 
 	glDisable(GL_STENCIL_TEST);
+#ifndef __MOBILE__
 	glDisable(GL_POLYGON_SMOOTH);
-
+#endif
 	gl_RenderState.EnableFog(false);
 	framebuffer->Begin2D(false);
 
@@ -890,8 +922,10 @@ sector_t * FGLRenderer::RenderViewpoint (AActor * camera, GL_IRECT * bounds, flo
 	// [BB] Check if stereo rendering is supported.
 	GLboolean supportsStereo = false;
 	GLboolean supportsBuffered = false;
+#ifndef __ANDROID__
 	glGetBooleanv(GL_STEREO, &supportsStereo);
 	glGetBooleanv(GL_DOUBLEBUFFER, &supportsBuffered);
+#endif
 	const bool renderStereo = (supportsStereo && supportsBuffered && toscreen);
 
 	sector_t * retval;
@@ -1082,6 +1116,21 @@ void FGLRenderer::RenderView (player_t* player)
 // Render the view to a savegame picture
 //
 //===========================================================================
+#ifdef __ANDROID__
+uint8_t * gles_convertRGB(uint8_t * data, int width, int height)
+{
+	uint8_t *src = data;
+	uint8_t *dst = data;
+
+	for (int i=0; i<width*height; i++) {
+		for (int j=0; j<3; j++)
+			*(dst++) = *(src++);
+		src++;
+	}
+
+	return dst;
+}
+#endif
 
 void FGLRenderer::WriteSavePic (player_t *player, FILE *file, int width, int height)
 {
@@ -1104,10 +1153,16 @@ void FGLRenderer::WriteSavePic (player_t *player, FILE *file, int width, int hei
 	screen->Begin2D(false);
 	DrawBlend(viewsector);
 	glFlush();
-
+#ifdef __ANDROID__ //Some androids do not like GL_RGB
+	uint8_t * scr = (uint8_t *)M_Malloc(width * height * 4);
+	glReadPixels(0,0,width, height,GL_RGBA,GL_UNSIGNED_BYTE,scr);
+	gles_convertRGB(scr,width,height);
+	M_CreatePNG (file, scr + ((height-1) * width * 3), NULL, SS_RGB, width, height, -width*3);
+#else
 	byte * scr = (byte *)M_Malloc(width * height * 3);
 	glReadPixels(0,0,width, height,GL_RGB,GL_UNSIGNED_BYTE,scr);
 	M_CreatePNG (file, scr + ((height-1) * width * 3), NULL, SS_RGB, width, height, -width*3);
+#endif
 	M_Free(scr);
 
 	// [BC] In GZDoom, this is called every frame, regardless of whether or not
@@ -1276,7 +1331,11 @@ void FGLInterface::Init()
 // Camera texture rendering
 //
 //===========================================================================
+#ifdef __ANDROID__ // This is faster for gles2 in KDIZ
+CVAR(Bool, gl_usefb, true , CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+#else
 CVAR(Bool, gl_usefb, false , CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+#endif
 extern TexFilter_s TexFilter[];
 
 void FGLInterface::RenderTextureView (FCanvasTexture *tex, AActor *Viewpoint, int FOV)

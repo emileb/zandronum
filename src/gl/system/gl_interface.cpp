@@ -54,8 +54,27 @@ char myGlBeginCharArray[4] = {0,0,0,0};
 #define PROC void*
 #define LPCSTR const char*
 
+#ifdef __ANDROID__
+#include <dlfcn.h>
+void * wglGetProcAddress(const char * name)
+{
+	static void* h = NULL;
+
+	if (h == NULL)
+	{
+		h = dlopen("libGL4ES.so", RTLD_LAZY | RTLD_LOCAL);
+	}
+
+	void * ret = 0;
+	ret =  dlsym(h, (const char*)name);
+
+	return ret;
+}
+#else
 #include <SDL.h>
 #define wglGetProcAddress(x) (*SDL_GL_GetProcAddress)(x)
+#endif
+
 #endif
 static void APIENTRY glBlendEquationDummy (GLenum mode);
 
@@ -137,7 +156,9 @@ static void InitContext()
 		myGlBeginCharArray[i] = reinterpret_cast<char *>(glBegin)[i];
 #endif
 }
-
+#ifdef __ANDROID__
+extern int glesLoad;
+#endif
 //==========================================================================
 //
 // 
@@ -147,8 +168,41 @@ static void InitContext()
 void gl_LoadExtensions()
 {
 	InitContext();
-	CollectExtensions();
 
+	ogl_LoadFunctions();
+
+	CollectExtensions();
+#ifdef __ANDROID__
+    if( glesLoad == 1)
+    {
+	    gl.shadermodel = 0;	// assume no shader support
+	    gl.vendorstring =(char*)glGetString(GL_VENDOR);
+
+        if (CheckExtension("GL_OES_texture_npot")) gl.flags|=RFL_NPOT_TEXTURE;
+    }
+    else if( glesLoad == 2)
+    {
+
+        gl.shadermodel = 2;
+        if( Args->CheckParm("-sm3") )
+        {
+            Printf("Enableing shaders for GLES2");
+            gl.shadermodel = 3; // UNCOMMENT THIS TO ENABLE SHADERS
+        }
+        gl.flags|=RFL_GL_20;
+        gl.flags|=RFL_GL_21;
+
+        gl.flags |= RFL_VBO;
+        gl.flags |= RFL_MAP_BUFFER_RANGE;
+        gl.flags |= RFL_FRAMEBUFFER;
+    }
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE,&gl.max_texturesize);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    //This is needed to the fix the brutal doom white lines?!
+    glDisable(GL_CLIP_PLANE0);
+    glEnable(GL_CLIP_PLANE0);
+#else
 	const char *version = (const char*)glGetString(GL_VERSION);
 
 	// Don't even start if it's lower than 1.3
@@ -162,6 +216,7 @@ void gl_LoadExtensions()
 		// on most 1.3 cards this is present but let's print a warning that not everything may work as intended.
 		Printf(TEXTCOLOR_RED "The current graphics driver implements a OpenGL version lower than 1.4 and may not support all features " GAMENAME " requires.\n");
 	}
+
 
 	// This loads any function pointers and flags that require a vaild render context to
 	// initialize properly
@@ -341,6 +396,7 @@ void gl_LoadExtensions()
 	glActiveTexture = (PFNGLACTIVETEXTUREPROC)myGetProcAddress("glActiveTextureARB");
 	glMultiTexCoord2f = (PFNGLMULTITEXCOORD2FPROC) myGetProcAddress("glMultiTexCoord2fARB");
 	glMultiTexCoord2fv = (PFNGLMULTITEXCOORD2FVPROC) myGetProcAddress("glMultiTexCoord2fvARB");
+#endif
 }
 
 //==========================================================================
@@ -354,6 +410,10 @@ void gl_PrintStartupLog()
 	Printf ("GL_VENDOR: %s\n", glGetString(GL_VENDOR));
 	Printf ("GL_RENDERER: %s\n", glGetString(GL_RENDERER));
 	Printf ("GL_VERSION: %s\n", glGetString(GL_VERSION));
+#ifdef __ANDROID__
+    if( glesLoad == 2)
+    {
+#endif
 	Printf ("GL_SHADING_LANGUAGE_VERSION: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 	Printf ("GL_EXTENSIONS: %s\n", glGetString(GL_EXTENSIONS));
 	int v;
@@ -371,7 +431,9 @@ void gl_PrintStartupLog()
 	Printf ("Max. combined uniforms: %d\n", v);
 	glGetIntegerv(GL_MAX_COMBINED_UNIFORM_BLOCKS, &v);
 	Printf ("Max. combined uniform blocks: %d\n", v);
-
+#ifdef __ANDROID__
+    }
+#endif
 }
 
 //==========================================================================
@@ -406,6 +468,9 @@ void gl_SetTextureMode(int type)
 
 	if (type == TM_MASK)
 	{
+#ifdef __MOBILE__
+        return; //Causes textures to screw up for some reason...
+#endif
 		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE);
 		glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, GL_REPLACE);
 		glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB, GL_PRIMARY_COLOR);

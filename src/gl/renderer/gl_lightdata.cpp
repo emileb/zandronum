@@ -191,7 +191,9 @@ void gl_GetRenderStyle(FRenderStyle style, bool drawopaque, bool allowcolorblend
 
 	if (allowcolorblending && srcblend == GL_SRC_ALPHA && dstblend == GL_ONE && blendequation == GL_FUNC_ADD)
 	{
+#ifndef __MOBILE__
 		srcblend = GL_SRC_COLOR;
+#endif
 	}
 
 	*tm = texturemode;
@@ -247,6 +249,14 @@ int gl_CalcLightLevel(int lightlevel, int rellight, bool weapon)
 		light = gl_light_ambient;
 		if (rellight<0) rellight>>=1;
 	}
+#ifdef __MOBILE__ // Hook in brightness slider to this also
+    int brightness = vid_brightness * 255;
+    if (light<brightness && glset.lightmode != 8)		// ambient clipping only if not using software lighting model.
+    {
+        light = brightness;
+        if (rellight<0) rellight>>=1;
+    }
+#endif
 	return clamp(light+rellight, 0, 255);
 }
 

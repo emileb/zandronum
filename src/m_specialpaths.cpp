@@ -468,14 +468,29 @@ FString M_GetSavegamesPath()
 
 #else // Linux, et al.
 
+#ifdef __ANDROID__
+extern "C" const char *userFilesPath_c;
+#endif
 
 FString GetUserFile (const char *file)
 {
 	FString path;
 	struct stat info;
+#ifdef __ANDROID__
+	path = userFilesPath_c;
+	path += "/zandronum_3.1/";
 
+    if (stat (path, &info) == -1)
+    {
+        if (mkdir (path, S_IRUSR | S_IWUSR | S_IXUSR) == -1)
+        {
+            I_FatalError ("Failed to create ~/.config directory:\n%s", strerror(errno));
+        }
+    }
+    return path + file;
+#else
 	path = NicePath("~/" GAME_DIR "/");
-
+#endif
 	if (stat (path, &info) == -1)
 	{
 		struct stat extrainfo;
@@ -542,6 +557,9 @@ FString M_GetCachePath(bool create)
 	// Don't use GAME_DIR and such so that ZDoom and its child ports can
 	// share the node cache.
 	FString path = NicePath("~/.config/zdoom/cache");
+#ifdef __ANDROID__
+    path = "./user_files/zandronum_3.1/";
+#endif
 	if (create)
 	{
 		CreatePath(path);
@@ -572,6 +590,18 @@ FString M_GetAutoexecPath()
 
 FString M_GetCajunPath(const char *botfilename)
 {
+#ifdef __ANDROID__
+	FString path = userFilesPath_c;
+	path += "/bots/";
+	path << botfilename;
+
+	if (!FileExists(path))
+	{
+		path = "";
+	}
+
+	return path;
+#else
 	FString path;
 
 	// Check first in ~/.config/zdoom/botfilename.
@@ -587,6 +617,7 @@ FString M_GetCajunPath(const char *botfilename)
 		}
 	}
 	return path;
+#endif
 }
 
 //===========================================================================
@@ -614,7 +645,14 @@ FString M_GetConfigPath(bool for_reading)
 
 FString M_GetScreenshotsPath()
 {
+#ifdef __ANDROID__
+	FString path = userFilesPath_c;
+    path += "/zandronum_3.1/screenshots/";
+
+    return NicePath(path.GetChars());
+#else
 	return NicePath("~/" GAME_DIR "/screenshots/");
+#endif
 }
 
 //===========================================================================
@@ -627,7 +665,14 @@ FString M_GetScreenshotsPath()
 
 FString M_GetSavegamesPath()
 {
+#ifdef __ANDROID__
+	FString path = userFilesPath_c;
+	path += "/zandronum_3.1/saves/";
+
+	return NicePath(path.GetChars());
+#else
 	return NicePath("~/" GAME_DIR);
+#endif
 }
 
 #endif

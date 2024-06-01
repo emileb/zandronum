@@ -5,6 +5,11 @@
 #if !defined(_WIN32) || defined(_MSC_VER)
 // Use the real C++ interface if it's supported on this platform.
 #include "fmod.hpp"
+
+#ifdef __ANDROID__
+#define FMOD_SOFTWARE 0
+#endif
+
 #else
 // Use a wrapper C++ interface for non-Microsoft compilers on Windows.
 
