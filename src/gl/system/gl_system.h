@@ -71,14 +71,44 @@
 #include <GL/glew.h>
 #include <OpenGL/OpenGL.h>
 #elif defined(__unix__)
+#ifdef __ANDROID__
+//#define GL_GLEXT_PROTOTYPES
+//#include "GL/gl.h"
+//#define GL_GLEXT_PROTOTYPES
+//#include "GL/glext.h"
+//#include "gl/api/glext.h"
+#include "gl_load.h"
+
+#define glDeleteRenderbuffers glDeleteRenderbuffersEXT
+#define glGenRenderbuffers glGenRenderbuffersEXT
+#define glBindRenderbuffer glBindRenderbufferEXT
+#define glRenderbufferStorage glRenderbufferStorageEXT
+#define glFramebufferTexture2D glFramebufferTexture2DEXT
+#define glFramebufferRenderbuffer glFramebufferRenderbufferEXT
+#define glGenFramebuffers glGenFramebuffersEXT
+#define glDeleteFramebuffers glDeleteFramebuffersEXT
+#define glBindFramebuffer glBindFramebufferEXT
+
+#define GL_RENDERBUFFER GL_RENDERBUFFER_EXT
+#define GL_FRAMEBUFFER GL_FRAMEBUFFER_EXT
+
+#define GL_DEPTH24_STENCIL8 GL_DEPTH24_STENCIL8_EXT
+#define GL_COLOR_ATTACHMENT0 GL_COLOR_ATTACHMENT0_EXT
+#define GL_DEPTH_STENCIL_ATTACHMENT       0x821A
+//#include "gl/api/glext.h"
+//#include "gl/api/gl_api.h"
+
+#else
 #include <GL/glew.h>
 // #include "gl/api/glext.h" [AK] Commented this out to fix compile errors on Fedora.
+#endif
+
 #else // !__APPLE__ && !__unix__
 #include <GL/gl.h>
 #include <GL/glu.h>
 #include "gl/api/glext.h"
 #endif
-#include "gl/api/gl_api.h"
+//#include "gl/api/gl_api.h"
 
 #ifdef _WIN32
 #define DWORD WINDOWS_DWORD	// I don't want to depend on this throughout the GL code!

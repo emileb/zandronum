@@ -240,7 +240,11 @@ static void unprotect_rtext()
 void I_StartupJoysticks();
 void I_ShutdownJoysticks();
 
+#ifdef __ANDROID__
+int main_android (int argc, char **argv)
+#else
 int main (int argc, char **argv)
+#endif
 {
 #if !defined (__APPLE__)
 	{
@@ -390,6 +394,9 @@ int main (int argc, char **argv)
     }
     catch (class CDoomError &error)
     {
+#ifdef __ANDROID__
+        Printf("ERROR %s", error.GetMessage () );
+#endif
 		I_ShutdownJoysticks();
 		if (error.GetMessage ())
 			fprintf (stderr, "%s\n", error.GetMessage ());
