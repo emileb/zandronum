@@ -160,7 +160,7 @@ void R_DeinitSprites()
 	{
 		delete vissprites[i];
 	}
-	free (vissprites);
+	M_Free (vissprites);
 	vissprites = NULL;
 	vissprite_p = lastvissprite = NULL;
 	MaxVisSprites = 0;

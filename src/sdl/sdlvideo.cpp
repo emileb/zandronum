@@ -183,8 +183,11 @@ bool SDLVideo::NextMode (int *width, int *height, bool *letterbox)
 {
 	if (IteratorBits != 8)
 		return false;
-	
+#ifdef __ANDROID__
+    if(true)
+#else
 	if (!IteratorFS)
+#endif
 	{
 		if ((unsigned)IteratorMode < sizeof(WinModes)/sizeof(WinModes[0]))
 		{
