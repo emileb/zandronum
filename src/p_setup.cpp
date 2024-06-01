@@ -4364,7 +4364,10 @@ void P_SetupLevel (char *lumpname, int position)
 // not assumed to be from this one.
 
 	for (i = 0; i < BODYQUESIZE; i++)
+	{
 		bodyque[i] = NULL;
+		bodyquePlayer[i] = nullptr; // [AK]
+	}
 
 	deathmatchstarts.Clear();
 	AllPlayerStarts.Clear();
@@ -4400,6 +4403,9 @@ void P_SetupLevel (char *lumpname, int position)
 			}
 		}
 	}
+
+	// [JM] Event for early setup before things are spawned and OPEN scripts are executed.
+	GAMEMODE_HandleEvent(GAMEEVENT_LEVEL_INIT, 0, 0, 0, true);
 
 	if (!buildmap)
 	{

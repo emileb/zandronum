@@ -106,6 +106,12 @@ bool AArtiPoisonBag3::Use (bool pickup)
 {
 	AActor *mo;
 
+	// [RK] Only the server handles the spawning and client-side handling will be ignored.
+	// We'll return true for the client since the server handles the inventory use amount.
+	// Plus we still want to play the inventory use sound for the client as well.
+	if ( NETWORK_InClientMode() )
+		return true;
+
 	mo = Spawn("ThrowingBomb", Owner->x, Owner->y, 
 		Owner->z-Owner->floorclip+35*FRACUNIT + (Owner->player? Owner->player->crouchoffset : 0), ALLOW_REPLACE);
 	if (mo)
@@ -137,6 +143,11 @@ bool AArtiPoisonBag3::Use (bool pickup)
 
 		mo->target = Owner;
 		mo->tics -= pr_poisonbag()&3;
+
+		// [RK] Spawn the flechette on the clients.
+		if ( NETWORK_GetState() == NETSTATE_SERVER )
+			SERVERCOMMANDS_SpawnMissile(mo);
+
 		P_CheckMissileSpawn(mo, Owner->radius);
 		return true;
 	}

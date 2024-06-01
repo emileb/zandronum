@@ -103,6 +103,18 @@ CUSTOM_CVAR (Float, cl_spectatormove, 1.0, CVAR_ARCHIVE|CVAR_GLOBALCONFIG) {
 		self = -100.0;
 }
 
+// [AK] Enables source-engine like noclipping, allowing spectators to pass through floors and ceilings.
+CUSTOM_CVAR (Bool, cl_spectatorsource, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+{
+	if (players[consoleplayer].bSpectating)
+	{
+		if (self)
+			players[consoleplayer].mo->flags5 |= MF5_NOINTERACTION;
+		else
+			players[consoleplayer].mo->flags5 &= ~MF5_NOINTERACTION;
+	}
+}
+
 // [GRB] Custom player classes
 TArray<FPlayerClass> PlayerClasses;
 
@@ -331,9 +343,7 @@ player_t::player_t()
   ulFragsWithoutDeath( 0 ),
   ulDeathsWithoutFrag( 0 ),
   ulUnrewardedDamageDealt( 0 ),
-  bChatting( 0 ),
-  bInConsole( 0 ),
-  bInMenu( 0 ),
+  statuses( 0 ),
   bSpectating( 0 ),
   bDeadSpectator( 0 ),
   ulLivesLeft( 0 ),
@@ -344,18 +354,15 @@ player_t::player_t()
   ulWins( 0 ),
   pSkullBot( 0 ),
   bIsBot( 0 ),
-  bIgnoreChat( 0 ),
-  lIgnoreChatTicks( -1 ),
   ulPing( 0 ),
   ulPingAverages( 0 ),
   ulCountryIndex( 0 ),
-  bReadyToGoOn( 0 ),
   pCorpse( 0 ),
   OldPendingWeapon( 0 ),
-  bLagging( 0 ),
   bSpawnTelefragged( 0 ),
   ulTime( 0 ),
-  bUnarmed( false )
+  bUnarmed( false ),
+  ACSSkinOverridesWeaponSkin( false )
 {
 	memset (&cmd, 0, sizeof(cmd));
 	// [BB] Check if this is still necessary.
@@ -496,9 +503,7 @@ player_t &player_t::operator=(const player_t &p)
 	ulFragsWithoutDeath = p.ulFragsWithoutDeath;
 	ulDeathsWithoutFrag = p.ulDeathsWithoutFrag;
 	ulUnrewardedDamageDealt = p.ulUnrewardedDamageDealt;
-	bChatting = p.bChatting;
-	bInConsole = p.bInConsole;
-	bInMenu = p.bInMenu;
+	statuses = p.statuses;
 	bSpectating = p.bSpectating;
 	bDeadSpectator = p.bDeadSpectator;
 	ulLivesLeft = p.ulLivesLeft;
@@ -510,20 +515,20 @@ player_t &player_t::operator=(const player_t &p)
 	ulWins = p.ulWins;
 	pSkullBot = p.pSkullBot;
 	bIsBot = p.bIsBot;
-	bIgnoreChat = p.bIgnoreChat;
-	lIgnoreChatTicks = p.lIgnoreChatTicks;
+	ignoreChat = p.ignoreChat;
+	ignoreVoice = p.ignoreVoice;
 	ulPing = p.ulPing;
 	ulPingAverages = p.ulPingAverages;
 	ulCountryIndex = p.ulCountryIndex;
-	bReadyToGoOn = p.bReadyToGoOn;
 	pCorpse = p.pCorpse;
 	OldPendingWeapon = p.OldPendingWeapon;
 	StartingWeaponName = p.StartingWeaponName;
 	bClientSelectedWeapon = p.bClientSelectedWeapon;
-	bLagging = p.bLagging;
 	bSpawnTelefragged = p.bSpawnTelefragged;
 	ulTime = p.ulTime;
 	bUnarmed = p.bUnarmed;
+	ACSSkin = p.ACSSkin;
+	ACSSkinOverridesWeaponSkin = p.ACSSkinOverridesWeaponSkin;
 
 	// [AK] Copy the old positions for the unlagged.
 	for ( unsigned int i = 0; i < UNLAGGEDTICS; i++ )
@@ -1374,9 +1379,21 @@ void APlayerPawn::FilterCoopRespawnInventory (APlayerPawn *oldplayer)
 
 const char *APlayerPawn::GetSoundClass() const
 {
+	// [AK] If this is a corpse, check which player it originally belonged to.
+	player_t *corpsePlayer = nullptr;
+	for ( unsigned int i = 0; i < BODYQUESIZE; i++ )
+	{
+		if ( this == bodyque[i] )
+		{
+			corpsePlayer = bodyquePlayer[i];
+			break;
+		}
+	}
+
 	// [BC] If this player's skin is disabled, just use the base sound class.
 	// [BB] Voodoo dolls don't have valid userinfo.
-	if (( player != NULL ) && ( player->mo == this ) &&
+	// [AK] Also use the player's skin if this is a corpse that belonged to them.
+	if (( player != NULL ) && (( player->mo == this ) || ( player == corpsePlayer )) &&
 		(( cl_skins == 1 ) || (( cl_skins >= 2 ) &&
 		( player->userinfo.GetSkin() < static_cast<signed> (skins.Size()) ) &&
 		( skins[player->userinfo.GetSkin()].bCheat == false ))))
@@ -1802,10 +1819,10 @@ void APlayerPawn::GiveDefaultInventory ()
 			PLAYER_SetWeapon( player, pPendingWeapon, true );
 		}
 		// [BC] If the user has the shotgun start flag set, do that!
-		else if ( dmflags2 & DF2_COOP_SHOTGUNSTART )
+		else if ( dmflags2 & DF2_SHOTGUNSTART )
 		{
 			pInventory = player->mo->GiveInventoryTypeRespectingReplacements( PClass::FindClass( "Shotgun" ) );
-			if ( pInventory )
+			if ( pInventory && pInventory->IsKindOf( PClass::FindClass( "Weapon") )) // [RK] Make sure it's a type of weapon before handing it out.
 			{
 				// [BB] PLAYER_SetWeapon takes care of the special client / server and demo handling.
 				PLAYER_SetWeapon( player, static_cast<AWeapon *>( pInventory ), true );
@@ -1815,7 +1832,14 @@ void APlayerPawn::GiveDefaultInventory ()
 				// Thus, we can't use those pointers, but need to rely on pInventory.
 				AInventory *pAmmo = player->mo->FindInventory( PClass::FindClass( "Shell" )->ActorInfo->GetReplacement( )->Class );
 				if ( pAmmo != NULL )
+				{
 					pAmmo->Amount = static_cast<AWeapon *>( pInventory )->AmmoGive1 * 2;
+
+					// [RK] Sync the give amount for clients since they actually haven't been
+					// given any shells yet from the command sent in AWeapon::AttachToOwner.
+					if ( NETWORK_GetState() == NETSTATE_SERVER )
+						SERVERCOMMANDS_GiveInventory(player->mo->id, pAmmo);
+				}
 			}
 		}
 		else if (!Inventory)
@@ -2266,7 +2290,8 @@ void APlayerPawn::TweakSpeeds (int &forward, int &side)
 	}
 
 	// [BC] This comes out to 50%, so we can use this for the turbosphere.
-	if (!player->morphTics && Inventory != NULL)
+	// [Binary] Allow morphs to use turbosphere / speed powerups with +NOMORPHLIMITATIONS.
+	if (( !player->morphTics || ( PlayerFlags & PPF_NOMORPHLIMITATIONS ) ) && Inventory != NULL)
 	{
 		fixed_t factor = Inventory->GetSpeedFactor ();
 		forward = FixedMul(forward, factor);
@@ -2375,6 +2400,12 @@ DEFINE_ACTION_FUNCTION(AActor, A_PlayerScream)
 	int sound = 0;
 	int chan = CHAN_VOICE;
 
+	// [AK] If the actor used have a valid player pointer, but doesn't anymore
+	// because the player respawned, then temporarily set the pointer to the
+	// old player. This way, we can still play their skin's death sound(s) and
+	// not have to alter the code below.
+	const bool usedOldPlayer = G_TransferPlayerFromCorpse(self);
+
 	if (self->player == NULL || self->DeathSound != 0)
 	{
 		if (self->DeathSound != 0)
@@ -2385,6 +2416,12 @@ DEFINE_ACTION_FUNCTION(AActor, A_PlayerScream)
 		{
 			S_Sound (self, CHAN_VOICE, "*death", 1, ATTN_NORM);
 		}
+
+		// [AK] If self->player was a null pointer before and had to be changed
+		// temporarily, reset it back before exiting the function.
+		if (usedOldPlayer)
+			self->player = nullptr;
+
 		return;
 	}
 
@@ -2434,6 +2471,11 @@ DEFINE_ACTION_FUNCTION(AActor, A_PlayerScream)
 		}
 	}
 	S_Sound (self, chan, sound, 1, ATTN_NORM);
+
+	// [AK] After playing the death sound, if self->player was a null pointer
+	// before and had to be changed temporarily, reset it back.
+	if (usedOldPlayer)
+		self->player = nullptr;
 }
 
 
@@ -2466,6 +2508,25 @@ DEFINE_ACTION_FUNCTION_PARAMS(AActor, A_SkullPop)
 	mo->velz = 2*FRACUNIT + (pr_skullpop() << 6);
 	// Attach player mobj to bloody skull
 	player = self->player;
+
+	// [RK] Before we set the old player to NULL we have to transfer over the
+	// new actor to any running scripts that have the old body as the activator.
+	if (player != NULL)
+	{
+		TThinkerIterator<DACSThinker> it;
+		DACSThinker* next = it.Next();
+
+		while (next != NULL)
+		{
+			next->ReplaceActivator(self, mo);
+			next = it.Next();
+		}
+	}
+	// [RK] If for some reason the player is NULL the scripts have
+	// to be stopped to prevent them from lingering around.
+	else
+		FBehavior::StaticStopMyScripts(self);
+
 	self->player = NULL;
 	mo->ObtainInventory (self);
 	mo->player = player;
@@ -2511,51 +2572,43 @@ DEFINE_ACTION_FUNCTION(AActor, A_CheckPlayerDone)
 
 void P_CheckPlayerSprite(AActor *actor, int &spritenum, fixed_t &scalex, fixed_t &scaley)
 {
-	LONG	lSkin;
-
 	player_t *player = actor->player;
-	const bool bUsingWeaponSkin = PLAYER_IsUsingWeaponSkin( actor ); // [AK]
-
 	int crouchspriteno;
 
 	// [AK] Don't set the player's sprite if their current body doesn't match their class due to A_SkullPop.
 	if ( actor->IsKindOf( RUNTIME_CLASS( APlayerChunk )))
 		return;
 
-	// [BC] Because of cl_skins, we might not necessarily use the player's
-	// desired skin.
-	lSkin = player->userinfo.GetSkin();
+	// [BC] Because of cl_skins, we might not necessarily use the player's desired skin.
+	const int overrideSkin = PLAYER_GetOverrideSkin( player ); // [AK]
+	int skin = player->userinfo.GetSkin();
 
-	// [BB] MF4_NOSKIN should force the player to have the base skin too, the same is true for morphed players.
-	if (( cl_skins <= 0 ) || ((( cl_skins >= 2 ) && ( skins[player->userinfo.GetSkin()].bCheat ))) || (actor->flags4 & MF4_NOSKIN) || player->morphTics )
-		lSkin = R_FindSkin( "base", player->CurrentPlayerClass );
+	// [AK] Check if the player's base skin should be used instead of their personal skin.
+	if ( PLAYER_ShouldForceBaseSkin( player ))
+		skin = R_FindSkin( "base", player->CurrentPlayerClass );
 
-	// [BB] If the weapon has a PreferredSkin defined, make the player use it here.
-	if ( bUsingWeaponSkin )
+	// [BB/AK] If the skin was overridden from ACS, or the weapon has a PreferredSkin defined, make the player use it here.
+	if (( overrideSkin != -1 ) && ( overrideSkin != skin ))
 	{
-		LONG lDesiredSkin = R_FindSkin( player->ReadyWeapon->PreferredSkin.GetChars(), player->CurrentPlayerClass );
-		if ( lDesiredSkin != lSkin )
-		{
-			lSkin = lDesiredSkin;
-			spritenum = skins[lSkin].sprite;
-		}
+		skin = overrideSkin;
+		spritenum = skins[skin].sprite;
 	}
-	// [BB] No longer using a weapon with a preferred skin, reset the sprite.
-	else if ( ( spritenum != skins[lSkin].sprite ) && ( spritenum != skins[lSkin].crouchsprite )
+	// [BB/AK] No longer using an overridden skin, reset the sprite.
+	else if ( ( spritenum != skins[skin].sprite ) && ( spritenum != skins[skin].crouchsprite )
 			&& ( spritenum != actor->state->sprite ) && (actor->state->sprite != SPR_NOCHANGE) && 
 			(actor->state->sprite != SPR_FIXED))
 	{
-		spritenum = skins[lSkin].sprite;
+		spritenum = skins[skin].sprite;
 	}
 
-	// [BB] PreferredSkin overrides NOSKIN.
-	if (lSkin != 0 && ( !(player->mo->flags4 & MF4_NOSKIN) || ( bUsingWeaponSkin ) ) )
+	// [BB/AK] An overridden skin also overrides NOSKIN.
+	if (skin != 0 && ( !(player->mo->flags4 & MF4_NOSKIN) || ( overrideSkin != -1 ) ) )
 	{
 		// Convert from default scale to skin scale.
 		fixed_t defscaleY = actor->GetDefault()->scaleY;
 		fixed_t defscaleX = actor->GetDefault()->scaleX;
-		scaley = Scale(scaley, skins[lSkin].ScaleY, defscaleY);
-		scalex = Scale(scalex, skins[lSkin].ScaleX, defscaleX);
+		scaley = Scale(scaley, skins[skin].ScaleY, defscaleY);
+		scalex = Scale(scalex, skins[skin].ScaleX, defscaleX);
 	}
 
 	// Set the crouch sprite?
@@ -2565,12 +2618,12 @@ void P_CheckPlayerSprite(AActor *actor, int &spritenum, fixed_t &scalex, fixed_t
 		{
 			crouchspriteno = player->mo->crouchsprite;
 		}
-		// [BB] PreferredSkin overrides NOSKIN.
-		else if ( ( !(actor->flags4 & MF4_NOSKIN) || ( bUsingWeaponSkin ) ) &&
-				(spritenum == skins[lSkin].sprite ||
-				 spritenum == skins[lSkin].crouchsprite))
+		// [BB/AK] An overridden skin also overrides NOSKIN.
+		else if ( ( !(actor->flags4 & MF4_NOSKIN) || ( overrideSkin != -1 ) ) &&
+				(spritenum == skins[skin].sprite ||
+				 spritenum == skins[skin].crouchsprite))
 		{
-			crouchspriteno = skins[lSkin].crouchsprite;
+			crouchspriteno = skins[skin].crouchsprite;
 		}
 		else
 		{ // no sprite -> squash the existing one
@@ -2680,6 +2733,9 @@ void P_CalcHeight (player_t *player)
 	if ( CLIENT_PREDICT_IsPredicting( ))
 		return;
 
+	// [AK] Check if source-engine noclipping is being used by the spectator.
+	const bool usingSourceEngineNoClip = P_IsUsingSourceEngineNoClip(player->mo);
+
 	// Regular movement bobbing
 	// (needs to be calculated for gun swing even if not on ground)
 
@@ -2689,7 +2745,8 @@ void P_CalcHeight (player_t *player)
 	// it causes bobbing jerkiness when the player moves from ice to non-ice,
 	// and vice-versa.
 
-	if (player->cheats & CF_NOCLIP2)
+	// [AK] Don't calculate bobbing while using source-engine noclipping.
+	if ((player->cheats & CF_NOCLIP2) || (usingSourceEngineNoClip))
 	{
 		player->bob = 0;
 	}
@@ -2783,8 +2840,14 @@ void P_CalcHeight (player_t *player)
 	{
 		bob = 0;
 	}
+
 	// [AK] Don't bob the screen if cl_viewbob is disabled.
 	player->viewz = player->mo->z + player->viewheight + (cl_viewbob ? bob : 0);
+
+	// [AK] Don't clip the view to the floor/ceiling while using source-engine noclipping.
+	if (usingSourceEngineNoClip)
+		return;
+
 	if (player->mo->floorclip && player->playerstate != PST_DEAD
 		&& player->mo->z <= player->mo->floorz)
 	{
@@ -2833,22 +2896,54 @@ void P_MovePlayer (player_t *player)
 	// [Leo] cl_spectatormove is now applied here to avoid code duplication.
 	fixed_t spectatormove = FLOAT2FIXED(cl_spectatormove);
 
-	// [AK] Save the player's angle before we update it.
-	fixed_t oldAngle = mo->angle;
+	// [AK] The player doesn't look around while using the free chasecam,
+	// so while playing a demo, make sure to not update the local player's
+	// angle during the moments they were using it.
+	if ((player != &players[consoleplayer]) || (CLIENTDEMO_IsPlaying() == false) || (FreeChasecam::enabled == false))
+	{
+		// [AK] Save the player's angle before we update it.
+		const bool usingFreeChasecam = FreeChasecam::IsBeingUsed(player);
+		fixed_t oldAngle = mo->angle;
 
-	// [RH] 180-degree turn overrides all other yaws
-	if (player->turnticks)
+		// [AK] If using the free chasecam, temporarily set the player's angle
+		// to that of the free chasecam.
+		if (usingFreeChasecam)
+			mo->angle = FreeChasecam::cameraAngle;
+
+		// [RH] 180-degree turn overrides all other yaws
+		if (player->turnticks)
+		{
+			player->turnticks--;
+			mo->angle += (ANGLE_180 / TURN180_TICKS);
+		}
+		else
+		{
+			mo->angle += cmd->ucmd.yaw << 16;
+		}
+
+		// [AK] If being used, update the free chasecam's angle to the new one,
+		// then reset the player's angle back to what it was before. This way,
+		// the player isn't also looking around while using the free chasecam.
+		if (usingFreeChasecam)
+		{
+			FreeChasecam::cameraAngle = mo->angle;
+			mo->angle = oldAngle;
+		}
+
+		// [AK] Calculate how much the player's angle changed.
+		mo->AngleDelta = mo->angle - oldAngle;
+	}
+	// [AK] Their turn ticks still need to be decremented.
+	else if (player->turnticks)
 	{
 		player->turnticks--;
-		mo->angle += (ANGLE_180 / TURN180_TICKS);
-	}
-	else
-	{
-		mo->angle += cmd->ucmd.yaw << 16;
 	}
 
-	// [AK] Calculate how much the player's angle changed.
-	mo->AngleDelta = mo->angle - oldAngle;
+	// [AK] Stop here if the player is dead. They only reason this should happen
+	// is because they're the local player and they're using the free chasecam,
+	// so their angle had to be updated.
+	if (player->playerstate == PST_DEAD)
+		return;
 
 	// [TP] Allow spectators to move freely even if the game is suspended.
 	if ( GAME_GetEndLevelDelay( ) && ( player->bSpectating == false ))
@@ -3445,7 +3540,7 @@ void P_PlayerThink (player_t *player)
 //				// Don't really bitch here, because this tends to happen if people use the "map"
 //				// rcon command.
 				Printf( "No player %td start\n", player - players + 1 );
-				SERVER_DisconnectClient( player - players, true, true );
+				SERVER_DisconnectClient( player - players, true, true, LEAVEREASON_ERROR );
 				return;
 			}
 			else
@@ -3559,6 +3654,13 @@ void P_PlayerThink (player_t *player)
 
 	bool totallyfrozen = P_IsPlayerTotallyFrozen(player);
 
+	// [AK] Check if the local player is using the free chasecam. If they are,
+	// then we must also preserve their yaw and pitch inputs even when they're
+	// normally zeroed (i.e. totally frozen or while the game is suspended).
+	// This way, they can still move the camera around.
+	const bool localPlayerUsingFreeChasecam = ((player == &players[consoleplayer]) && (FreeChasecam::IsBeingUsed(player)));
+	bool mustZeroYawAndPitch = false;
+
 	// [BB] Why should a predicting client ignore CF_TOTALLYFROZEN and CF_FROZEN?
 	//if ( CLIENT_PREDICT_IsPredicting( ) == false )
 	{
@@ -3573,8 +3675,18 @@ void P_PlayerThink (player_t *player)
 			{
 				cmd->ucmd.buttons &= BT_USE;
 			}
-			cmd->ucmd.pitch = 0;
-			cmd->ucmd.yaw = 0;
+
+			// [AK] Don't zero the yaw/pitch if the local player's using the free chasecam.
+			if (localPlayerUsingFreeChasecam == false)
+			{
+				cmd->ucmd.pitch = 0;
+				cmd->ucmd.yaw = 0;
+			}
+			else
+			{
+				mustZeroYawAndPitch = true;
+			}
+
 			cmd->ucmd.roll = 0;
 			cmd->ucmd.forwardmove = 0;
 			cmd->ucmd.sidemove = 0;
@@ -3597,7 +3709,20 @@ void P_PlayerThink (player_t *player)
 	// Note: This needs to be done after ticking the bot, otherwise the bot could still act.
 	// [TP] Allow spectators to move freely even if the game is suspended.
 	if ( GAME_GetEndLevelDelay( ) && ( player->bSpectating == false ))
+	{
+		const int savedYaw = cmd->ucmd.yaw;
+		const int savedPitch = cmd->ucmd.pitch;
+
 		memset( cmd, 0, sizeof( ticcmd_t ));
+
+		// [AK] If the local player's using the free chasecam, restore the yaw/pitch.
+		if ( localPlayerUsingFreeChasecam )
+		{
+			cmd->ucmd.yaw = savedYaw;
+			cmd->ucmd.pitch = savedPitch;
+			mustZeroYawAndPitch = true;
+		}
+	}
 
 	// Handle crouching
 	if (player->cmd.ucmd.buttons & BT_JUMP)
@@ -3647,101 +3772,167 @@ void P_PlayerThink (player_t *player)
 		player->Uncrouch();
 		P_DeathThink (player);
 
+		// [AK] Check if the player pressed the turn-180 degrees button.
+		const bool pressedTurn180 = ((cmd->ucmd.buttons & BT_TURN180) && !(player->oldbuttons & BT_TURN180));
+
 		// [BC] Update oldbuttons.
 		player->oldbuttons = player->cmd.ucmd.buttons;
-		return;
-	}
-	if (player->jumpTics != 0)
-	{
-		player->jumpTics--;
-		if (player->onground && player->jumpTics < -18)
-		{
-			player->jumpTics = 0;
-		}
-	}
-	if (player->morphTics)// && !(player->cheats & CF_PREDICTING))
-	{
-		player->mo->MorphPlayerThink ();
-	}
 
-	// [AK] Save the player's pitch before we update it.
-	fixed_t oldPlayerPitch = player->mo->pitch;
+		// [AK] Don't exit the function yet if the local player is using the free chasecam.
+		// Their angle and pitch must still be updated to move the camera.
+		if (localPlayerUsingFreeChasecam == false)
+			return;
 
-	// [Leo] Spectators shouldn't be limited by the server settings.
-	// [RH] Look up/down stuff
-	if (!level.IsFreelookAllowed() && player->bSpectating == false)
-	{
-		player->mo->pitch = 0;
+		// [AK] Set the dead player's turn ticks so that they can still turn 180-degrees.
+		if (pressedTurn180)
+			player->turnticks = TURN180_TICKS;
 	}
+	// [AK] The local player doesn't execute these if using the free chasecam while dead.
 	else
 	{
-		// Servers read in the pitch value. It is not calculated.
-		if (( NETWORK_GetState( ) != NETSTATE_SERVER ) || ( player->pSkullBot != NULL ))
+		if (player->jumpTics != 0)
 		{
-			int look = cmd->ucmd.pitch << 16;
-
-			// The player's view pitch is clamped between -32 and +56 degrees,
-			// which translates to about half a screen height up and (more than)
-			// one full screen height down from straight ahead when view panning
-			// is used.
-			if (look)
+			player->jumpTics--;
+			if (player->onground && player->jumpTics < -18)
 			{
-				if (look == -32768 << 16)
-				{ // center view
-					player->mo->pitch = 0;
-				}
-				else
-				{
-					fixed_t oldpitch = player->mo->pitch;
-					player->mo->pitch -= look;
-					if (look > 0)
-					{ // look up
-						// [BB] Zandronum handles pitch differently.
-						const fixed_t pitchLimit = - ( ( NETWORK_GetState( ) != NETSTATE_SERVER ) ? Renderer->GetMaxViewPitch(false) : 32 ) * ANGLE_1;
-						player->mo->pitch = MAX(player->mo->pitch, pitchLimit );
-						if (player->mo->pitch > oldpitch)
-						{
-							player->mo->pitch = pitchLimit;
-						}
-					}
-					else
-					{ // look down
-						// [BB] Zandronum handles pitch differently.
-						const fixed_t pitchLimit = ( ( NETWORK_GetState( ) != NETSTATE_SERVER ) ? Renderer->GetMaxViewPitch(true) : 56 ) * ANGLE_1;
-						player->mo->pitch = MIN(player->mo->pitch, pitchLimit );
-						if (player->mo->pitch < oldpitch)
-						{
-							player->mo->pitch = pitchLimit;
-						}
-					}
-				}
+				player->jumpTics = 0;
 			}
 		}
-	}
-	if (player->centering)
-	{
-		if (abs(player->mo->pitch) > 2*ANGLE_1)
+		if (player->morphTics)// && !(player->cheats & CF_PREDICTING))
 		{
-			player->mo->pitch = FixedMul(player->mo->pitch, FRACUNIT*2/3);
+			player->mo->MorphPlayerThink ();
+		}
+	}
+
+	// [AK] While recording a demo, check if the local player's using the free
+	// chasecam and update its status accordingly. Also send their current angle
+	// so it gets synced properly during demo playback (i.e. the player presses
+	// the turn-180 degrees button then quickly changes between using the free
+	// chasecam or not).
+	if ((CLIENTDEMO_IsRecording()) && (player == &players[consoleplayer]))
+	{
+		if (FreeChasecam::IsBeingUsed())
+		{
+			if (FreeChasecam::enabled == false)
+			{
+				CLIENTDEMO_WriteFreeChasecam(true, players[consoleplayer].mo->angle);
+				FreeChasecam::enabled = true;
+			}
+		}
+		else if (FreeChasecam::enabled)
+		{
+			CLIENTDEMO_WriteFreeChasecam(false, players[consoleplayer].mo->angle);
+			FreeChasecam::enabled = false;
+		}
+	}
+
+	// [AK] As with their angle, don't update the local player's pitch during
+	// the moments they're using the free chasecam while playing a demo.
+	if ((player != &players[consoleplayer]) || (CLIENTDEMO_IsPlaying() == false) || (FreeChasecam::enabled == false))
+	{
+		// [AK] Save the player's pitch before we update it.
+		const bool usingFreeChasecam = FreeChasecam::IsBeingUsed(player);
+		fixed_t oldPlayerPitch = player->mo->pitch;
+
+		// [AK] If using the free chasecam, temporarily set the player's pitch
+		// to that of the free chasecam.
+		if (usingFreeChasecam)
+			player->mo->pitch = FreeChasecam::cameraPitch;
+
+		// [Leo] Spectators shouldn't be limited by the server settings.
+		// [RH] Look up/down stuff
+		if (!level.IsFreelookAllowed() && player->bSpectating == false)
+		{
+			player->mo->pitch = 0;
 		}
 		else
 		{
-			player->mo->pitch = 0;
-			player->centering = false;
-			if (player - players == consoleplayer)
+			// Servers read in the pitch value. It is not calculated.
+			if (( NETWORK_GetState( ) != NETSTATE_SERVER ) || ( player->pSkullBot != NULL ))
 			{
-				LocalViewPitch = 0;
+				int look = cmd->ucmd.pitch << 16;
+
+				// The player's view pitch is clamped between -32 and +56 degrees,
+				// which translates to about half a screen height up and (more than)
+				// one full screen height down from straight ahead when view panning
+				// is used.
+				if (look)
+				{
+					if (look == -32768 << 16)
+					{ // center view
+						player->mo->pitch = 0;
+					}
+					else
+					{
+						fixed_t oldpitch = player->mo->pitch;
+						player->mo->pitch -= look;
+						if (look > 0)
+						{ // look up
+							// [BB] Zandronum handles pitch differently.
+							const fixed_t pitchLimit = - ( ( NETWORK_GetState( ) != NETSTATE_SERVER ) ? Renderer->GetMaxViewPitch(false) : 32 ) * ANGLE_1;
+							player->mo->pitch = MAX(player->mo->pitch, pitchLimit );
+							if (player->mo->pitch > oldpitch)
+							{
+								player->mo->pitch = pitchLimit;
+							}
+						}
+						else
+						{ // look down
+							// [BB] Zandronum handles pitch differently.
+							const fixed_t pitchLimit = ( ( NETWORK_GetState( ) != NETSTATE_SERVER ) ? Renderer->GetMaxViewPitch(true) : 56 ) * ANGLE_1;
+							player->mo->pitch = MIN(player->mo->pitch, pitchLimit );
+							if (player->mo->pitch < oldpitch)
+							{
+								player->mo->pitch = pitchLimit;
+							}
+						}
+					}
+				}
 			}
 		}
-	}
+		if (player->centering)
+		{
+			if (abs(player->mo->pitch) > 2*ANGLE_1)
+			{
+				player->mo->pitch = FixedMul(player->mo->pitch, FRACUNIT*2/3);
+			}
+			else
+			{
+				player->mo->pitch = 0;
+				player->centering = false;
+				if (player - players == consoleplayer)
+				{
+					LocalViewPitch = 0;
+				}
+			}
+		}
 
-	// [AK] Calculate how much the player's pitch changed.
-	player->mo->PitchDelta = player->mo->pitch - oldPlayerPitch;
+		// [AK] If being used, update the free chasecam's pitch to the new one,
+		// then reset the player's pitch back to what it was before. This way,
+		// the player isn't also looking around while using the free chasecam.
+		if (usingFreeChasecam)
+		{
+			FreeChasecam::cameraPitch = player->mo->pitch;
+			player->mo->pitch = oldPlayerPitch;
+		}
+
+		// [AK] Calculate how much the player's pitch changed.
+		player->mo->PitchDelta = player->mo->pitch - oldPlayerPitch;
+	}
 
 	// [RH] Check for fast turn around
 	if (cmd->ucmd.buttons & BT_TURN180 && !(player->oldbuttons & BT_TURN180))
 	{
 		player->turnticks = TURN180_TICKS;
+	}
+
+	// [AK] The only reason that a dead player reached here is because they're
+	// the local player and they're using the free chasecam, so their pitch had
+	// to be updated. Update their angle now, then stop here.
+	if (player->playerstate == PST_DEAD)
+	{
+		P_MovePlayer(player);
+		return;
 	}
 
 	// Handle movement
@@ -3799,6 +3990,11 @@ void P_PlayerThink (player_t *player)
 			}
 		}
 	}
+
+	// [AK] If the local player's yaw and pitch inputs are supposed to be zero
+	// but aren't because they're using the free chasecam, zero them now.
+	if (mustZeroYawAndPitch)
+		cmd->ucmd.yaw = cmd->ucmd.pitch = 0;
 
 	P_CalcHeight (player);
 
@@ -4213,12 +4409,12 @@ void player_t::Serialize (FArchive &arc)
 		// [BB] Skulltag additions - start
 		<< bOnTeam
 		<< Team
-		<< bChatting
-		<< bInConsole
-		<< bInMenu
+		<< statuses
 		<< RailgunShots
 		<< MaxHealthBonus
 		<< cheats2
+		<< ACSSkin
+		<< ACSSkinOverridesWeaponSkin
 		// [BB] Skulltag additions - end
 		;
 	if (SaveVersion < 3427)
@@ -4373,6 +4569,15 @@ bool P_IsPlayerTotallyFrozen(const player_t *player)
 		gamestate == GS_TITLELEVEL ||
 		player->cheats & CF_TOTALLYFROZEN ||
 		((level.flags2 & LEVEL2_FROZEN) && player->timefreezer == 0 && (player->bSpectating == false));
+}
+
+// [AK] Checks if source-engine noclipping is being used by the local player.
+bool P_IsUsingSourceEngineNoClip(const AActor *viewActor)
+{
+	if ((cl_spectatorsource == false) || (viewActor == nullptr))
+		return false;
+
+	return ((players[consoleplayer].bSpectating) && (viewActor == players[consoleplayer].mo));
 }
 
 // [AK] Resets the player's pitch limits anytime they need to be changed.

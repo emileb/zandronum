@@ -117,9 +117,11 @@ typedef enum
 	GAMEEVENT_PLAYERCONNECT,
 	GAMEEVENT_ACTOR_SPAWNED,
 	GAMEEVENT_ACTOR_DAMAGED,
-	GAMEEVENT_ACTOR_ARMORDAMAGED,
+	GAMEEVENT_ACTOR_DAMAGED_PREMOD,
 	GAMEEVENT_DOMINATION_CONTROL,
 	GAMEEVENT_DOMINATION_POINT,
+	GAMEEVENT_PLAYERLEAVESSERVER,
+	GAMEEVENT_LEVEL_INIT,
 } GAMEEVENT_e;
 
 //*****************************************************************************
@@ -222,8 +224,8 @@ void		GAMEMODE_RespawnDeadSpectatorsAndPopQueue( BYTE Playerstate = PST_REBORNNO
 void		GAMEMODE_RespawnAllPlayers( BOTEVENT_e BotEvent = NUM_BOTEVENTS, playerstate_t PlayerState = PST_ENTER );
 void		GAMEMODE_SpawnPlayer( const ULONG ulPlayer, bool bClientUpdate = true );
 void		GAMEMODE_ResetPlayersKillCount( const bool bInformClients );
-bool		GAMEMODE_AreSpectatorsForbiddenToChatToPlayers( void );
-bool		GAMEMODE_IsClientForbiddenToChatToPlayers( const ULONG ulClient );
+bool		GAMEMODE_AreSpectatorsForbiddenToChatToPlayers( const bool doVoice );
+bool		GAMEMODE_IsClientForbiddenToChatToPlayers( const ULONG client, const bool doVoice );
 bool		GAMEMODE_PreventPlayersFromJoining( ULONG ulExcludePlayer = MAXPLAYERS );
 bool		GAMEMODE_AreLivesLimited( void );
 bool		GAMEMODE_IsPlayerCarryingGameModeItem( player_t *player );
@@ -236,6 +238,7 @@ bool		GAMEMODE_IsHandledSpecial ( AActor *Activator, int Special );
 GAMESTATE_e	GAMEMODE_GetState ( void );
 void		GAMEMODE_SetState ( GAMESTATE_e GameState );
 LONG		GAMEMODE_HandleEvent ( const GAMEEVENT_e Event, AActor *pActivator = NULL, const int DataOne = 0, const int DataTwo = 0, const bool bRunNow = false, const int OverrideResult = 1 );
+void		GAMEMODE_HandleSpawnEvent( AActor *actor );
 bool		GAMEMODE_HandleDamageEvent ( AActor *target, AActor *inflictor, AActor *source, int &damage, FName mod, bool bBeforeArmor = false );
 LONG		GAMEMODE_GetEventResult ( void );
 void		GAMEMODE_SetEventResult ( LONG lResult );

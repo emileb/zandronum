@@ -51,6 +51,7 @@
 #define __CHAT_H__
 
 #include "c_cvars.h"
+#include "c_dispatch.h"
 #include "d_event.h"
 
 //*****************************************************************************
@@ -104,6 +105,11 @@ bool		CHAT_CleanChatString( FString &ChatString );
 void		CHAT_PrintChatString( ULONG ulPlayer, ULONG ulMode, const char *pszString );
 bool		CHAT_CanPrivateChatToTeammatesOnly( void );
 bool		CHAT_CanSendPrivateMessageTo( ULONG ulSender, ULONG ulReceiver );
+void		CHAT_IgnorePlayer( const unsigned int player, const bool ignoreVoice, const unsigned int ticks, const char *reason );
+void		CHAT_ExecuteIgnoreCmd( FCommandLine &argv, const bool isIndexCmd, const bool isVoiceCmd );
+void		CHAT_UnignorePlayer( const unsigned int player, const bool unignoreVoice );
+void		CHAT_ExecuteUnignoreCmd( FCommandLine &argv, const bool isIndexCmd, const bool isVoiceCmd );
+void		CHAT_PrintMutedMessage( const bool doVoice );
 
 //*****************************************************************************
 //  EXTERNAL CONSOLE VARIABLES

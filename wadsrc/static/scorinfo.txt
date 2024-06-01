@@ -73,10 +73,9 @@ Column "Kills"
 {
 	AddFlag NOSPECTATORS
 	AddFlag ALWAYSUSESHORTESTWIDTH
-	AddFlag CVARMUSTBEZERO
 
 	Alignment = Right
-	CVar = sv_awarddamageinsteadkills
+	CVar = sv_awarddamageinsteadkills, 0
 	EarnType = Kills
 	Size = 16
 }
@@ -110,6 +109,7 @@ Column "Lives"
 	AddFlag ALWAYSUSESHORTESTWIDTH
 
 	Alignment = Right
+	CVar = sv_maxlives, 2, 255
 	Size = 16
 }
 
@@ -119,9 +119,10 @@ Column "Damage"
 	AddFlag ALWAYSUSESHORTESTWIDTH
 
 	Alignment = Right
-	CVar = sv_awarddamageinsteadkills
+	CVar = sv_awarddamageinsteadkills, 1
+	DisplayName = "Points"
 	EarnType = Kills
-	ShortName = "Dmg"
+	ShortName = "Pts"
 	Size = 16
 }
 
@@ -171,6 +172,7 @@ Column "StatusIcon"
 {
 	AddFlag DONTSHOWHEADER
 
+	Alignment = Center
 	ClipRectHeight = -2
 	Size = 13
 }
@@ -180,6 +182,7 @@ Column "ReadyToGoIcon"
 	AddFlag INTERMISSIONONLY
 	AddFlag DONTSHOWHEADER
 
+	Alignment = Center
 	ClipRectHeight = -2
 	Size = 8
 }
@@ -187,6 +190,7 @@ Column "ReadyToGoIcon"
 Column "PlayerIcon"
 {
 	AddFlag NOSPECTATORS
+	AddFlag NOENEMIES
 	AddFlag DONTSHOWHEADER
 	AddFlag ALWAYSUSESHORTESTWIDTH
 	AddFlag DISABLEIFEMPTY
@@ -268,46 +272,20 @@ Scoreboard
 			DrawString( value = limitstrings, textcolor = "Grey", bottompadding = 1 )
 
 			// Draw the team scores and their relation (tied, red leads, etc).
-			IfPlayersOnTeams( true )
+			IfPlayersOnTeams( true ) && IfEarnType( Frags, Points, Wins )
 			{
-				IfEarnType( Frags, Points, Wins )
-				{
-					DrawString( value = pointstring, textcolor = "Grey", bottompadding = 1 )
-				}
-				// Draw my rank and my frags, points, etc. Don't draw it if we're in the intermission.
-				Else
-				{
-					IfIntermission( false )
-					{
-						IfShouldShowRank( true )
-						{
-							DrawString( value = placestring, textcolor = "Grey", bottompadding = 1 )
-						}
-					}
-				}
+				DrawString( value = pointstring, textcolor = "Grey", bottompadding = 1 )
 			}
 			// Draw my rank and my frags, points, etc. Don't draw it if we're in the intermission.
-			Else
+			Else IfIntermission( false ) && IfShouldShowRank( true )
 			{
-				IfIntermission( false )
-				{
-					IfShouldShowRank( true )
-					{
-						DrawString( value = placestring, textcolor = "Grey", bottompadding = 1 )
-					}
-				}
+				DrawString( value = placestring, textcolor = "Grey", bottompadding = 1 )
 			}
 
 			// [JS] Intermission countdown display.
-			IfIntermission( true )
+			IfIntermission( true ) && IfOnlineGame( true ) && IfCVar( cl_intermissiontimer == true )
 			{
-				IfOnlineGame( true )
-				{
-					IfCVar( cl_intermissiontimer == true )
-					{
-						DrawString( value = "Entering " + nextlevellump + ": " + nextlevelname + " in " + intermissiontimeleft + " second(s)", textcolor = "Green" )
-					}
-				}
+				DrawString( value = "Entering " + nextlevellump + ": " + nextlevelname + " in " + intermissiontimeleft + " second(s)", textcolor = "Green" )
 			}
 		}
 	}
@@ -387,6 +365,7 @@ Scoreboard
 	LightRowBackgroundColor = "40 40 40"
 	DarkRowBackgroundColor = "20 20 20"
 	LocalRowBackgroundColor = "80 80 80"
+	ContentAlpha = 1.0
 	RowBackgroundAmount = 0.65
 	DeadPlayerTextAlpha = 0.35
 	DeadPlayerRowBackgroundAmount = 0
@@ -400,4 +379,5 @@ Scoreboard
 	RankOrder = "Wins", "Points", "Frags", "Kills", "Damage", "Lives", "Secrets", "Deaths"
 
 	AddFlag UseHeaderColorForBorders
+	AddFlag SeparateDeadSpectators
 }

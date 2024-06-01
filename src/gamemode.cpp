@@ -923,9 +923,9 @@ void GAMEMODE_ResetPlayersKillCount( const bool bInformClients )
 
 //*****************************************************************************
 //
-bool GAMEMODE_AreSpectatorsForbiddenToChatToPlayers( void )
+bool GAMEMODE_AreSpectatorsForbiddenToChatToPlayers( const bool doVoice )
 {
-	if ( ( lmsspectatorsettings & LMS_SPF_CHAT ) == false )
+	if (( lmsspectatorsettings & ( doVoice ? LMS_SPF_VOICECHAT : LMS_SPF_CHAT )) == false )
 	{
 		if (( teamlms || lastmanstanding ) && ( LASTMANSTANDING_GetState( ) == LMSS_INPROGRESS ))
 			return true;
@@ -939,18 +939,18 @@ bool GAMEMODE_AreSpectatorsForbiddenToChatToPlayers( void )
 
 //*****************************************************************************
 //
-bool GAMEMODE_IsClientForbiddenToChatToPlayers( const ULONG ulClient )
+bool GAMEMODE_IsClientForbiddenToChatToPlayers( const ULONG client, const bool doVoice )
 {
 	// [BB] If it's not a valid client, there are no restrictions. Note:
-	// ulClient == MAXPLAYERS means the server wants to say something.
-	if ( ulClient >= MAXPLAYERS )
+	// client == MAXPLAYERS means the server wants to say something.
+	if ( client >= MAXPLAYERS )
 		return false;
 
 	// [BB] Ingame players are allowed to chat to other players.
-	if ( players[ulClient].bSpectating == false )
+	if ( players[client].bSpectating == false )
 		return false;
 
-	return GAMEMODE_AreSpectatorsForbiddenToChatToPlayers();
+	return GAMEMODE_AreSpectatorsForbiddenToChatToPlayers( doVoice );
 }
 
 //*****************************************************************************
@@ -1207,6 +1207,49 @@ LONG GAMEMODE_HandleEvent ( const GAMEEVENT_e Event, AActor *pActivator, const i
 
 //*****************************************************************************
 //
+void GAMEMODE_HandleSpawnEvent ( AActor *actor )
+{
+	if ( actor == nullptr )
+		return;
+
+	// [AK] We shouldn't need to execute this for players since we already have
+	// special script types like ENTER, RETURN, and RESPAWN.
+	if (( actor->player == nullptr ) && (( actor->STFlags & STFL_NOSPAWNEVENTSCRIPT ) == false ))
+	{
+		bool notImportant = false;
+
+		// [AK] Projectiles and BulletPuffs can have NOBLOCKMAP enabled but that
+		// doesn't make them unimportant.
+		if (( actor->flags & MF_NOBLOCKMAP ) && ((( actor->flags & MF_MISSILE ) == false ) && ( actor->IsKindOf( PClass::FindClass( NAME_BulletPuff )) == false )))
+			notImportant = true;
+		else if (( actor->flags & MF_NOSECTOR ) || ( actor->IsKindOf( RUNTIME_CLASS( AHexenArmor ))))
+			notImportant = true;
+
+		// [AK] If we want to force GAMEEVENT_ACTOR_SPAWNED on every actor, then
+		// ignore less important actors unless they enabled USESPAWNEVENTSCRIPT.
+		if (( actor->STFlags & STFL_USESPAWNEVENTSCRIPT ) || (( gameinfo.bForceSpawnEventScripts ) && ( notImportant == false )))
+		{
+			enum
+			{
+				GAMEEVENT_SPAWN_LEVELSPAWNED	= 1 << 0,
+				GAMEEVENT_SPAWN_RANDOMSPAWNED	= 1 << 1,
+			};
+
+			unsigned int spawnEventFlags = 0;
+
+			if ( actor->STFlags & STFL_LEVELSPAWNED )
+				spawnEventFlags |= GAMEEVENT_SPAWN_LEVELSPAWNED;
+
+			if ( actor->STFlags & STFL_RANDOMSPAWNED )
+				spawnEventFlags |= GAMEEVENT_SPAWN_RANDOMSPAWNED;
+
+			GAMEMODE_HandleEvent( GAMEEVENT_ACTOR_SPAWNED, actor, spawnEventFlags, 0, true );
+		}
+	}
+}
+
+//*****************************************************************************
+//
 bool GAMEMODE_HandleDamageEvent ( AActor *target, AActor *inflictor, AActor *source, int &damage, FName mod, bool bBeforeArmor )
 {
 	// [AK] Don't run any scripts if the target doesn't allow executing GAMEEVENT_ACTOR_DAMAGED.
@@ -1218,7 +1261,7 @@ bool GAMEMODE_HandleDamageEvent ( AActor *target, AActor *inflictor, AActor *sou
 	if ((( target->STFlags & STFL_USEDAMAGEEVENTSCRIPT ) == false ) && ( gameinfo.bForceDamageEventScripts == false ))
 		return true;
 	
-	const GAMEEVENT_e DamageEvent = bBeforeArmor ? GAMEEVENT_ACTOR_ARMORDAMAGED : GAMEEVENT_ACTOR_DAMAGED;
+	const GAMEEVENT_e DamageEvent = bBeforeArmor ? GAMEEVENT_ACTOR_DAMAGED_PREMOD : GAMEEVENT_ACTOR_DAMAGED;
 	const int originalDamage = damage;
 
 	// [AK] We somehow need to pass all the actor pointers into the script itself. A simple way
@@ -1351,6 +1394,9 @@ void GAMEMODE_SetCurrentMode( GAMEMODE_e GameMode )
 	default:
 		break;
 	}
+
+	// [AK] Reset the scoreboard to update the usability of the columns.
+	SCOREBOARD_Reset( );
 }
 
 //*****************************************************************************

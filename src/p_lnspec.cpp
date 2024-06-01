@@ -3343,7 +3343,10 @@ FUNC(LS_SendToCommunicator)
 			// [BB] Play the sound on the client.
 			const ULONG ulPlayer = static_cast<ULONG> ( it->player - players );
 			if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+			{
+				SERVERCOMMANDS_StopOriginlessSound( CHAN_VOICE, ulPlayer, SVCF_ONLYTHISCLIENT );
 				SERVERCOMMANDS_Sound( CHAN_VOICE, name, 1, ATTN_NORM, ulPlayer, SVCF_ONLYTHISCLIENT );
+			}
 
 			if (arg2 == 0)
 			{
@@ -3522,7 +3525,8 @@ FUNC(LS_StartConversation)
 	{
 		return false;
 	}
-	if (target->Conversation != NULL)
+	// [SB] In multiplayer, the server initiates conversations.
+	if (target->Conversation != NULL && !NETWORK_InClientMode())
 	{
 		// Give the NPC a chance to play a brief animation
 		target->ConversationAnimation (0);

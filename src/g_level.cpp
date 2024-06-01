@@ -429,7 +429,9 @@ void G_InitNew (const char *mapname, bool bTitleLevel)
 	BOTSPAWN_ClearTable( );
 
 	// [BC] Clear out the called vote if one is taking place.
-	CALLVOTE_ClearVote( );
+	// [RK] For hubs we'll instruct the clients to end the vote when they authenticate.
+	if( NETWORK_InClientMode() == false || ( NETWORK_InClientMode() && !( level.clusterflags & CLUSTER_HUB )) )
+		CALLVOTE_ClearVote( );
 
 	if ( NETWORK_InClientMode( ) == false )
 	{
@@ -1079,7 +1081,8 @@ void G_DoLoadLevel (int position, bool autosave)
 		JOINQUEUE_PopQueue( -1 );
 
 	// [BB] Going to a new level automatically stops any active vote.
-	if ( CALLVOTE_GetVoteState() == VOTESTATE_INVOTE )
+	// [RK] Except if we're in a hub.
+	if ( CALLVOTE_GetVoteState() == VOTESTATE_INVOTE && !( level.clusterflags & CLUSTER_HUB ))
 		CALLVOTE_ClearVote();
 
 	// [BB] Reset the net traffic measurements when a new map starts.
@@ -1306,7 +1309,9 @@ void G_DoLoadLevel (int position, bool autosave)
 		teamplay = false;
 
 	// [Dusk] Clear keys found
-	g_keysFound.Clear();
+	// [RK] Since PuzzleItems are tracked don't do this for hubs.
+	if( !( level.clusterflags & CLUSTER_HUB ) || autosave == false ) // Resets with map command
+		g_keysFound.Clear();
 
 	// [BC] In server mode, display the level name slightly differently.
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
@@ -1368,7 +1373,7 @@ void G_DoLoadLevel (int position, bool autosave)
 		MEDAL_ClearMedalQueue( i );
 
 		// Reset "ready to go on" flag.
-		players[i].bReadyToGoOn = false;
+		PLAYER_SetStatus( &players[i], PLAYERSTATUS_READYTOGOON, false, SETPLAYERSTATUS_SERVERCANTSENDUPDATE );
 
 		// Reset a bunch of other stuff too.
 		players[i].ulDeathCount = 0;
@@ -1812,6 +1817,7 @@ void G_FinishTravel ()
 	AInventory *inv;
 	// [BC]
 	LONG	lSavedNetID;
+	bool	doSweep = false; // [RK] Do a GC sweep
 
 	next = it.Next ();
 	while ( (pawn = next) != NULL)
@@ -1887,6 +1893,24 @@ void G_FinishTravel ()
 			pawn->NetID = lSavedNetID;
 			g_ActorNetIDList.useID ( pawn->NetID, pawn );
 
+			// [RK] Since the player wasn't spawned in during level load, the thinker GC sweep called in G_UnSnapshot
+			// couldn't catch the ACS thinkers associated with the players. So any ACS thinkers will be destroyed here.
+			// We'll create an iterator and cycle through the thinkers and remove them.
+			if ( NETWORK_GetState() == NETSTATE_SERVER && ( level.clusterflags & CLUSTER_HUB ))
+			{
+				TThinkerIterator<DACSThinker> it2;
+				DACSThinker *next2 = it2.Next();
+
+				while (( next2 ) != NULL)
+				{
+					if ( !doSweep )
+						doSweep = true;
+
+					next2->StopScriptsFor(pawn, doSweep, SCRIPT_Enter);
+					next2 = it2.Next();
+				}
+			}
+
 			for (inv = pawn->Inventory; inv != NULL; inv = inv->Inventory)
 			{
 				inv->ChangeStatNum (STAT_INVENTORY);
@@ -1907,6 +1931,9 @@ void G_FinishTravel ()
 			}
 		}
 	}
+	// [RK] Sweep all the ACS thinkers that were destroyed.
+	if( doSweep )
+		GC::FullGC();
 }
  
 //==========================================================================

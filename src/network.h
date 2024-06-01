@@ -212,28 +212,18 @@ enum ActorScaleFlag
 	ACTORSCALE_Y = 2
 };
 
+enum SetPlayerStatusFlag
+{
+	SETPLAYERSTATUS_CLIENTSENDSUPDATE		= 1 << 0,
+	SETPLAYERSTATUS_SERVERCANTSENDUPDATE	= 1 << 1,
+};
+
 // [AK] What kind of translation are we sending to clients?
 enum CreateTranslationType
 {
 	CREATETRANSLATION_PALETTE,
 	CREATETRANSLATION_RGB,
 	CREATETRANSLATION_DESATURATED,
-};
-
-// [AK] What kind of player status are we trying to update?
-enum PlayerStatusType
-{
-	PLAYERSTATUS_CHATTING,
-	PLAYERSTATUS_INCONSOLE,
-	PLAYERSTATUS_INMENU,
-	PLAYERSTATUS_LAGGING,
-	PLAYERSTATUS_READYTOGOON,
-};
-
-enum PlayerStatusFlag
-{
-	PLAYERSTATUS_CLIENTSHOULDSENDUPDATE = 1 << 0,
-	PLAYERSTATUS_SERVERSHOULDSKIPCLIENT = 1 << 1,
 };
 
 // [AK] If we're updating the map rotation then what exactly are we doing?
@@ -324,6 +314,7 @@ struct NetworkPWAD
 };
 
 const TArray<NetworkPWAD>&	NETWORK_GetPWADList( void ); // [RC]
+const TArray<NetworkPWAD>&	NETWORK_GetAuthenticatedWADsList( void ); // [SB]
 const char		*NETWORK_GetIWAD( void );
 void			NETWORK_AddLumpForAuthentication( const LONG LumpNumber );
 void			NETWORK_GenerateLumpMD5Hash( const int LumpNum, FString &MD5Hash );

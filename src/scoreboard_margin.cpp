@@ -63,10 +63,6 @@
 #include "lastmanstanding.h"
 #include "g_game.h"
 
-EXTERN_CVAR( Int, con_virtualwidth )
-EXTERN_CVAR( Int, con_virtualheight )
-EXTERN_CVAR( Bool, con_scaletext_usescreenratio )
-
 //*****************************************************************************
 //	DEFINITIONS
 
@@ -109,6 +105,8 @@ enum PARAMETER_e
 	PARAMETER_WIDTH,
 	// The height of a color box.
 	PARAMETER_HEIGHT,
+	// The scale to apply to a texture.
+	PARAMETER_SCALE,
 
 	NUM_PARAMETERS
 };
@@ -145,10 +143,16 @@ static const std::map<FName, std::tuple<PARAMETER_e, bool, std::set<COMMAND_e>>>
 	{ "gapsize",			{ PARAMETER_GAPSIZE,		false,	{ COMMAND_STRING }}},
 	{ "width",				{ PARAMETER_WIDTH,			true,	{ COMMAND_COLOR }}},
 	{ "height",				{ PARAMETER_HEIGHT,			true,	{ COMMAND_COLOR }}},
+	{ "scale",				{ PARAMETER_SCALE,			false,	{ COMMAND_TEXTURE }}},
 };
 
 // [AK] The level we are entering, to be shown on the intermission screen.
 static	level_info_t *g_pNextLevel;
+
+//*****************************************************************************
+//	PROTOTYPES
+
+static	ScoreMargin::BaseCommand	*scoreboard_CreateMarginCommand( FScanner &sc, ScoreMargin *pMargin, ScoreMargin::BaseCommand *pParentCommand, const bool bOnlyFlowControl );
 
 //*****************************************************************************
 //	CLASSES
@@ -354,17 +358,16 @@ protected:
 
 	TVector2<LONG> GetDrawingPosition( const ULONG ulWidth, const ULONG ulHeight, const LONG lXOffsetBonus = 0 ) const
 	{
-		const ULONG ulHUDWidth = HUD_GetWidth( );
 		const LONG lActualXOffset = lXOffset + lXOffsetBonus;
 		TVector2<LONG> result;
 
 		// [AK] Get the x-position based on the horizontal alignment.
 		if ( HorizontalAlignment == HORIZALIGN_LEFT )
-			result.X = ( ulHUDWidth - pParentMargin->GetWidth( )) / 2 + lActualXOffset;
+			result.X = pParentMargin->GetRelX( ) + lActualXOffset;
 		else if ( HorizontalAlignment == HORIZALIGN_CENTER )
-			result.X = ( ulHUDWidth - ulWidth ) / 2 + lActualXOffset;
+			result.X = pParentMargin->GetRelX( ) + ( pParentMargin->GetWidth( ) - ulWidth ) / 2 + lActualXOffset;
 		else
-			result.X = ( ulHUDWidth + pParentMargin->GetWidth( )) / 2 - ulWidth - lActualXOffset;
+			result.X = pParentMargin->GetRelX( ) + pParentMargin->GetWidth( ) - ulWidth - lActualXOffset;
 
 		// [AK] Next, get the y-position based on the vertical alignment.
 		if ( VerticalAlignment == VERTALIGN_TOP )
@@ -459,7 +462,7 @@ public:
 	virtual void Parse( FScanner &sc )
 	{
 		ElementBaseCommand::Parse( sc );
-		Block.ParseCommands( sc, pParentMargin, this );
+		Block.ParseBlock( sc, pParentMargin, this );
 	}
 
 	//*************************************************************************
@@ -577,7 +580,7 @@ public:
 		const ULONG ulWidth = GetContentWidth( ulTeam );
 		TVector2<LONG> Pos = GetDrawingPosition( ulWidth, GetContentHeight( ulTeam ), lXOffsetBonus );
 
-		Pos.X -= ( HUD_GetWidth( ) - pParentMargin->GetWidth( )) / 2;
+		Pos.X -= pParentMargin->GetRelX( );
 		Pos.Y += lYPos;
 
 		for ( unsigned int i = 0; i < CommandsToDraw.Size( ); i++ )
@@ -657,7 +660,7 @@ public:
 		const ULONG ulHeight = GetContentHeight( ulTeam );
 		TVector2<LONG> Pos = GetDrawingPosition( ulWidth, ulHeight, lXOffsetBonus );
 
-		Pos.X -= ( HUD_GetWidth( ) - pParentMargin->GetWidth( )) / 2;
+		Pos.X -= pParentMargin->GetRelX( );
 		Pos.Y += lYPos;
 
 		for ( unsigned int i = 0; i < CommandsToDraw.Size( ); i++ )
@@ -826,14 +829,16 @@ public:
 		const fixed_t combinedAlpha = FLOAT2FIXED( fAlpha * fTranslucency );
 		TVector2<LONG> Pos = GetDrawingPosition( pString->ulMaxWidth, pString->ulTotalHeight, lXOffsetBonus );
 
-		int clipLeft = ( HUD_GetWidth( ) - pParentMargin->GetWidth( )) / 2;
+		int clipLeft = pParentMargin->GetRelX( );
 		int clipWidth = pParentMargin->GetWidth( );
 		int clipTop = lYPos;
 		int clipHeight = pParentMargin->GetHeight( );
 
+		if ( SCOREBOARD_AdjustVerticalClipRect( clipTop, clipHeight ) == false )
+			return;
+
 		// [AK] We must take into account the virtual screen's size when setting up the clipping rectangle.
-		if ( g_bScale )
-			screen->VirtualToRealCoordsInt( clipLeft, clipTop, clipWidth, clipHeight, con_virtualwidth, con_virtualheight, false, !con_scaletext_usescreenratio );
+		SCOREBOARD_ConvertVirtualCoordsToReal( clipLeft, clipTop, clipWidth, clipHeight );
 
 		for ( unsigned int i = 0; pString->pLines[i].Width >= 0; i++ )
 		{
@@ -847,8 +852,7 @@ public:
 			else if ( AlignmentToUse == HORIZALIGN_RIGHT )
 				lActualXPos += pString->ulMaxWidth - pString->pLines[i].Width;
 
-			screen->DrawText( pFont, TextColorToUse, lActualXPos, Pos.Y + lYPos, pString->pLines[i].Text.GetChars( ),
-				DTA_UseVirtualScreen, g_bScale,
+			SCOREBOARD_DrawString( pFont, TextColorToUse, lActualXPos, Pos.Y + lYPos, pString->pLines[i].Text.GetChars( ),
 				DTA_ClipLeft, clipLeft,
 				DTA_ClipRight, clipLeft + clipWidth,
 				DTA_ClipTop, clipTop,
@@ -901,6 +905,8 @@ protected:
 		DRAWSTRING_CVAR,
 		// The name of the current game mode.
 		DRAWSTRING_GAMEMODE,
+		// The name of the current player.
+		DRAWSTRING_PLAYERNAME,
 		// The name of the current level.
 		DRAWSTRING_LEVELNAME,
 		// The lump of the current level.
@@ -968,6 +974,7 @@ protected:
 		{
 			{ "cvar",					{ DRAWSTRING_CVAR,					MARGINTYPE_HEADER_OR_FOOTER }},
 			{ "gamemode",				{ DRAWSTRING_GAMEMODE,				MARGINTYPE_HEADER_OR_FOOTER }},
+			{ "playername",				{ DRAWSTRING_PLAYERNAME,			MARGINTYPE_HEADER_OR_FOOTER }},
 			{ "levelname",				{ DRAWSTRING_LEVELNAME,				MARGINTYPE_HEADER_OR_FOOTER }},
 			{ "levellump",				{ DRAWSTRING_LEVELLUMP,				MARGINTYPE_HEADER_OR_FOOTER }},
 			{ "nextlevelname",			{ DRAWSTRING_NEXTLEVELNAME,			MARGINTYPE_HEADER_OR_FOOTER }},
@@ -1133,6 +1140,10 @@ protected:
 						text += GAMEMODE_GetCurrentName( );
 						break;
 
+					case DRAWSTRING_PLAYERNAME:
+						text += players[ulDisplayPlayer].userinfo.GetName( );
+						break;
+
 					case DRAWSTRING_LEVELNAME:
 						text += level.LevelName;
 						break;
@@ -1269,7 +1280,11 @@ protected:
 			}
 			else
 			{
-				text += StringChunks[i].second;
+				// [AK] If the string begins with a '$', look up the string in the LANGUAGE lumps.
+				if (( StringChunks[i].second.Len( ) > 1 ) && ( StringChunks[i].second[0] == '$' ))
+					text += GStrings( StringChunks[i].second.GetChars( ) + 1 );
+				else
+					text += StringChunks[i].second;
 			}
 		}
 
@@ -1358,19 +1373,17 @@ public:
 		const ULONG ulWidthToUse = MIN( ulWidth, pParentMargin->GetWidth( ) - abs( lXOffset + lXOffsetBonus ));
 		const TVector2<LONG> Pos = GetDrawingPosition( ulWidthToUse, ulHeight, lXOffsetBonus );
 		const PalEntry ColorToDraw = ( ValueType == DRAWCOLOR_TEAMCOLOR ) ? PalEntry( TEAM_GetColor( ulTeam )) : Color;
-		const LONG lMarginLeftXPos = ( HUD_GetWidth( ) - pParentMargin->GetWidth( )) / 2;
 
 		// [AK] The color box can't be drawn past the left or right sides of the margin.
-		int clipLeft = MAX<int>( Pos.X, lMarginLeftXPos );
-		int clipWidth = MIN<int>( ulWidthToUse, lMarginLeftXPos + pParentMargin->GetWidth( ) - clipLeft );
+		int clipLeft = MAX<int>( Pos.X, pParentMargin->GetRelX( ));
+		int clipWidth = MIN<int>( ulWidthToUse, pParentMargin->GetRelX( ) + pParentMargin->GetWidth( ) - clipLeft );
 		int clipTop = Pos.Y + lYPos;
 		int clipHeight = ulHeight;
 
-		// [AK] We must take into account the virtual screen's size when setting up the clipping rectangle.
-		if ( g_bScale )
-			screen->VirtualToRealCoordsInt( clipLeft, clipTop, clipWidth, clipHeight, con_virtualwidth, con_virtualheight, false, !con_scaletext_usescreenratio );
+		if ( SCOREBOARD_AdjustVerticalClipRect( clipTop, clipHeight ) == false )
+			return;
 
-		screen->Dim( ColorToDraw, fAlpha * fTranslucency, clipLeft, clipTop, clipWidth, clipHeight );
+		SCOREBOARD_DrawColor( ColorToDraw, fAlpha * fTranslucency, clipLeft, clipTop, clipWidth, clipHeight );
 	}
 
 	//*************************************************************************
@@ -1461,7 +1474,8 @@ class DrawTexture : public DrawBaseCommand
 public:
 	DrawTexture( ScoreMargin *pMargin, BaseCommand *pParentCommand ) : DrawBaseCommand( pMargin, pParentCommand, COMMAND_TEXTURE ),
 		ValueType( DRAWTEXTURE_STATIC ),
-		pTexture( NULL ) { }
+		pTexture( NULL ),
+		scale( 1.0f ) { }
 
 	//*************************************************************************
 	//
@@ -1477,23 +1491,28 @@ public:
 		if ( pTextureToDraw == NULL )
 			return;
 
-		const TVector2<LONG> Pos = GetDrawingPosition( pTextureToDraw->GetScaledWidth( ), pTextureToDraw->GetScaledHeight( ), lXOffsetBonus );
+		const unsigned int textureWidth = static_cast<unsigned>( pTextureToDraw->GetScaledWidth( ) * scale );
+		const unsigned int textureHeight = static_cast<unsigned>( pTextureToDraw->GetScaledHeight( ) * scale );
+		const TVector2<LONG> Pos = GetDrawingPosition( textureWidth, textureHeight, lXOffsetBonus );
 
-		int clipLeft = ( HUD_GetWidth( ) - pParentMargin->GetWidth( )) / 2;
+		int clipLeft = pParentMargin->GetRelX( );
 		int clipWidth = pParentMargin->GetWidth( );
 		int clipTop = lYPos;
 		int clipHeight = pParentMargin->GetHeight( );
 
-		// [AK] We must take into account the virtual screen's size when setting up the clipping rectangle.
-		if ( g_bScale )
-			screen->VirtualToRealCoordsInt( clipLeft, clipTop, clipWidth, clipHeight, con_virtualwidth, con_virtualheight, false, !con_scaletext_usescreenratio );
+		if ( SCOREBOARD_AdjustVerticalClipRect( clipTop, clipHeight ) == false )
+			return;
 
-		screen->DrawTexture( pTextureToDraw, Pos.X, Pos.Y + lYPos,
-			DTA_UseVirtualScreen, g_bScale,
+		// [AK] We must take into account the virtual screen's size when setting up the clipping rectangle.
+		SCOREBOARD_ConvertVirtualCoordsToReal( clipLeft, clipTop, clipWidth, clipHeight );
+
+		SCOREBOARD_DrawTexture( pTextureToDraw, Pos.X, Pos.Y + lYPos, scale,
 			DTA_ClipLeft, clipLeft,
 			DTA_ClipRight, clipLeft + clipWidth,
 			DTA_ClipTop, clipTop,
 			DTA_ClipBottom, clipTop + clipHeight,
+			DTA_LeftOffset, 0,
+			DTA_TopOffset, 0,
 			DTA_Alpha, FLOAT2FIXED( fAlpha * fTranslucency ),
 			TAG_DONE );
 	}
@@ -1507,7 +1526,7 @@ public:
 	virtual ULONG GetContentWidth( const ULONG ulTeam ) const
 	{
 		FTexture *pTexture = RetrieveTexture( ulTeam );
-		return pTexture != NULL ? pTexture->GetScaledWidth( ) + ulRightPadding : 0;
+		return pTexture != NULL ? static_cast<ULONG>( pTexture->GetScaledWidth( ) * scale ) + ulRightPadding : 0;
 	}
 
 	//*************************************************************************
@@ -1519,7 +1538,7 @@ public:
 	virtual ULONG GetContentHeight( const ULONG ulTeam ) const
 	{
 		FTexture *pTexture = RetrieveTexture( ulTeam );
-		return pTexture != NULL ? pTexture->GetScaledHeight( ) + ulBottomPadding : 0;
+		return pTexture != NULL ? static_cast<ULONG>( pTexture->GetScaledHeight( ) * scale ) + ulBottomPadding : 0;
 	}
 
 protected:
@@ -1559,6 +1578,14 @@ protected:
 					sc.ScriptError( "Couldn't find texture '%s'.", sc.String );
 			}
 		}
+		else if ( Parameter == PARAMETER_SCALE )
+		{
+			sc.MustGetToken( TK_FloatConst );
+			scale = static_cast<float>( sc.Float );
+
+			if ( scale <= 0.0f )
+				sc.ScriptError( "The scale must be greater than zero!" );
+		}
 		else
 		{
 			DrawBaseCommand::ParseParameter( sc, ParameterName, Parameter );
@@ -1588,6 +1615,7 @@ protected:
 
 	DRAWTEXTUREVALUE_e ValueType;
 	FTexture *pTexture;
+	float scale;
 };
 
 //*****************************************************************************
@@ -1609,6 +1637,27 @@ public:
 
 	//*************************************************************************
 	//
+	// [AK] Deletes any extra conditions in the stack(s) that were created when
+	// this command was parsed. Make sure not to delete this command here!
+	//
+	//*************************************************************************
+
+	~FlowControlBaseCommand( void )
+	{
+		for ( unsigned int i = 0; i < Stacks.Size( ); i++ )
+		{
+			for ( unsigned int j = 0; j < Stacks[i].Size( ); j++ )
+			{
+				if ( Stacks[i][j] != this )
+					delete Stacks[i][j];
+			}
+
+			Stacks[i].Clear( );
+		}
+	}
+
+	//*************************************************************************
+	//
 	// [AK] Parses new margin commands inside the "if" or "else" blocks.
 	//
 	//*************************************************************************
@@ -1616,10 +1665,48 @@ public:
 	virtual void Parse( FScanner &sc )
 	{
 		sc.MustGetToken( ')' );
+
+		// [AK] If this command is supposed to be an extra condition of another flow control
+		// command, then don't parse the blocks. We just needed to parse its arguments.
+		if (( pParentCommand != NULL ) && ( pParentCommand->IsFlowControl( )))
+			return;
+
+		Stacks.Resize( 1 );
+		Stacks[0].Push( this );
+
+		// [AK] Keep parsing more conditions that come after a "&&" or "||". Commands grouped
+		// by "&&" belong in the same stack, and a new stack is added when a "||" is reached.
+		while (( sc.CheckToken( TK_AndAnd )) || ( sc.CheckToken( TK_OrOr )))
+		{
+			const bool bIsOrOr = ( sc.TokenType == TK_OrOr );
+			BaseCommand *pNewCommand = scoreboard_CreateMarginCommand( sc, pParentMargin, this, true );
+
+			// [AK] This should never happen, but check anyways to be safe.
+			if ( pNewCommand->IsFlowControl( ) == false )
+				I_Error( "FlowControlBaseCommand::Parse: new condition isn't a flow control command." );
+
+			if ( bIsOrOr )
+				Stacks.Reserve( 1 );
+
+			Stacks[Stacks.Size( ) - 1].Push( static_cast<FlowControlBaseCommand *>( pNewCommand ));
+		}
+
 		ParseBlock( sc, true );
 
 		if ( sc.CheckToken( TK_Else ))
-			ParseBlock( sc, false );
+		{
+			// [AK] If there's no '{', then immediately parse another flow control command.
+			if ( sc.CheckToken( '{' ) == false )
+			{
+				Blocks[false].ParseCommand( sc, pParentMargin, pParentCommand, true );
+			}
+			else
+			{
+				// [AK] Unget the '{' here because ParseBlock will try parsing another one.
+				sc.UnGet( );
+				ParseBlock( sc, false );
+			}
+		}
 	}
 
 	//*************************************************************************
@@ -1631,7 +1718,29 @@ public:
 
 	virtual void Refresh( const ULONG ulDisplayPlayer )
 	{
-		bResult = EvaluateCondition( ulDisplayPlayer );
+		bResult = false;
+
+		for ( unsigned int i = 0; i < Stacks.Size( ); i++ )
+		{
+			// [AK] Short-circuit evaluation: skip evaluating the rest of the stacks if the
+			// result is already true (i.e. a || b, where a is true).
+			if ( bResult )
+				break;
+
+			for ( unsigned int j = 0; j < Stacks[i].Size( ); j++ )
+			{
+				if ( Stacks[i][j] == NULL )
+					continue;
+
+				bResult = Stacks[i][j]->EvaluateCondition( ulDisplayPlayer );
+
+				// [AK] Short-circuit evaluation: skip evaluating the rest of the commands in the
+				// stack if the result is already false (i.e. a && b, where a is false).
+				if ( bResult == false )
+					break;
+			}
+		}
+
 		Blocks[bResult].Refresh( ulDisplayPlayer );
 	}
 
@@ -1647,10 +1756,19 @@ public:
 		Blocks[bResult].Draw( ulDisplayPlayer, ulTeam, lYPos, fAlpha, lXOffsetBonus );
 	}
 
+	//*************************************************************************
+	//
+	// [AK] This is a flow control command, so always return true.
+	//
+	//*************************************************************************
+
+	virtual bool IsFlowControl( void ) const { return true; }
+
 protected:
 	virtual bool EvaluateCondition( const ULONG ulDisplayPlayer ) = 0;
 
 private:
+	using Stack = TArray<FlowControlBaseCommand *>;
 
 	//*************************************************************************
 	//
@@ -1660,7 +1778,7 @@ private:
 
 	void ParseBlock( FScanner &sc, const bool bWhichBlock )
 	{
-		Blocks[bWhichBlock].ParseCommands( sc, pParentMargin, pParentCommand );
+		Blocks[bWhichBlock].ParseBlock( sc, pParentMargin, pParentCommand );
 
 		// [AK] There needs to be at least one command inside the block.
 		if ( Blocks[bWhichBlock].HasCommands( ) == false )
@@ -1668,6 +1786,7 @@ private:
 	}
 
 	ScoreMargin::CommandBlock Blocks[2];
+	TArray<Stack> Stacks;
 	bool bResult;
 };
 
@@ -1683,6 +1802,9 @@ private:
 // - IfPlayersOnTeams: if players are supposed to be on teams.
 // - IfPlayersHaveLives: if players are supposed to have lives.
 // - IfShouldShowRank: if the current player's rank should be shown.
+// - IfSpying: if the local player's spying on another player.
+// - IfSpectator: if the local player's a spectator.
+// - IfDeadSpectator: if the local player is specifically a dead spectator.
 //
 // These commands accept one boolean parameter that inverts the condition
 // (i.e. the "if" block will be executed when the condition is false).
@@ -1697,23 +1819,34 @@ public:
 		CommandType( Command ),
 		bMustBeTrue( false )
 	{
-		// [AK] If the command type isn't one of these listed here, throw an error.
-		if (( CommandType != MARGINCMD_IFONLINEGAME ) &&
-			( CommandType != MARGINCMD_IFINTERMISSION ) &&
-			( CommandType != MARGINCMD_IFPLAYERSONTEAMS ) &&
-			( CommandType != MARGINCMD_IFPLAYERSHAVELIVES ) &&
-			( CommandType != MARGINCMD_IFSHOULDSHOWRANK ))
+		switch ( CommandType )
 		{
-			if (( CommandType >= 0 ) && ( CommandType < NUM_MARGINCMDS ))
-			{
-				FString CommandName = GetStringMARGINCMD_e( CommandType ) + strlen( "MARGINCMD_" );
-				CommandName.ToLower( );
+			// [AK] If the command type isn't one of these listed here, throw an error.
+			case MARGINCMD_IFONLINEGAME:
+			case MARGINCMD_IFINTERMISSION:
+			case MARGINCMD_IFPLAYERSONTEAMS:
+			case MARGINCMD_IFPLAYERSHAVELIVES:
+			case MARGINCMD_IFSHOULDSHOWRANK:
+			case MARGINCMD_IFSPYING:
+			case MARGINCMD_IFSPECTATOR:
+			case MARGINCMD_IFDEADSPECTATOR:
+				break;
 
-				I_Error( "TrueOrFalseFlowControlBaseCommand: margin command '%s' cannot be used.", CommandName.GetChars( ));
-			}
-			else
+			default:
 			{
-				I_Error( "TrueOrFalseFlowControlBaseCommand: an unknown margin command was used." );
+				if (( CommandType >= 0 ) && ( CommandType < NUM_MARGINCMDS ))
+				{
+					FString CommandName = GetStringMARGINCMD_e( CommandType ) + strlen( "MARGINCMD_" );
+					CommandName.ToLower( );
+
+					I_Error( "TrueOrFalseFlowControlBaseCommand: margin command '%s' cannot be used.", CommandName.GetChars( ));
+				}
+				else
+				{
+					I_Error( "TrueOrFalseFlowControlBaseCommand: an unknown margin command was used." );
+				}
+
+				break;
 			}
 		}
 	}
@@ -1770,6 +1903,18 @@ protected:
 
 			case MARGINCMD_IFSHOULDSHOWRANK:
 				bValue = HUD_ShouldDrawRank( ulDisplayPlayer );
+				break;
+
+			case MARGINCMD_IFSPYING:
+				bValue = ( ulDisplayPlayer != static_cast<ULONG>( consoleplayer ));
+				break;
+
+			case MARGINCMD_IFSPECTATOR:
+				bValue = players[consoleplayer].bSpectating;
+				break;
+
+			case MARGINCMD_IFDEADSPECTATOR:
+				bValue = players[consoleplayer].bDeadSpectator;
 				break;
 
 			default:
@@ -2075,76 +2220,35 @@ ScoreMargin::BaseCommand::BaseCommand( ScoreMargin *pMargin, BaseCommand *pParen
 
 //*****************************************************************************
 //
-// [AK] ScoreMargin::CommandBlock::ParseCommand
+// [AK] ScoreMargin::CommandBlock::ParseBlock
 //
-// A "factory" function that's starts a block and creates new margin commands.
+// Starts a new block and parses margin commands.
 //
 //*****************************************************************************
 
-void ScoreMargin::CommandBlock::ParseCommands( FScanner &sc, ScoreMargin *pMargin, BaseCommand *pParentCommand )
+void ScoreMargin::CommandBlock::ParseBlock( FScanner &sc, ScoreMargin *pMargin, BaseCommand *pParentCommand )
 {
 	Commands.Clear( );
 	sc.MustGetToken( '{' );
 
 	while ( sc.CheckToken( '}' ) == false )
-	{
-		const MARGINCMD_e Command = static_cast<MARGINCMD_e>( sc.MustGetEnumName( "margin command", "MARGINCMD_", GetValueMARGINCMD_e ));
-		BaseCommand *pNewCommand = NULL;
+		ParseCommand( sc, pMargin, pParentCommand, false );
+}
 
-		switch ( Command )
-		{
-			case MARGINCMD_MULTILINEBLOCK:
-				pNewCommand = new MultiLineBlock( pMargin, pParentCommand );
-				break;
+//*****************************************************************************
+//
+// [AK] ScoreMargin::CommandBlock::ParseCommand
+//
+// Inserts a new margin command into the block.
+//
+//*****************************************************************************
 
-			case MARGINCMD_ROWBLOCK:
-				pNewCommand = new RowBlock( pMargin, pParentCommand );
-				break;
+void ScoreMargin::CommandBlock::ParseCommand( FScanner &sc, ScoreMargin *pMargin, BaseCommand *pParentCommand, const bool bOnlyFlowControl )
+{
+	BaseCommand *pNewCommand = scoreboard_CreateMarginCommand( sc, pMargin, pParentCommand, bOnlyFlowControl );
 
-			case MARGINCMD_DRAWSTRING:
-				pNewCommand = new DrawString( pMargin, pParentCommand );
-				break;
-
-			case MARGINCMD_DRAWCOLOR:
-				pNewCommand = new DrawColor( pMargin, pParentCommand );
-				break;
-
-			case MARGINCMD_DRAWTEXTURE:
-				pNewCommand = new DrawTexture( pMargin, pParentCommand );
-				break;
-
-			case MARGINCMD_IFONLINEGAME:
-			case MARGINCMD_IFINTERMISSION:
-			case MARGINCMD_IFPLAYERSONTEAMS:
-			case MARGINCMD_IFPLAYERSHAVELIVES:
-			case MARGINCMD_IFSHOULDSHOWRANK:
-				pNewCommand = new TrueOrFalseFlowControl( pMargin, pParentCommand, Command );
-				break;
-
-			case MARGINCMD_IFGAMEMODE:
-				pNewCommand = new IfGameModeFlowControl( pMargin, pParentCommand );
-				break;
-
-			case MARGINCMD_IFGAMETYPE:
-			case MARGINCMD_IFEARNTYPE:
-				pNewCommand = new IfGameOrEarnTypeFlowControl( pMargin, pParentCommand, Command == MARGINCMD_IFGAMETYPE );
-				break;
-
-			case MARGINCMD_IFCVAR:
-				pNewCommand = new IfCVarFlowControl( pMargin, pParentCommand );
-				break;
-
-			default:
-				sc.ScriptError( "Couldn't create margin command '%s'.", sc.String );
-				break;
-		}
-
-		// [AK] A command's arguments must always be prepended by a '('.
-		sc.MustGetToken( '(' );
-		pNewCommand->Parse( sc );
-
+	if ( pNewCommand != NULL )
 		Commands.Push( pNewCommand );
-	}
 }
 
 //*****************************************************************************
@@ -2236,7 +2340,8 @@ ScoreMargin::ScoreMargin( MARGINTYPE_e MarginType, const char *pszName ) :
 	Type( MarginType ),
 	Name( pszName ),
 	ulWidth( 0 ),
-	ulHeight( 0 ) { }
+	ulHeight( 0 ),
+	relX( 0 ) { }
 
 //*****************************************************************************
 //
@@ -2249,7 +2354,7 @@ ScoreMargin::ScoreMargin( MARGINTYPE_e MarginType, const char *pszName ) :
 
 void ScoreMargin::Parse( FScanner &sc )
 {
-	Block.ParseCommands( sc, this, NULL );
+	Block.ParseBlock( sc, this, NULL );
 }
 
 //*****************************************************************************
@@ -2260,20 +2365,21 @@ void ScoreMargin::Parse( FScanner &sc )
 //
 //*****************************************************************************
 
-void ScoreMargin::Refresh( const ULONG ulDisplayPlayer, const ULONG ulNewWidth )
+void ScoreMargin::Refresh( const ULONG displayPlayer, const ULONG newWidth, const int newRelX )
 {
 	// [AK] If there's no commands, then don't do anything.
 	if ( Block.HasCommands( ) == false )
 		return;
 
 	// [AK] Never accept a width of zero, throw a fatal error if this happens.
-	if ( ulNewWidth == 0 )
+	if ( newWidth == 0 )
 		I_Error( "ScoreMargin::Refresh: tried assigning a width of zero to '%s'.", GetName( ));
 
-	ulWidth = ulNewWidth;
+	ulWidth = newWidth;
+	relX = newRelX;
 	ulHeight = 0;
 
-	Block.Refresh( ulDisplayPlayer );
+	Block.Refresh( displayPlayer );
 }
 
 //*****************************************************************************
@@ -2646,4 +2752,81 @@ LONG SCOREBOARD_GetLeftToLimit( void )
 void SCOREBOARD_SetNextLevel( const char *pszMapName )
 {
 	g_pNextLevel = ( pszMapName != NULL ) ? FindLevelInfo( pszMapName ) : NULL;
+}
+
+//*****************************************************************************
+//
+// [AK] scoreboard_CreateMarginCommand
+//
+// A "factory" function that creates new margin commands.
+//
+//*****************************************************************************
+
+static ScoreMargin::BaseCommand *scoreboard_CreateMarginCommand( FScanner &sc, ScoreMargin *pMargin, ScoreMargin::BaseCommand *pParentCommand, const bool bOnlyFlowControl )
+{
+	sc.MustGetToken( TK_Identifier );
+
+	const MARGINCMD_e Command = static_cast<MARGINCMD_e>( sc.MustGetEnumName( "margin command", "MARGINCMD_", GetValueMARGINCMD_e, true ));
+	ScoreMargin::BaseCommand *pNewCommand = NULL;
+
+	switch ( Command )
+	{
+		case MARGINCMD_MULTILINEBLOCK:
+			pNewCommand = new MultiLineBlock( pMargin, pParentCommand );
+			break;
+
+		case MARGINCMD_ROWBLOCK:
+			pNewCommand = new RowBlock( pMargin, pParentCommand );
+			break;
+
+		case MARGINCMD_DRAWSTRING:
+			pNewCommand = new DrawString( pMargin, pParentCommand );
+			break;
+
+		case MARGINCMD_DRAWCOLOR:
+			pNewCommand = new DrawColor( pMargin, pParentCommand );
+			break;
+
+		case MARGINCMD_DRAWTEXTURE:
+			pNewCommand = new DrawTexture( pMargin, pParentCommand );
+			break;
+
+		case MARGINCMD_IFONLINEGAME:
+		case MARGINCMD_IFINTERMISSION:
+		case MARGINCMD_IFPLAYERSONTEAMS:
+		case MARGINCMD_IFPLAYERSHAVELIVES:
+		case MARGINCMD_IFSHOULDSHOWRANK:
+		case MARGINCMD_IFSPYING:
+		case MARGINCMD_IFSPECTATOR:
+		case MARGINCMD_IFDEADSPECTATOR:
+			pNewCommand = new TrueOrFalseFlowControl( pMargin, pParentCommand, Command );
+			break;
+
+		case MARGINCMD_IFGAMEMODE:
+			pNewCommand = new IfGameModeFlowControl( pMargin, pParentCommand );
+			break;
+
+		case MARGINCMD_IFGAMETYPE:
+		case MARGINCMD_IFEARNTYPE:
+			pNewCommand = new IfGameOrEarnTypeFlowControl( pMargin, pParentCommand, Command == MARGINCMD_IFGAMETYPE );
+			break;
+
+		case MARGINCMD_IFCVAR:
+			pNewCommand = new IfCVarFlowControl( pMargin, pParentCommand );
+			break;
+
+		default:
+			sc.ScriptError( "Couldn't create margin command '%s'.", sc.String );
+			break;
+	}
+
+	// [AK] Throw an error if we only accept flow control commands, and the new command isn't.
+	if (( bOnlyFlowControl ) && ( pNewCommand->IsFlowControl( ) == false ))
+		sc.ScriptError( "Margin command '%s' isn't a flow control command.", sc.String );
+
+	// [AK] A command's arguments must always be prepended by a '('.
+	sc.MustGetToken( '(' );
+	pNewCommand->Parse( sc );
+
+	return pNewCommand;
 }

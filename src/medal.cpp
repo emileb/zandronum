@@ -73,6 +73,7 @@
 #include "p_acs.h"
 #include "st_hud.h"
 #include "c_console.h"
+#include "voicechat.h"
 
 //*****************************************************************************
 //	VARIABLES
@@ -112,6 +113,7 @@ static	MEDAL_t	g_Medals[NUM_MEDALS] =
 enum
 {
 	SPRITE_CHAT,
+	SPRITE_VOICECHAT,
 	SPRITE_INCONSOLE,
 	SPRITE_INMENU,
 	SPRITE_ALLY,
@@ -814,19 +816,23 @@ ULONG medal_GetDesiredIcon( player_t *pPlayer, AInventory *&pTeamItem )
 	}
 
 	// Draw a chat icon over the player if they're typing.
-	if ( pPlayer->bChatting )
+	if ( pPlayer->statuses & PLAYERSTATUS_CHATTING )
 		ulDesiredSprite = SPRITE_CHAT;
 
 	// Draw a console icon over the player if they're in the console.
-	if ( pPlayer->bInConsole )
+	if ( pPlayer->statuses & PLAYERSTATUS_INCONSOLE )
 		ulDesiredSprite = SPRITE_INCONSOLE;
 
 	// Draw a menu icon over the player if they're in the Menu.
-	if ( pPlayer->bInMenu )
+	if ( pPlayer->statuses & PLAYERSTATUS_INMENU )
 		ulDesiredSprite = SPRITE_INMENU;
 
+	// Draw a speaker icon over the player if they're talking.
+	if ( pPlayer->statuses & PLAYERSTATUS_TALKING )
+		ulDesiredSprite = SPRITE_VOICECHAT;
+
 	// Draw a lag icon over their head if they're lagging.
-	if ( pPlayer->bLagging )
+	if ( pPlayer->statuses & PLAYERSTATUS_LAGGING )
 		ulDesiredSprite = SPRITE_LAG;
 
 	// Draw a flag/skull above this player if he's carrying one.
@@ -902,7 +908,7 @@ void medal_SelectIcon( ULONG ulPlayer )
 		// Chat icon. Delete it if the player is no longer talking.
 		case S_CHAT:
 
-			if ( pPlayer->bChatting == false )
+			if (( pPlayer->statuses & PLAYERSTATUS_CHATTING ) == false )
 			{
 				pPlayer->pIcon->Destroy( );
 				pPlayer->pIcon = NULL;
@@ -910,11 +916,22 @@ void medal_SelectIcon( ULONG ulPlayer )
 			else
 				ulActualSprite = SPRITE_CHAT;
 			break;
+		// Voice chat icon. Delete it if the player is no longer talking.
+		case S_VOICECHAT:
+
+			if (( pPlayer->statuses & PLAYERSTATUS_TALKING ) == false )
+			{
+				pPlayer->pIcon->Destroy( );
+				pPlayer->pIcon = NULL;
+			}
+			else
+				ulActualSprite = SPRITE_VOICECHAT;
+			break;
 		// In console icon. Delete it if the player is no longer in the console.
 		case S_INCONSOLE:
 		case ( S_INCONSOLE + 1):
 
-			if ( pPlayer->bInConsole == false )
+			if (( pPlayer->statuses & PLAYERSTATUS_INCONSOLE ) == false )
 			{
 				pPlayer->pIcon->Destroy( );
 				pPlayer->pIcon = NULL;
@@ -928,7 +945,7 @@ void medal_SelectIcon( ULONG ulPlayer )
 		case ( S_INMENU + 2 ):
 		case ( S_INMENU + 3 ):
 
-			if ( pPlayer->bInMenu == false )
+			if (( pPlayer->statuses & PLAYERSTATUS_INMENU ) == false )
 			{
 				pPlayer->pIcon->Destroy();
 				pPlayer->pIcon = NULL;
@@ -1001,8 +1018,7 @@ void medal_SelectIcon( ULONG ulPlayer )
 		// Lag icon. Delete it if the player is no longer lagging.
 		case S_LAG:
 
-			if (( NETWORK_InClientMode() == false ) ||
-				( pPlayer->bLagging == false ))
+			if (( NETWORK_InClientMode( ) == false ) || (( pPlayer->statuses & PLAYERSTATUS_LAGGING ) == false ))
 			{
 				pPlayer->pIcon->Destroy( );
 				pPlayer->pIcon = NULL;
@@ -1055,6 +1071,10 @@ void medal_SelectIcon( ULONG ulPlayer )
 
 		case SPRITE_CHAT:
 			ulFrame = S_CHAT;
+			break;
+
+		case SPRITE_VOICECHAT:
+			ulFrame = S_VOICECHAT;
 			break;
 
 		case SPRITE_INCONSOLE:
@@ -1238,7 +1258,7 @@ void medal_CheckForTermination( ULONG ulDeadPlayer, ULONG ulPlayer )
 void medal_CheckForLlama( ULONG ulDeadPlayer, ULONG ulPlayer )
 {
 	// Award a "llama" medal if the victim had been typing, lagging, or in the console.
-	if ( players[ulDeadPlayer].bChatting ||	players[ulDeadPlayer].bLagging || players[ulDeadPlayer].bInConsole || players[ulDeadPlayer].bInMenu )
+	if ( players[ulDeadPlayer].statuses & ( PLAYERSTATUS_CHATTING | PLAYERSTATUS_INCONSOLE | PLAYERSTATUS_INMENU | PLAYERSTATUS_LAGGING ))
 		MEDAL_GiveMedal( ulPlayer, MEDAL_LLAMA );
 }
 

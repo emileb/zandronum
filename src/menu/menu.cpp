@@ -341,7 +341,9 @@ void M_StartControlPanel (bool makeSound)
 	BackbuttonTime = 0;
 	BackbuttonAlpha = 0;
 
-	PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_INMENU, true, PLAYERSTATUS_CLIENTSHOULDSENDUPDATE );
+	// [BB] Don't change the displayed menu status when a demo is played.
+	if ( CLIENTDEMO_IsPlaying( ) == false )
+		PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_INMENU, true, SETPLAYERSTATUS_CLIENTSENDSUPDATE );
 }
 
 //=============================================================================
@@ -864,7 +866,9 @@ void M_ClearMenus ()
 	ServerSetupMenu = NULL;
 	ServerMenuEnabled = false;
 
-	PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_INMENU, false, PLAYERSTATUS_CLIENTSHOULDSENDUPDATE );
+	// [BB] Don't change the displayed menu status when a demo is played.
+	if ( CLIENTDEMO_IsPlaying( ) == false )
+		PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_INMENU, false, SETPLAYERSTATUS_CLIENTSENDSUPDATE );
 }
 
 //=============================================================================
@@ -900,6 +904,28 @@ void M_EnableMenu (bool on)
 bool M_InServerSetupMenu (void)
 {
 	return ServerMenuEnabled;
+}
+
+//=============================================================================
+//
+// [AK] Returns true if the given name points to a valid menu, or false otherwise.
+//
+//=============================================================================
+
+bool M_IsValidMenu( const char *name )
+{
+	if (( name == nullptr ) || ( strlen( name ) == 0 ))
+		return false;
+
+	if ( MenuDescriptors.CheckKey( name ) == nullptr )
+	{
+		const PClass *menuClass = PClass::FindClass( name );
+
+		if (( menuClass == nullptr ) || ( menuClass->IsDescendantOf( RUNTIME_CLASS( DMenu )) == false ))
+			return false;
+	}
+
+	return true;
 }
 
 //=============================================================================

@@ -181,32 +181,36 @@ BEGIN_ENUM( COLUMNFLAG_e )
 	ENUM_ELEMENT2( COLUMNFLAG_INTERMISSIONONLY, 0x02 ),
 	// This column won't appear on the intermission screen.
 	ENUM_ELEMENT2( COLUMNFLAG_NOINTERMISSION, 0x04 ),
+	// Only draw the contents of this column for true spectators.
+	ENUM_ELEMENT2( COLUMNFLAG_SPECTATORSONLY, 0x08 ),
 	// Don't draw the contents of this column for true spectators.
-	ENUM_ELEMENT2( COLUMNFLAG_NOSPECTATORS, 0x08 ),
+	ENUM_ELEMENT2( COLUMNFLAG_NOSPECTATORS, 0x10 ),
+	// Don't draw the contents of this column for any enemies.
+	ENUM_ELEMENT2( COLUMNFLAG_NOENEMIES, 0x20 ),
 	// This column only appears in offline games.
-	ENUM_ELEMENT2( COLUMNFLAG_OFFLINEONLY, 0x10 ),
+	ENUM_ELEMENT2( COLUMNFLAG_OFFLINEONLY, 0x40 ),
 	// This column only appears in online games.
-	ENUM_ELEMENT2( COLUMNFLAG_ONLINEONLY, 0x20 ),
+	ENUM_ELEMENT2( COLUMNFLAG_ONLINEONLY, 0x80 ),
 	// This column is only active in game modes that support teams.
-	ENUM_ELEMENT2( COLUMNFLAG_REQUIRESTEAMS, 0x40 ),
+	ENUM_ELEMENT2( COLUMNFLAG_REQUIRESTEAMS, 0x100 ),
 	// This column is disabled in game modes that support teams.
-	ENUM_ELEMENT2( COLUMNFLAG_FORBIDTEAMS, 0x80 ),
+	ENUM_ELEMENT2( COLUMNFLAG_FORBIDTEAMS, 0x200 ),
 	// This column is only active in game modes where players have lives.
-	ENUM_ELEMENT2( COLUMNFLAG_REQUIRESLIVES, 0x100 ),
+	ENUM_ELEMENT2( COLUMNFLAG_REQUIRESLIVES, 0x400 ),
 	// This column is disabled in game modes that use lives.
-	ENUM_ELEMENT2( COLUMNFLAG_FORBIDLIVES, 0x200 ),
+	ENUM_ELEMENT2( COLUMNFLAG_FORBIDLIVES, 0x800 ),
 	// This column is only active in game modes where a team's item is used.
-	ENUM_ELEMENT2( COLUMNFLAG_REQUIRESTEAMITEMS, 0x400 ),
+	ENUM_ELEMENT2( COLUMNFLAG_REQUIRESTEAMITEMS, 0x1000 ),
 	// This column is disabled in game modes that use team items.
-	ENUM_ELEMENT2( COLUMNFLAG_FORBIDTEAMITEMS, 0x800 ),
+	ENUM_ELEMENT2( COLUMNFLAG_FORBIDTEAMITEMS, 0x2000 ),
 	// Prevents this column's header from being shown.
-	ENUM_ELEMENT2( COLUMNFLAG_DONTSHOWHEADER, 0x1000 ),
+	ENUM_ELEMENT2( COLUMNFLAG_DONTSHOWHEADER, 0x4000 ),
 	// The column's width is always set to whatever's the shortest possible width.
-	ENUM_ELEMENT2( COLUMNFLAG_ALWAYSUSESHORTESTWIDTH, 0x2000 ),
-	// The column's CVar must be zero for the column to stay active.
-	ENUM_ELEMENT2( COLUMNFLAG_CVARMUSTBEZERO, 0x4000 ),
+	ENUM_ELEMENT2( COLUMNFLAG_ALWAYSUSESHORTESTWIDTH, 0x8000 ),
 	// If the column's empty (i.e. no contents inside it), then it's disabled.
-	ENUM_ELEMENT2( COLUMNFLAG_DISABLEIFEMPTY, 0x8000 ),
+	ENUM_ELEMENT2( COLUMNFLAG_DISABLEIFEMPTY, 0x10000 ),
+	// Ensures that the column sorts players on the scoreboard even when it's disabled.
+	ENUM_ELEMENT2( COLUMNFLAG_SORTWHENDISABLED, 0x20000 ),
 }
 END_ENUM( COLUMNFLAG_e )
 
@@ -232,6 +236,10 @@ BEGIN_ENUM( SCOREBOARDFLAG_e )
 	ENUM_ELEMENT2( SCOREBOARDFLAG_DONTUSELOCALROWBACKGROUNDCOLOR, 0x40 ),
 	// Prevents any of the team headers from being shown.
 	ENUM_ELEMENT2( SCOREBOARDFLAG_DONTSHOWTEAMHEADERS, 0x80 ),
+	// Don't try to stretch the row height to fit contents that are too tall.
+	ENUM_ELEMENT2( SCOREBOARDFLAG_DONTSTRETCHROWHEIGHT, 0x100 ),
+	// Sorts dead spectators underneath live players.
+	ENUM_ELEMENT2( SCOREBOARDFLAG_SEPARATEDEADSPECTATORS, 0x200 ),
 }
 END_ENUM( SCOREBOARDFLAG_e )
 
@@ -271,6 +279,8 @@ BEGIN_ENUM( COLUMNCMD_e )
 	ENUM_ELEMENT( COLUMNCMD_TRUETEXT ),
 	// What gets drawn when a row's value is 0 (boolean columns only).
 	ENUM_ELEMENT( COLUMNCMD_FALSETEXT ),
+	// The scale to apply to a texture (texture columns only).
+	ENUM_ELEMENT( COLUMNCMD_SCALE ),
 	// The spacing between sub-columns in a composite column, in pixels (composite columns only).
 	ENUM_ELEMENT( COLUMNCMD_GAPBETWEENCOLUMNS ),
 	// What sub-columns are inside the composite column and their order (composite columns only).
@@ -302,6 +312,8 @@ BEGIN_ENUM( SCOREBOARDCMD_e )
 	ENUM_ELEMENT( SCOREBOARDCMD_LOCALROWCOLOR ),
 	// Similar to the local row color, but only while watching a demo.
 	ENUM_ELEMENT( SCOREBOARDCMD_LOCALROWDEMOCOLOR ),
+	// The opacity of the contents (e.g. header/row text, borders, and margins) on the scoreboard.
+	ENUM_ELEMENT( SCOREBOARDCMD_CONTENTALPHA ),
 	// The opacity of the row's text for dead players.
 	ENUM_ELEMENT( SCOREBOARDCMD_DEADPLAYERTEXTALPHA ),
 	// The texture to use to draw the borders, if USETEXTUREFORBORDERS is enabled.
@@ -381,6 +393,12 @@ BEGIN_ENUM( MARGINCMD_e )
 	ENUM_ELEMENT( MARGINCMD_IFPLAYERSHAVELIVES ),
 	// Executes a block if the current player's rank should be shown.
 	ENUM_ELEMENT( MARGINCMD_IFSHOULDSHOWRANK ),
+	// Executes a block if the local player's spying on another player.
+	ENUM_ELEMENT( MARGINCMD_IFSPYING ),
+	// Executes a block if the local player's a spectator.
+	ENUM_ELEMENT( MARGINCMD_IFSPECTATOR ),
+	// Executes a block if the local player is specifically a dead spectator.
+	ENUM_ELEMENT( MARGINCMD_IFDEADSPECTATOR ),
 	// Executes a block when any of the given game modes are being played.
 	ENUM_ELEMENT( MARGINCMD_IFGAMEMODE ),
 	// Executes a block when any of the given game types are being played.

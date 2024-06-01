@@ -549,10 +549,11 @@ bool AActor::SetState (FState *newstate, bool nofunction)
 			}
 			if (newsprite != SPR_NOCHANGE)
 			{ // okay to change sprite
-				// [AK] Check if the player is using a weapon with its own preferred skin, which overrides NOSKIN.
-				const bool bUsingWeaponSkin = PLAYER_IsUsingWeaponSkin( this );
+				// [AK] Check if the player is using a skin that overrides NOSKIN,
+				// except when this actor is a player chunk.
+				const int overrideSkin = IsKindOf( RUNTIME_CLASS( APlayerChunk )) ? -1 : PLAYER_GetOverrideSkin( this->player );
 				// [AK] Don't change to the skin's sprite if the new sprite is TNT1A0.
-				if ((!(flags4 & MF4_NOSKIN) || bUsingWeaponSkin) && newsprite == SpawnState->sprite && newsprite != SPR_TNT1)
+				if ((!(flags4 & MF4_NOSKIN) || overrideSkin != -1) && newsprite == SpawnState->sprite && newsprite != SPR_TNT1)
 				{ // [RH] If the new sprite is the same as the original sprite, and
 				// this actor is attached to a player, use the player's skin's
 				// sprite. If a player is not attached, do not change the sprite
@@ -562,9 +563,9 @@ bool AActor::SetState (FState *newstate, bool nofunction)
 				// for Dehacked, I would move sprite changing out of the states
 				// altogether, since actors rarely change their sprites after
 				// spawning.
-					if ( bUsingWeaponSkin ) // [AK] Show a weapon's preferred skin first if valid.
+					if ( overrideSkin != -1 ) // [AK] Show the overridden skin first if valid.
 					{
-						sprite = skins[R_FindSkin( player->ReadyWeapon->PreferredSkin, player->CurrentPlayerClass )].sprite;
+						sprite = skins[overrideSkin].sprite;
 					}
 					else if (player != NULL && ( skins.Size() > static_cast<unsigned int> ( player->userinfo.GetSkin() ) ) ) // [BB] Adapted the skins check
 					{
@@ -1521,7 +1522,7 @@ bool AActor::Massacre ()
 //
 //----------------------------------------------------------------------------
 
-void P_ExplodeMissile (AActor *mo, line_t *line, AActor *target)
+void P_ExplodeMissile (AActor *mo, line_t *line, AActor *target, bool bExplodeOnClient ) // [RK] Added bExplodeOnClient
 {
 	if (mo->flags3 & MF3_EXPLOCOUNT)
 	{
@@ -1550,7 +1551,7 @@ void P_ExplodeMissile (AActor *mo, line_t *line, AActor *target)
 	if (nextstate == NULL) nextstate = mo->FindState(NAME_Death);
 
 	// [BC] Tell clients that this missile blew up.
-	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+	if ( NETWORK_GetState( ) == NETSTATE_SERVER && bExplodeOnClient )
 	{
 		// No need to do this if the line struck a horizon line.
 		if (( line == NULL ) ||
@@ -3354,7 +3355,9 @@ static void PlayerLandedOnThing (AActor *mo, AActor *onmobj)
 
 	// [RH] only make noise if alive
 	// [WS/BB] As client only play the sound for the consoleplayer.
-	if (!mo->player->morphTics && mo->health > 0 && NETWORK_IsConsolePlayerOrNotInClientMode( mo->player ))
+	// [Binary] Allow morphs to play sounds if +NOMORPHLIMITATIONS is used.
+	bool canPlayLandSound = ( !mo->player->morphTics || (mo->player->mo && mo->player->mo->PlayerFlags & PPF_NOMORPHLIMITATIONS) );
+	if ( canPlayLandSound && mo->health > 0 && NETWORK_IsConsolePlayerOrNotInClientMode( mo->player ))
 	{
 		grunted = false;
 		// Why should this number vary by gravity?
@@ -4010,6 +4013,15 @@ void AActor::Tick ()
 
 		UnlinkFromWorld ();
 		flags |= MF_NOBLOCKMAP;
+
+		// [AK] Spectators using source-engine noclipping still need a way to slow down.
+		if (P_IsUsingSourceEngineNoClip(this))
+		{
+			velx = FixedMul(velx, FRICTION_FLY);
+			vely = FixedMul(vely, FRICTION_FLY);
+			velz = FixedMul(velz, FRICTION_FLY);
+		}
+
 		x += velx;
 		y += vely;
 		z += velz;
@@ -5186,24 +5198,15 @@ void AActor::PostBeginPlay ()
 	PrevAngle = angle;
 	flags7 |= MF7_HANDLENODELAY;
 
-	// [AK] Trigger an event script indicating that the actor has spawned. We
-	// shouldn't need to execute this for players since we already have special
-	// script types like ENTER, RETURN, and RESPAWN.
-	if (( player == NULL ) && (( STFlags & STFL_NOSPAWNEVENTSCRIPT ) == false ))
-	{
-		bool bNotImportant = false;
+	// [AK] Trigger an event script indicating that the actor has spawned.
+	GAMEMODE_HandleSpawnEvent( this );
 
-		// [AK] Projectiles and BulletPuffs can have NOBLOCKMAP enabled but that doesn't make them unimportant.
-		if (( flags & MF_NOBLOCKMAP ) && ((( flags & MF_MISSILE ) == false ) && ( IsKindOf( PClass::FindClass( NAME_BulletPuff )) == false )))
-			bNotImportant = true;
-		else if (( flags & MF_NOSECTOR ) || ( IsKindOf( RUNTIME_CLASS( AHexenArmor ))))
-			bNotImportant = true;
-
-		// [AK] If we want to force GAMEEVENT_ACTOR_SPAWNED on every actor, then at least ignore 
-		// the less imporant actors unless they have the USESPAWNEVENTSCRIPT flag enabled.
-		if (( STFlags & STFL_USESPAWNEVENTSCRIPT ) || (( gameinfo.bForceSpawnEventScripts ) && ( bNotImportant == false )))
-			GAMEMODE_HandleEvent( GAMEEVENT_ACTOR_SPAWNED, this, !!( STFlags & STFL_LEVELSPAWNED ), 0, true );
-	}
+	// [AK] If the actor was spawned by a random spawner, then STFL_LEVELSPAWNED
+	// might be temporarily enabled for the purpose of indicating that the actor
+	// was (to an extent) spawned by the level in GAMEEVENT_ACTOR_SPAWNED. The
+	// flag must be disabled after that.
+	if (( STFlags & STFL_RANDOMSPAWNED ) && ( STFlags & STFL_LEVELSPAWNED ))
+		STFlags &= ~STFL_LEVELSPAWNED;
 }
 
 void AActor::MarkPrecacheSounds() const
@@ -5680,13 +5683,15 @@ APlayerPawn *P_SpawnPlayer (FPlayerStart *mthing, int playernum, int flags)
 
 		// [Dusk] If we are sharing keys, give this player the keys that have been found.
 		// [AK] Make sure to give them the keys if they changed their class.
+		// [RK] Reviving dead spectators through ACS should sync keys if allowed. 
 		if (( flags & SPF_CLIENTUPDATE ) &&
 			( zadmflags & ZADF_SHARE_KEYS ) &&
 			( NETWORK_GetState( ) == NETSTATE_SERVER ) &&
-			( state == PST_ENTER || state == PST_ENTERNOINVENTORY || oldPlayerClass != p->CurrentPlayerClass ))
+			( state == PST_ENTER || state == PST_ENTERNOINVENTORY || ( !p->bDeadSpectator && state == PST_REBORNNOINVENTORY && p->bDeadSpectatorKeySync ) || oldPlayerClass != p->CurrentPlayerClass ))
 		{
 			SERVER_SyncSharedKeys( p - players, true );
 		}
+		p->bDeadSpectatorKeySync = false;
 	}
 
 	// setup gun psprite
@@ -5753,9 +5758,11 @@ APlayerPawn *P_SpawnPlayer (FPlayerStart *mthing, int playernum, int flags)
 	// body to disassociate with their corpse.
 	// [BB] Don't spawn fog for spectators at all.
 	// [BB] Don't spawn fog for temp players.
+	// [AK] Don't spawn fog if ZADF_NO_SPAWN_TELEFOG is enabled.
 	// [EP] Don't spawn fog for facing west spawners offline, if compatflag is on.
 	if (( NETWORK_GetState( ) != NETSTATE_SINGLE ) &&
 		( p->bDeadSpectator == false ) && ( p->bSpectating == false ) && !(flags & SPF_TEMPPLAYER ) &&
+		( !( zadmflags & ZADF_NO_SPAWN_TELEFOG )) &&
 		( !( zacompatflags & ZACOMPATF_SILENT_WEST_SPAWNS ) || mobj->angle != ANGLE_180 ))
 	{
 		unsigned an = mobj->angle >> ANGLETOFINESHIFT;
@@ -7079,7 +7086,8 @@ void P_CheckSplash(AActor *self, fixed_t distance)
 //
 //---------------------------------------------------------------------------
 // [WS] Added bExplode.
-bool P_CheckMissileSpawn (AActor* th, fixed_t maxdist, bool bExplode)
+// [RK] Added bClientHasMissile.
+bool P_CheckMissileSpawn (AActor* th, fixed_t maxdist, bool bExplode, bool bClientHasMissile)
 {
 	// [RH] Don't decrement tics if they are already less than 1
 	if ((th->flags4 & MF4_RANDOMIZE) && th->tics > 0)
@@ -7153,7 +7161,7 @@ bool P_CheckMissileSpawn (AActor* th, fixed_t maxdist, bool bExplode)
 
 				// [WS] Can we explode the missile?
 				if (bExplode)
-					P_ExplodeMissile (th, NULL, th->BlockingMobj);
+					P_ExplodeMissile (th, NULL, th->BlockingMobj, bClientHasMissile);
 			}
 			return false;
 		}
@@ -7188,7 +7196,7 @@ void P_PlaySpawnSound(AActor *missile, AActor *spawner)
 			// If there is no spawner use the spawn position.
 			// But not in a silenced sector.
 			if (!(missile->Sector->Flags & SECF_SILENT))
-				S_Sound (missile->x, missile->y, missile->z, CHAN_WEAPON, missile->SeeSound, 1, ATTN_NORM);
+				S_Sound (missile->x, missile->y, missile->z, CHAN_WEAPON, missile->SeeSound, 1, ATTN_NORM, true); // [RK] Inform the client to play sound at the point.
 		}
 	}
 }
@@ -7290,12 +7298,12 @@ AActor *P_SpawnMissileXYZ (fixed_t x, fixed_t y, fixed_t z,
 		th->SetFriendPlayer(owner->player);
 	}
 
-	// [BB]
-	AActor *pMissile = (!checkspawn || P_CheckMissileSpawn (th, source->radius)) ? th : NULL;
-
 	// [BB] If we're the server, tell clients to spawn the missile.
-	if ( bSpawnOnClient && ( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( pMissile ))
-		SERVERCOMMANDS_SpawnMissile( pMissile );
+	if ( bSpawnOnClient && ( NETWORK_GetState( ) == NETSTATE_SERVER ))
+		SERVERCOMMANDS_SpawnMissile( th );
+
+	// [BB]
+	AActor *pMissile = (!checkspawn || P_CheckMissileSpawn (th, source->radius, true, bSpawnOnClient)) ? th : NULL;
 
 	return pMissile;
 }
@@ -7418,12 +7426,12 @@ AActor *P_SpawnMissileAngleZSpeed (AActor *source, fixed_t z,
 		mo->SetFriendPlayer(owner->player);
 	}
 
-	// [BB]
-	AActor *pMissile = (!checkspawn || P_CheckMissileSpawn(mo, source->radius)) ? mo : NULL;
-
 	// [BB] If we're the server, tell clients to spawn the missile.
-	if ( bSpawnOnClient && ( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( pMissile ))
-		SERVERCOMMANDS_SpawnMissile( pMissile );
+	if ( bSpawnOnClient && ( NETWORK_GetState( ) == NETSTATE_SERVER ))
+		SERVERCOMMANDS_SpawnMissile( mo );
+
+	// [BB]
+	AActor *pMissile = (!checkspawn || P_CheckMissileSpawn (mo, source->radius, true, bSpawnOnClient)) ? mo : NULL;
 
 	return pMissile;
 }

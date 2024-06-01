@@ -145,9 +145,7 @@ EndCommand
 
 Command SetPlayerStatus
 	Player player
-	# [AK] Ideally, we want to fit the status we're updating and its value into a single byte.
-	ShortByte<7> type
-	Bool value
+	Byte statuses
 EndCommand
 
 Command SetPlayerTeam
@@ -204,6 +202,13 @@ EndCommand
 Command SetPlayerLivesLeft
 	Player player
 	Byte livesLeft
+EndCommand
+
+Command SetPlayerACSSkin
+	ExtendedCommand
+	Player player
+	Name skinName
+	bool overrideWeaponSkin
 EndCommand
 
 Command UpdatePlayerPing
@@ -311,4 +316,36 @@ Command SetHexenArmorSlots
 	Long slot2
 	Long slot3
 	Long slot4
+EndCommand
+
+Command SendPlayerCommRule
+	ExtendedCommand
+	Player player with IndexTestOnly
+	Bool ignoreChat
+	Bool ignoreVoice
+	Bool sendVoIPChannelVolume
+
+	If (ignoreChat)
+		Long ignoreChatTicks
+	EndIf
+
+	If (ignoreVoice)
+		Long ignoreVoiceTicks
+	EndIf
+
+	If (sendVoIPChannelVolume)
+		Float VoIPChannelVolume
+	EndIf
+EndCommand
+
+Command IgnoreLocalPlayer
+	ExtendedCommand
+	Player player with IndexTestOnly
+	Bool ignore
+	Bool doVoice
+
+	If (ignore)
+		Long ticks
+		String reason
+	EndIf
 EndCommand

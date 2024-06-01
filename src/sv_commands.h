@@ -106,7 +106,7 @@ void	SERVERCOMMANDS_SetPlayerPoints( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPL
 void	SERVERCOMMANDS_SetPlayerWins( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_SetPlayerDeaths( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_SetPlayerKillCount( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
-void	SERVERCOMMANDS_SetPlayerStatus( ULONG ulPlayer, PlayerStatusType type, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
+void	SERVERCOMMANDS_SetPlayerStatus( const unsigned int player, const unsigned int playerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_SetPlayerTeam( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_SetPlayerCamera( ULONG ulPlayer, AActor *camera, bool bRevertPlease );
 void	SERVERCOMMANDS_SetPlayerPoisonCount( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
@@ -134,15 +134,18 @@ void	SERVERCOMMANDS_ResetAllPlayersFragcount( ULONG ulPlayerExtra = MAXPLAYERS, 
 void	SERVERCOMMANDS_PlayerIsSpectator( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PlayerSay( ULONG ulPlayer, const char *pszString, ULONG ulMode, bool bForbidChatToPlayers, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PrivateSay( ULONG ulSender, ULONG ulReceiver, const char *pszString, bool bForbidChatToPlayers, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
+void	SERVERCOMMANDS_PlayerVoIPAudioPacket( ULONG player, unsigned int frame, unsigned char *data, unsigned int length, ULONG playerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PlayerTaunt( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PlayerRespawnInvulnerability( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PlayerUseInventory( ULONG ulPlayer, AInventory *pItem, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PlayerDropInventory( ULONG ulPlayer, AInventory *pItem, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
-void	SERVERCOMMANDS_PotentiallyIgnorePlayer( ULONG ulPlayer );
+void	SERVERCOMMANDS_PotentiallySendPlayerCommRule( const unsigned int player );
+void	SERVERCOMMANDS_IgnoreLocalPlayer( const unsigned int player, const bool ignore, const bool doVoice, const int ticks = -1, const char *reason = nullptr );
 void	SERVERCOMMANDS_SetPlayerHazardCount ( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_SetMugShotState ( const char *statename );
 void	SERVERCOMMANDS_SetPlayerCountry( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_SetPlayerAccountName( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
+void	SERVERCOMMANDS_SetPlayerACSSkin( const unsigned int player, const unsigned int playerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 
 // Thing commands. This involve handling of actors.
 void	SERVERCOMMANDS_SpawnThing( AActor *pActor, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
@@ -239,6 +242,7 @@ void	SERVERCOMMANDS_MissileExplode( AActor *pMissile, line_t *pLine, ULONG ulPla
 void	SERVERCOMMANDS_WeaponSound( ULONG ulPlayer, const char *pszSound, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_WeaponChange( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_WeaponRailgun( AActor *source, const FVector3 &start, const FVector3 &end, LONG color1, LONG color2, float maxdiff, int railflags, angle_t angleoffset, const PClass* spawnclass, int duration, float sparsity, float drift, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
+void	SERVERCOMMANDS_SetWeaponZoomFactor( const unsigned int player, const float zoom, const int zoomFlags, const unsigned int playerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 
 // Sector commands. These manipulate some property of sectors.
 void	SERVERCOMMANDS_SetSectorFloorPlane( ULONG ulSector, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
@@ -296,6 +300,7 @@ void	SERVERCOMMANDS_SoundSector( sector_t *sector, int channel, const char *soun
 void	SERVERCOMMANDS_SoundPoint( LONG lX, LONG lY, LONG lZ, LONG lChannel, const char *pszSound, float fVolume, float fAttenuation, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_AnnouncerSound( const char *pszSound, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_StopSound( AActor *pActor, LONG lChannel, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
+void	SERVERCOMMANDS_StopOriginlessSound( LONG lChannel, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 
 // Sector sequence commands. These handle sector sound sequences.
 void	SERVERCOMMANDS_StartSectorSequence( sector_t *pSector, const int Channel, const char *pszSequence, const int Modenum, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
@@ -305,6 +310,7 @@ void	SERVERCOMMANDS_StopSectorSequence( sector_t *pSector, ULONG ulPlayerExtra =
 void	SERVERCOMMANDS_CallVote( ULONG ulPlayer, FString Command, FString Parameters, FString Reason, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PlayerVote( ULONG ulPlayer, bool bVoteYes, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_VoteEnded( bool bVotePassed, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
+void	SERVERCOMMANDS_ClearVote( ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 
 // Map commands. These load maps, exit maps, or manipulate some property of the current map.
 void	SERVERCOMMANDS_MapLoad( ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
@@ -439,5 +445,10 @@ void	SERVERCOMMANDS_DelFromMapRotation( const char *pszMapName, bool bClear = fa
 void	SERVERCOMMANDS_ResetMapRotation( ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_SetCustomPlayerValue( PlayerData &Data, ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_ResetCustomPlayerValue( PlayerData &Data, ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
+void	SERVERCOMMANDS_OpenMenu( const unsigned int player, const char *menuName );
+void	SERVERCOMMANDS_CloseMenu( const unsigned int player );
+void	SERVERCOMMANDS_StartConversation( AActor *npc, ULONG player, int nodenum, bool facetalker, bool saveangle );
+void	SERVERCOMMANDS_ConversationReply( ULONG player, int nodenum, int replynum );
+void	SERVERCOMMANDS_EndConversation( ULONG player );
 
 #endif	// __SV_COMMANDS_H__

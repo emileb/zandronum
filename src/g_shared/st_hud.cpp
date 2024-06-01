@@ -73,6 +73,7 @@
 #include "sbar.h"
 #include "p_trace.h"
 #include "win32/g15/g15.h"
+#include "voicechat.h"
 
 // [AK] Message levels used for cl_identifytarget.
 enum
@@ -267,6 +268,9 @@ void HUD_Render( ULONG ulDisplayPlayer )
 		g_bRefreshBeforeRendering = false;
 	}
 
+	// [AK] Draw the voice chat panel.
+	VOIPPanel::GetInstance( ).Render( );
+
 	// Draw the main scoreboard.
 	if ( SCOREBOARD_ShouldDrawBoard( ))
 		SCOREBOARD_Render( ulDisplayPlayer );
@@ -361,8 +365,7 @@ void HUD_Refresh( void )
 	g_bIsTied = HUD_IsTied( ulPlayer );
 
 	// [AK] Count how many players are in the game.
-	g_ulNumPlayers = SERVER_CalcNumNonSpectatingPlayers( MAXPLAYERS );
-	g_ulNumSpectators = SERVER_CountPlayers( true ) - g_ulNumPlayers;
+	HUD_RefreshPlayerCounts( );
 
 	// "x opponents left", "x allies alive", etc
 	if ( GAMEMODE_GetCurrentFlags( ) & GMF_DEADSPECTATORS )
@@ -391,6 +394,14 @@ void HUD_Refresh( void )
 			}
 		}
 	}
+}
+
+//*****************************************************************************
+//
+void HUD_RefreshPlayerCounts( void )
+{
+	g_ulNumPlayers = SERVER_CalcNumNonSpectatingPlayers( MAXPLAYERS );
+	g_ulNumSpectators = SERVER_CountPlayers( true ) - g_ulNumPlayers;
 }
 
 //*****************************************************************************
@@ -674,8 +685,12 @@ void HUD_DrawCoopInfo( void )
 		return;
 
 	// [BB] Only draw the info if this is a cooperative or team based game mode. Further don't draw this in single player.
-	if ( !( GAMEMODE_GetCurrentFlags() & ( GMF_COOPERATIVE | GMF_PLAYERSONTEAMS )) || ( NETWORK_GetState() == NETSTATE_SINGLE ))
+	// [AK] But still draw the info in a clientside demo.
+	if ((( GAMEMODE_GetCurrentFlags( ) & ( GMF_COOPERATIVE | GMF_PLAYERSONTEAMS )) == false ) ||
+		(( NETWORK_GetState( ) == NETSTATE_SINGLE ) && ( CLIENTDEMO_IsPlaying( ) == false )))
+	{
 		return;
+	}
 
 	FString drawString;
 

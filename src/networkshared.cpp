@@ -1493,10 +1493,10 @@ void IPList::sort()
 //
 //=============================================================================
 
-void QueryIPQueue::adjustHead( const LONG CurrentTime )
+void QueryIPQueue::adjustHead( const unsigned long currentTime )
 {
-	while (( _iQueueHead != _iQueueTail ) && ( CurrentTime >= _IPQueue[_iQueueHead].lNextAllowedTime ))
-		_iQueueHead = ( _iQueueHead + 1 ) % MAX_QUERY_IPS;
+	while (( _queueHead != _queueTail ) && ( currentTime >= _IPQueue[_queueHead].nextAllowedTime ))
+		_queueHead = ( _queueHead + 1 ) % MAX_QUERY_IPS;
 }
 
 //=============================================================================
@@ -1510,7 +1510,7 @@ void QueryIPQueue::adjustHead( const LONG CurrentTime )
 bool QueryIPQueue::addressInQueue( const NETADDRESS_s AddressFrom ) const
 {
 	// Search through the queue.
-	for ( unsigned int i = _iQueueHead; i != _iQueueTail; i = ( i + 1 ) % MAX_QUERY_IPS )
+	for ( unsigned int i = _queueHead; i != _queueTail; i = ( i + 1 ) % MAX_QUERY_IPS )
 	{
 		if ( AddressFrom.CompareNoPort( _IPQueue[i].Address ))
 			return true;
@@ -1531,7 +1531,7 @@ bool QueryIPQueue::addressInQueue( const NETADDRESS_s AddressFrom ) const
 
 bool QueryIPQueue::isFull( ) const
 {
-	return ((( _iQueueTail + 1 ) % MAX_QUERY_IPS ) == _iQueueHead );
+	return ((( _queueTail + 1 ) % MAX_QUERY_IPS ) == _queueHead );
 }
 
 //=============================================================================
@@ -1542,19 +1542,19 @@ bool QueryIPQueue::isFull( ) const
 //
 //=============================================================================
 
-void QueryIPQueue::addAddress( const NETADDRESS_s AddressFrom, const LONG lCurrentTime, std::ostream *errorOut )
+void QueryIPQueue::addAddress( const NETADDRESS_s AddressFrom, const unsigned long currentTime, std::ostream *errorOut )
 {
 	// Add and advance the tail.
-	_IPQueue[_iQueueTail].Address = AddressFrom;
-	_IPQueue[_iQueueTail].lNextAllowedTime = lCurrentTime + _iEntryLength;
-	_iQueueTail = ( _iQueueTail + 1 ) % MAX_QUERY_IPS;
+	_IPQueue[_queueTail].Address = AddressFrom;
+	_IPQueue[_queueTail].nextAllowedTime = currentTime + _entryLength;
+	_queueTail = ( _queueTail + 1 ) % MAX_QUERY_IPS;
 
 	// Is the queue full?
-	if (_iQueueTail == _iQueueHead )
+	if ( _queueTail == _queueHead )
 	{
 		if ( errorOut )
 			*errorOut << "WARNING! The IP flood queue is full.\n";
 
-		_iQueueHead = ( _iQueueHead + 1 ) % MAX_QUERY_IPS; // [RC] Start removing older entries.
+		_queueHead = ( _queueHead + 1 ) % MAX_QUERY_IPS; // [RC] Start removing older entries.
 	}
 }

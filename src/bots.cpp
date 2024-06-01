@@ -56,6 +56,7 @@
 #include "cl_demo.h"
 #include "cmdlib.h"
 #include "configfile.h"
+#include "d_player.h"
 #include "deathmatch.h"
 #include "doomdef.h"
 #include "doomstat.h"
@@ -518,7 +519,7 @@ void BOTS_ParseBotInfo( void )
 
 //*****************************************************************************
 //
-bool BOTS_IsValidName( char *pszName )
+bool BOTS_IsValidName( const char *pszName )
 {
 	if ( pszName == NULL )
 		return ( false );
@@ -604,6 +605,9 @@ void BOTS_RemoveBot( ULONG ulPlayerIdx, bool bExitMsg )
 	if (players[ulPlayerIdx].morphTics)
 		P_UndoPlayerMorph (&players[ulPlayerIdx], &players[ulPlayerIdx]);
 
+	// [RK] Stop the runing scripts for the bot.
+	FBehavior::StaticStopMyScripts (players[ulPlayerIdx].mo);
+
 	// Remove the bot from the game.
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 		SERVERCOMMANDS_DisconnectPlayer( ulPlayerIdx, ulPlayerIdx, SVCF_SKIPTHISCLIENT );
@@ -624,6 +628,9 @@ void BOTS_RemoveBot( ULONG ulPlayerIdx, bool bExitMsg )
 	{
 		PLAYER_LeavesGame( ulPlayerIdx );
 	}
+
+	// [SB] Fire event scripts indicating this bot disconnected.
+	GAMEMODE_HandleEvent( GAMEEVENT_PLAYERLEAVESSERVER, nullptr, ulPlayerIdx, LEAVEREASON_KICKED );
 
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 	{
@@ -686,6 +693,57 @@ void BOTS_RemoveAllBots( bool bExitMsg )
 	{
 		if ( playeringame[ulIdx] && players[ulIdx].pSkullBot && g_bBotIsInitialized[ulIdx] )
 			BOTS_RemoveBot( ulIdx, bExitMsg );
+	}
+}
+
+//*****************************************************************************
+//
+bool BOTS_RemoveRandomBot( void )
+{
+	unsigned int randomIndex = MAXPLAYERS;
+	bool botInGame = false;
+
+	// First, verify that there's a bot in the game.
+	for ( unsigned int i = 0; i < MAXPLAYERS; i++ )
+	{
+		if (( playeringame[i] ) && ( players[i].pSkullBot ))
+		{
+			botInGame = true;
+			break;
+		}
+	}
+
+	// If there isn't, return false.
+	if ( botInGame == false )
+		return false;
+
+	// Now randomly select a bot to remove.
+	do
+	{
+		randomIndex = ( BotRemove( ) % MAXPLAYERS );
+	} while (( playeringame[randomIndex] == false ) || ( players[randomIndex].pSkullBot == nullptr ));
+
+	// Now that we've found a valid bot, remove it.
+	BOTS_RemoveBot( randomIndex, true );
+	return true;
+}
+
+//*****************************************************************************
+//
+void BOTS_RemovePawnThinkers( SWORD botID )
+{
+	// [RK] The bot should have a NULL player at this point so we will remove
+	// its corpse thinkers to avoid any possible issue of them lingering around.
+	TThinkerIterator<APlayerPawn> it;
+	APlayerPawn* pawn, * next;
+
+	next = it.Next();
+	while ( (pawn = next) != NULL )
+	{
+		next = it.Next();
+
+		if (( pawn->player == NULL ) && ( botID == pawn->id ))
+			pawn->Destroy();
 	}
 }
 
@@ -1597,7 +1655,7 @@ void BOTSPAWN_SetTicks( ULONG ulIdx, ULONG ulTicks )
 //*****************************************************************************
 //*****************************************************************************
 //
-CSkullBot::CSkullBot( char *pszName, char *pszTeamName, ULONG ulPlayerNum )
+CSkullBot::CSkullBot( const char *pszName, const char *pszTeamName, ULONG ulPlayerNum )
 {
 	ULONG	ulIdx;
 	char	szColorizedBuffer[256];
@@ -2020,7 +2078,7 @@ void CSkullBot::Tick( void )
 		return;
 
 	// [BB] Don't run their script if they are frozen either.
-	if ( ( m_pPlayer->cheats & CF_TOTALLYFROZEN ) || ( m_pPlayer->cheats & CF_FROZEN ) )
+	if ( m_pPlayer->cheats & CF_TOTALLYFROZEN )
 	{
 		// [BB] Don't freeze dead bots. Otherwise they can't respawn.
 		if ( m_pPlayer->mo && m_pPlayer->mo->health > 0 )
@@ -3354,6 +3412,10 @@ void CSkullBot::PreDelete( void )
 	if ( m_pPlayer->mo )
 		m_pPlayer->mo->Destroy( );
 
+	// [RK] Remove the corpse's thinkers to prevent a crash later
+	if (( NETWORK_GetState() == NETSTATE_SINGLE || NETWORK_GetState() == NETSTATE_SINGLE_MULTIPLAYER ) && m_pPlayer->mo )
+		BOTS_RemovePawnThinkers(m_pPlayer->mo->id);
+
 	// Finally, fix some pointers.
 	// [BB] We have to delete the CSkullBot pointer before setting it to NULL.
 	//m_pPlayer->pSkullBot = NULL;
@@ -3365,7 +3427,7 @@ void CSkullBot::PreDelete( void )
 //
 void CSkullBot::HandleAiming( void )
 {
-	if (( m_bAimAtEnemy ) && ( m_ulPlayerEnemy != MAXPLAYERS ) && ( players[m_ulPlayerEnemy].mo ))
+	if (( m_bAimAtEnemy ) && ( m_ulPlayerEnemy != MAXPLAYERS ) && ( players[m_ulPlayerEnemy].mo ) && !(m_pPlayer->cheats & CF_TOTALLYFROZEN))
 	{
 		fixed_t	Distance;
 		fixed_t	ShootZ;
@@ -3929,34 +3991,13 @@ CCMD( removebot )
 	// If we didn't input which bot to remove, remove a random one.
 	if ( argv.argc( ) < 2 )
 	{
-		ULONG	ulRandom;
-		bool	bBotInGame = false;
-
-		// First, verify that there's a bot in the game.
-		for ( ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
-		{
-			if (( playeringame[ulIdx] ) && ( players[ulIdx].pSkullBot ))
-			{
-				bBotInGame = true;
-				break;
-			}
-		}
-
-		// If there isn't, break.
-		if ( bBotInGame == false )
+		if ( BOTS_RemoveRandomBot( ) == false )
 		{
 			Printf( "No bots found.\n" );
+
+			// [RK] No bot? Nothing more to do.
 			return;
 		}
-
-		// Now randomly select a bot to remove.
-		do
-		{
-			ulRandom = ( BotRemove( ) % MAXPLAYERS );
-		} while (( playeringame[ulRandom] == false ) || ( players[ulRandom].pSkullBot == NULL ));
-
-		// Now that we've found a valid bot, remove it.
-		BOTS_RemoveBot( ulRandom, true );
 	}
 	else
 	{

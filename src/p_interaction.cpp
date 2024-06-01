@@ -1160,8 +1160,12 @@ int P_DamageMobj (AActor *target, AActor *inflictor, AActor *source, int damage,
 	}
 
 	// [BB] For the time being, unassigned voodoo dolls can't be damaged.
+	// [RK] But we should thrust them about if they're being used to trigger line actions.
 	if ( target->player == COOP_GetVoodooDollDummyPlayer() )
-		return -1;
+		if ( source && inflictor )
+			goto thrust;
+		else
+			return -1;
 
 	// Spectral targets only take damage from spectral projectiles.
 	if (target->flags4 & MF4_SPECTRAL && damage < TELEFRAG_DAMAGE)
@@ -1358,7 +1362,8 @@ int P_DamageMobj (AActor *target, AActor *inflictor, AActor *source, int damage,
 			MeansOfDeath = mod;
 		}
 	}
-
+// [RK] This label is for voodoo dolls online to be pushed since we aren't damaging them.
+thrust:
 	// Push the target unless the source's weapon's kickback is 0.
 	// (i.e. Gauntlets/Chainsaw)
 	// [BB] The server handles this.
@@ -1368,7 +1373,7 @@ int P_DamageMobj (AActor *target, AActor *inflictor, AActor *source, int damage,
 		&& !(inflictor->flags2 & MF2_NODMGTHRUST)
 		&& !(flags & DMG_THRUSTLESS)
 		&& (source == NULL || source->player == NULL || !(source->flags2 & MF2_NODMGTHRUST))
-		&& ( PLAYER_CannotAffectAllyWith( source, target, inflictor, ZADF_DONT_PUSH_ALLIES ) == false )
+		&& (( PLAYER_CannotAffectAllyWith( source, target, inflictor, ZADF_DONT_PUSH_ALLIES ) == false ) || ( target->player == COOP_GetVoodooDollDummyPlayer() )) // [RK] Dolls need to be pushed.
 		&& ( NETWORK_InClientMode() == false ) )
 	{
 		int kickback;
@@ -1454,11 +1459,14 @@ int P_DamageMobj (AActor *target, AActor *inflictor, AActor *source, int damage,
 			}
 		}
 	}
+	// [RK] This is all we need to do for voodoo dolls.
+	if ( target->player == COOP_GetVoodooDollDummyPlayer() )
+		return -1;
 
 	// [RH] Avoid friendly fire if enabled
 	if (!(flags & DMG_FORCED) && source != NULL &&
 		((player && player != source->player) || (!player && target != source)) &&
-		target->IsTeammate (source))
+		((target->IsTeammate (source)) || ( target->IsFriend(source) && (zadmflags & ZADF_SHOOT_THROUGH_ALLIES)))) // [RK] Treat allied monsters like teammates with shoot through.
 	{
 		// [BL] Some adjustments for Skulltag
 		if (player && (( teamlms || survival ) && ( MeansOfDeath == NAME_SpawnTelefrag )) == false )
@@ -1502,13 +1510,13 @@ int P_DamageMobj (AActor *target, AActor *inflictor, AActor *source, int damage,
 				return -1;
 			}
 
+			// [AK] Trigger an event script indicating that the player has taken damage before any damage
+			// can be absorbed by their armor. If the event returns 0, don't do anything else.
+			if (GAMEMODE_HandleDamageEvent(target, inflictor, source, damage, mod, true) == false)
+				return -1;
+
 			if (!(flags & DMG_NO_ARMOR) && player->mo->Inventory != NULL)
 			{
-				// [AK] Trigger an event script indicating that the player has taken damage before any damage
-				// can be absorbed by their armor. If the event returns 0, don't do anything else.
-				if ( GAMEMODE_HandleDamageEvent( target, inflictor, source, damage, mod, true ) == false )
-					return -1;
-
 				int newdam = damage;
 				player->mo->Inventory->AbsorbDamage (damage, mod, newdam);
 				damage = newdam;
@@ -1610,14 +1618,14 @@ int P_DamageMobj (AActor *target, AActor *inflictor, AActor *source, int damage,
 	}
 	else
 	{
+		// [AK] Trigger an event script indicating that the actor has taken damage before any damage
+		// can be absorbed by their armor. If the event returns 0, don't do anything else.
+		if (GAMEMODE_HandleDamageEvent(target, inflictor, source, damage, mod, true) == false)
+			return -1;
+
 		// Armor for monsters.
 		if (!(flags & (DMG_NO_ARMOR|DMG_FORCED)) && target->Inventory != NULL && damage > 0)
 		{
-			// [AK] Trigger an event script indicating that the actor has taken damage before any damage
-			// can be absorbed by their armor. If the event returns 0, don't do anything else.
-			if ( GAMEMODE_HandleDamageEvent( target, inflictor, source, damage, mod, true ) == false )
-				return -1;
-
 			int newdam = damage;
 			target->Inventory->AbsorbDamage (damage, mod, newdam);
 			damage = newdam;
@@ -2365,7 +2373,7 @@ void PLAYER_SetTeam( player_t *pPlayer, ULONG ulTeam, bool bNoBroadcast )
 		if ( NETWORK_GetState() == NETSTATE_SERVER )
 		{
 			const ULONG ulPlayer = static_cast<ULONG>( pPlayer-players );
-			SERVER_ResetInventory( ulPlayer );
+			SERVER_ResetInventory( ulPlayer, true, false ); // [RK] Don't give out inventory in reverse order.
 			// [BB] SERVER_ResetInventory only informs the player ulPlayer. Let the others know of at least the ammo of the player.
 			SERVERCOMMANDS_SyncPlayerAmmoAmount ( ulPlayer, ulPlayer, SVCF_SKIPTHISCLIENT );
 		}
@@ -2470,11 +2478,9 @@ void PLAYER_SetSpectator( player_t *pPlayer, bool bBroadcast, bool bDeadSpectato
 
 	// [BB] Morphed players need to be unmorphed before being changed to spectators.
 	// [WS] This needs to be done before we turn our player into a spectator.
-	if (( pPlayer->morphTics ) &&
-		( NETWORK_InClientMode() == false ))
-	{
+	// [AK] Don't do this yet if they're turning into a dead spectator.
+	if (( pPlayer->morphTics ) && ( NETWORK_InClientMode( ) == false ) && ( bDeadSpectator == false ))
 		P_UndoPlayerMorph ( pPlayer, pPlayer );
-	}
 
 	// Flag this player as being a spectator.
 	pPlayer->bSpectating = true;
@@ -2573,6 +2579,13 @@ void PLAYER_SetSpectator( player_t *pPlayer, bool bBroadcast, bool bDeadSpectato
 				// [AK] Apply the skin's scale to the old body's scale.
 				PLAYER_ApplySkinScaleToBody( pPlayer, pOldBody, pOldWeapon );
 			}
+
+			// [AK] If the player was morphed before turning into a dead spectator, unmorph them now.
+			if (( pPlayer->morphTics ) && ( NETWORK_InClientMode( ) == false ))
+			{
+				pPlayer->MorphExitFlash = nullptr;
+				P_UndoPlayerMorph( pPlayer, pPlayer );
+			}
 		}
 		// [BB] In case the player is not respawned as dead spectator, we have to manually clear its TID.
 		else
@@ -2649,6 +2662,10 @@ void PLAYER_SetDefaultSpectatorValues( player_t *pPlayer )
 
 	// [RK] Clear the frozen flags so the spectator can move.
 	pPlayer->cheats &= ~(CF_FROZEN | CF_TOTALLYFROZEN);
+
+	// [AK] Enable the NOINTERACTION flag if using source-engine noclipping.
+	if ( P_IsUsingSourceEngineNoClip( pPlayer->mo ))
+		pPlayer->mo->flags5 |= MF5_NOINTERACTION;
 
 	// [BB] Speed and viewheight of spectators should be independent of the player class.
 	pPlayer->mo->Speed = FRACUNIT;
@@ -2845,109 +2862,39 @@ void PLAYER_SetTime( player_t *pPlayer, ULONG ulTime )
 
 //*****************************************************************************
 //
-void PLAYER_SetStatus( player_t *pPlayer, ULONG ulType, bool bEnable, ULONG ulFlags )
+void PLAYER_SetStatus( player_t *player, const int statuses, const bool enable, const int networkFlags )
 {
-	if ( pPlayer == NULL )
+	if ( player == nullptr )
 		return;
 
-	switch ( ulType )
+	const int oldStatuses = player->statuses;
+
+	if ( enable )
+		player->statuses |= statuses;
+	else
+		player->statuses &= ~statuses;
+
+	// [AK] Don't send updates if none of the statuses changed.
+	if ( player->statuses != oldStatuses )
 	{
-		case PLAYERSTATUS_CHATTING:
+		// [AK] If we're a client, tell the server that our status changed.
+		if ( NETWORK_GetState( ) == NETSTATE_CLIENT )
 		{
-			if ( pPlayer->bChatting == bEnable )
-				return;
-
-			pPlayer->bChatting = bEnable;
-
-			// [AK] Tell the server we're beginning to or have stopped chatting.
-			if (( NETWORK_GetState( ) == NETSTATE_CLIENT ) && ( ulFlags & PLAYERSTATUS_CLIENTSHOULDSENDUPDATE ))
-			{
-				if ( bEnable )
-					CLIENTCOMMANDS_StartChat( );
-				else
-					CLIENTCOMMANDS_EndChat( );
-			}
-
-			break;
+			if ( networkFlags & SETPLAYERSTATUS_CLIENTSENDSUPDATE )
+				CLIENTCOMMANDS_SetStatus( );
+		}
+		// [AK] If we're the server, tell the clients that this player's status
+		// changed, except when sending updates is forbidding, or if we update
+		// this player's "ready to go on" status when everyone's ready to go on now.
+		else if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && (( networkFlags & SETPLAYERSTATUS_SERVERCANTSENDUPDATE ) == false ))
+		{
+			if (( statuses != PLAYERSTATUS_READYTOGOON ) || ( SERVER_IsEveryoneReadyToGoOn( ) == false ))
+				SERVERCOMMANDS_SetPlayerStatus( player - players );
 		}
 
-		case PLAYERSTATUS_INCONSOLE:
-		{
-			// [BB] Don't change the displayed console status when a demo is played.
-			if (( CLIENTDEMO_IsPlaying( )) || ( pPlayer->bInConsole == bEnable ))
-				return;
-
-			pPlayer->bInConsole = bEnable;
-
-			// [AK] Tell the server that we entered or exited the console.
-			if (( NETWORK_GetState( ) == NETSTATE_CLIENT ) && ( ulFlags & PLAYERSTATUS_CLIENTSHOULDSENDUPDATE ))
-			{
-				if ( bEnable )
-					CLIENTCOMMANDS_EnterConsole( );
-				else
-					CLIENTCOMMANDS_ExitConsole( );
-			}
-
-			break;
-		}
-
-		case PLAYERSTATUS_INMENU:
-		{
-			// [BB] Don't change the displayed menu status when a demo is played.
-			if (( CLIENTDEMO_IsPlaying( )) || ( pPlayer->bInMenu == bEnable ))
-				return;
-
-			pPlayer->bInMenu = bEnable;
-
-			// [AK] Tell the server that we entered or exited the menu.
-			if (( NETWORK_GetState( ) == NETSTATE_CLIENT ) && ( ulFlags & PLAYERSTATUS_CLIENTSHOULDSENDUPDATE ))
-			{
-				if ( bEnable )
-					CLIENTCOMMANDS_EnterMenu( );
-				else
-					CLIENTCOMMANDS_ExitMenu( );
-			}
-
-			break;
-		}
-
-		case PLAYERSTATUS_LAGGING:
-		{
-			if ( pPlayer->bLagging == bEnable )
-				return;
-
-			pPlayer->bLagging = bEnable;
-			break;
-		}
-
-		case PLAYERSTATUS_READYTOGOON:
-		{
-			if ( pPlayer->bReadyToGoOn == bEnable )
-				return;
-
-			pPlayer->bReadyToGoOn = bEnable;
-			break;
-		}
-
-		default:
-			return;
-	}
-
-	// [AK] If we're the server, tell the clients that this player's status changed,
-	// except when we update this player's "ready to go on" status if everyone's ready.
-	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-	{
-		if (( ulType != PLAYERSTATUS_READYTOGOON ) || ( SERVER_IsEveryoneReadyToGoOn( ) == false ))
-		{
-			const ULONG ulPlayer = pPlayer - players;
-
-			// [AK] Should we skip sending an update to the client whose status we're changing?
-			// This is if the client already changed the status on their end.
-			if ( ulFlags & PLAYERSTATUS_SERVERSHOULDSKIPCLIENT )
-				SERVERCOMMANDS_SetPlayerStatus( ulPlayer, static_cast<PlayerStatusType>( ulType ), ulPlayer, SVCF_SKIPTHISCLIENT );
-			else
-				SERVERCOMMANDS_SetPlayerStatus( ulPlayer, static_cast<PlayerStatusType>( ulType ));
-		}
+		// [AK] If we're recording a demo, write a command to update our status.
+		if ( CLIENTDEMO_IsRecording( ))
+			CLIENTDEMO_WriteSetStatus( statuses, enable );
 	}
 }
 
@@ -3271,57 +3218,122 @@ void PLAYER_ClearWeapon( player_t *pPlayer )
 
 //*****************************************************************************
 //
-bool PLAYER_IsUsingWeaponSkin( AActor *pActor )
+int PLAYER_GetOverrideSkin( player_t *player )
 {
-	// [AK] Only players can use weapons.
-	if (( pActor ) && ( pActor->player ) && ( pActor->player->ReadyWeapon ))
+	int skin = -1;
+
+	if ( player != nullptr )
 	{
-		if ( pActor->player->ReadyWeapon->PreferredSkin != NAME_None )
+		int overrideSkin = player->CurrentPlayerClass;
+		const char *skinName = nullptr;
+
+		// [AK] Check if the player's skin was overridden from ACS.
+		if ( player->ACSSkin != NAME_None )
 		{
-			// [AK] Check if the weapon's PreferredSkin actually exists.
-			const int skin = R_FindSkin( pActor->player->ReadyWeapon->PreferredSkin, pActor->player->CurrentPlayerClass );
-			return ( skin != pActor->player->CurrentPlayerClass );
+			skinName = player->ACSSkin;
+			overrideSkin = R_FindSkin( skinName, player->CurrentPlayerClass );
+
+			// [AK] Make sure that the overridden skin actually exists.
+			if (( overrideSkin != player->CurrentPlayerClass ) || ( stricmp( skinName, "Base" ) == 0 ))
+				skin = overrideSkin;
+		}
+
+		// [AK] Next, check if the player's current weapon has its own preferred
+		// skin. Only apply this skin if the skin from ACS doesn't override it.
+		if (( player->ReadyWeapon != nullptr ) && ( player->ReadyWeapon->PreferredSkin != NAME_None ))
+		{
+			if (( skin == -1 ) || ( player->ACSSkinOverridesWeaponSkin == false ))
+			{
+				skinName = player->ReadyWeapon->PreferredSkin;
+				overrideSkin = R_FindSkin( skinName, player->CurrentPlayerClass );
+
+				// [AK] Check if the weapon's PreferredSkin actually exists.
+				if (( overrideSkin != player->CurrentPlayerClass ) || ( stricmp( skinName, "Base" ) == 0 ))
+					skin = overrideSkin;
+			}
 		}
 	}
 
-	return ( false );
+	return skin;
 }
 
 //*****************************************************************************
 //
-void PLAYER_ApplySkinScaleToBody( player_t *pPlayer, AActor *pBody, AWeapon *pWeapon )
+bool PLAYER_ShouldForceBaseSkin( player_t *player )
 {
-	bool bUsingWeaponSkin = false;
+	if ( player == nullptr )
+		return true;
+
+	// [AK] Force the base skin when all skins are disabled, or if only cheat
+	// skins are are supposed to be disabled and the player's using one.
+	if ( NETWORK_GetState( ) != NETSTATE_SERVER )
+	{
+		if (( cl_skins <= 0 ) || (( cl_skins >= 2 ) && ( skins[player->userinfo.GetSkin( )].bCheat )))
+			return true;
+	}
+
+	// [BB] MF4_NOSKIN should force the player to have the base skin too, the
+	// same is true for morphed players.
+	if ((( player->mo != nullptr ) && ( player->mo->flags4 & MF4_NOSKIN )) || ( player->morphTics ))
+		return true;
+
+	return false;
+}
+
+//*****************************************************************************
+//
+void PLAYER_ApplySkinScaleToBody( player_t *player, AActor *body, AWeapon *weapon )
+{
+	bool usingOverrideSkin = false;
 	int skinIdx = 0;
 
-	// [AK] Check if the weapon's PreferredSkin actually exists.
-	if (( pWeapon ) && ( pWeapon->PreferredSkin != NAME_None ))
-	{
-		const int weaponSkin = R_FindSkin( pWeapon->PreferredSkin, pPlayer->CurrentPlayerClass );
+	if (( player == nullptr ) || ( body == nullptr ))
+		return;
 
-		if ( weaponSkin != pPlayer->CurrentPlayerClass )
+	// [AK] Check if the player's skin was overridden from ACS and actually exists.
+	if ( player->ACSSkin != NAME_None )
+	{
+		const int acsSkin = R_FindSkin( player->ACSSkin, player->CurrentPlayerClass );
+
+		if ( acsSkin != player->CurrentPlayerClass )
 		{
-			skinIdx = weaponSkin;
-			bUsingWeaponSkin = true;
+			skinIdx = acsSkin;
+			usingOverrideSkin = true;
 		}
 	}
 
-	// [AK] If the player isn't using a PreferredSkin, then use their personal skin instead.
-	if ( bUsingWeaponSkin == false )
-		skinIdx = pPlayer->userinfo.GetSkin( );
+	// [AK] Next, check if the weapon's PreferredSkin actually exists. Only apply
+	// this skin if the skin from ACS doesn't override it.
+	if (( weapon ) && ( weapon->PreferredSkin != NAME_None ))
+	{
+		if (( usingOverrideSkin == false ) || ( player->ACSSkinOverridesWeaponSkin == false ))
+		{
+			const int weaponSkin = R_FindSkin( weapon->PreferredSkin, player->CurrentPlayerClass );
 
-	// [AK] PreferredSkin overrides NOSKIN.
-	if (( bUsingWeaponSkin ) || ( skinIdx != 0 && ( pBody->flags4 & MF4_NOSKIN ) == false ))
+			if ( weaponSkin != player->CurrentPlayerClass )
+			{
+				skinIdx = weaponSkin;
+				usingOverrideSkin = true;
+			}
+		}
+	}
+
+	// [AK] If the player isn't using an overridden skin, use their personal skin instead.
+	if ( usingOverrideSkin == false )
+		skinIdx = player->userinfo.GetSkin( );
+
+	// [AK] An overridden skin also overrides NOSKIN.
+	if (( usingOverrideSkin ) || ( skinIdx != 0 && ( body->flags4 & MF4_NOSKIN ) == false ))
 	{
 		const FPlayerSkin &skin = skins[skinIdx];
 
 		// [AK] Don't apply a skin's scale to the body if it's not supposed to be visible.
-		if ( skin.sprite == pBody->sprite )
+		if ( skin.sprite == body->sprite )
 		{
-			const AActor *const defaultActor = pBody->GetDefault( );
+			const AActor *const defaultActor = body->GetDefault( );
 
-			pBody->scaleX = Scale( pBody->scaleX, skin.ScaleX, defaultActor->scaleX );
-			pBody->scaleY = Scale( pBody->scaleY, skin.ScaleY, defaultActor->scaleY );
+			body->scaleX = Scale( body->scaleX, skin.ScaleX, defaultActor->scaleX );
+			body->scaleY = Scale( body->scaleY, skin.ScaleY, defaultActor->scaleY );
 		}
 	}
 }
@@ -3563,6 +3575,10 @@ bool PLAYER_CannotAffectAllyWith( AActor *pActor1, AActor *pActor2, AActor *pInf
 {
 	// [AK] Check if we have the corresponding zadmflag enabled.
 	if (( zadmflags & flag ) == false )
+		return false;
+
+	// [RK] Voodoo dolls still need to be affected since they're not really an 'ally'.
+	if ( pActor2 && pActor2->player && (pActor2->player->mo != pActor2 ))
 		return false;
 
 	// [AK] If the inflicting actor (e.g. projectile) is forced to affect allied players

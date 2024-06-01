@@ -67,6 +67,8 @@
 #include <ctype.h>
 #include <math.h>
 #include <set>
+#include <vector>
+#include <string>
 #include "../GeoIP/GeoIP.h"
 
 #include "c_console.h"
@@ -159,6 +161,7 @@ void SERVERCONSOLE_UpdateIP( NETADDRESS_s LocalAddress );
 //	VARIABLES
 
 static	TArray<NetworkPWAD>	g_PWADs;
+static	TArray<NetworkPWAD>	g_AuthenticatedWADs; // [SB] All authenticated WAD files, including IWAD and engine PK3
 static	FString		g_IWAD; // [RC/BB] Which IWAD are we using?
 
 FString g_lumpsAuthenticationChecksum;
@@ -208,6 +211,34 @@ static bool g_bDuplicateLumpAuthenticated = false;
 // differ wildly between systems, e.g. if the server and client have different vid_renderer values the names will
 // already be off. So we create a special index of script names here.
 static TArray<FName> g_ACSNameIndex;
+
+// [SB] Hashes for Freedoom lumps that must be detected for Doom network compatibility.
+static const std::vector<std::string> g_FreedoomPlayPalHashes = {
+	"2e01ae6258f2a0fdad32125537efe1af", // Freedoom PLAYPAL hash
+	"4804c7f34b5285c334a7913dd98fae16", // Freedoom 0.8-beta1 PLAYPAL hash
+	"2e01ae6258f2a0fdad32125537efe1af", // Freedoom 0.11.3 PLAYPAL hash
+	"7fe3ed884aff7774526ed9b61018f6fe", // Freedoom 0.12.0 PLAYPAL hash
+	"c7ac0dbbebc979a2c948a4c9afd6b4af", // Freedoom 0.13.0 PLAYPAL hash
+};
+
+static const std::vector<std::string> g_FreedoomColormapHashes = {
+	"bb535e66cae508e3833a5d2de974267b", // Freedoom COLORMAP hash
+	"100c2c81afe87bb6dd1dbcadee9a7e58", // Freedoom 0.8-beta1 COLORMAP hash
+	"4c7d4028a88f7929d9c553f65bb265ba", // Freedoom 0.9 COLORMAP hash
+	"90d4527e1836e373f1cc6f2c9d5e3ba3", // Freedoom 0.12.0 COLORMAP hash
+};
+
+static const std::vector<std::string> g_FreedoomDehackedHashes = {
+	"3c48ccc87e71d791ee3df64668b3fb42", // Freedoom 0.8-beta1
+	"9de9ddd0bc435cb8572db76a13d3140f", // Freedoom 0.8
+	"90e9007b1efc1e35eeacc99c5971a15b", // Freedoom 0.9
+	"67b253fe502cbf269e2cd2f6b7e76f17", // Freedoom 0.10
+	"61f49a1c915c7ccaea016b51441bef1d", // Freedoom 0.11.3
+	"4004b707e3bbf28fe58a6d8282784fbc", // Freedoom Phase 1 0.12.0
+	"a87016a0610d8023e6fdae013c8c001c", // Freedoom Phase 2 0.12.0
+	"015a23f11718e5bc2fab7f3d6f946743", // Freedoom Phase 1 0.13.0
+	"0fe45773c7b9eefd1ca07f1f89d34b76", // Freedoom Phase 2 0.13.0
+};
 
 //*****************************************************************************
 //	PROTOTYPES
@@ -511,17 +542,12 @@ void NETWORK_Construct( USHORT usPort, bool bAllocateLANSocket )
 
 				// [BB] To make Doom and Freedoom network compatible, substitue the Freedoom PLAYPAL/COLORMAP hash
 				// by the corresponding Doom hash.
+				// [SB] Use a list of the hashes instead of a long chain of conditions.
 				// 4804c7f34b5285c334a7913dd98fae16 Doom PLAYPAL hash
 				// 061a4c0f80aa8029f2c1bc12dc2e261e Doom COLORMAP hash
-				// 2e01ae6258f2a0fdad32125537efe1af Freedoom PLAYPAL hash
-				// bb535e66cae508e3833a5d2de974267b Freedoom COLORMAP hash
-				// 4804c7f34b5285c334a7913dd98fae16 Freedoom 0.8-beta1 PLAYPAL hash
-				// 100c2c81afe87bb6dd1dbcadee9a7e58 Freedoom 0.8-beta1 COLORMAP hash
-				// 4c7d4028a88f7929d9c553f65bb265ba Freedoom 0.9 COLORMAP hash
-				// 2e01ae6258f2a0fdad32125537efe1af Freedoom 0.11.3 PLAYPAL hash
-				if ( ( stricmp ( it->Name.c_str(), "PLAYPAL" ) == 0 ) && ( ( stricmp ( checksum.GetChars(), "2e01ae6258f2a0fdad32125537efe1af" ) == 0 ) || ( stricmp ( checksum.GetChars(), "4804c7f34b5285c334a7913dd98fae16" ) == 0 ) || ( stricmp ( checksum.GetChars(), "2e01ae6258f2a0fdad32125537efe1af" ) == 0 ) ) )
+				if ( stricmp ( it->Name.c_str(), "PLAYPAL" ) == 0 && std::find( g_FreedoomPlayPalHashes.cbegin(), g_FreedoomPlayPalHashes.cend(), checksum.GetChars() ) != g_FreedoomPlayPalHashes.cend() )
 					checksum = "4804c7f34b5285c334a7913dd98fae16";
-				else if ( ( stricmp ( it->Name.c_str(), "COLORMAP" ) == 0 ) && ( ( stricmp ( checksum.GetChars(), "bb535e66cae508e3833a5d2de974267b" ) == 0 ) || ( stricmp ( checksum.GetChars(), "100c2c81afe87bb6dd1dbcadee9a7e58" ) == 0 ) || ( stricmp ( checksum.GetChars(), "4c7d4028a88f7929d9c553f65bb265ba" ) == 0 ) ) )
+				else if ( stricmp ( it->Name.c_str(), "COLORMAP" ) == 0 && std::find( g_FreedoomColormapHashes.cbegin(), g_FreedoomColormapHashes.cend(), checksum.GetChars() ) != g_FreedoomColormapHashes.cend() )
 					checksum = "061a4c0f80aa8029f2c1bc12dc2e261e";
 
 				longChecksum += checksum;
@@ -546,13 +572,8 @@ void NETWORK_Construct( USHORT usPort, bool bAllocateLANSocket )
 
 					// [BB] To make Doom and Freedoom network compatible, we need to ignore its DEHACKED lump.
 					// Since this lump only changes some strings, this should cause no problems.
-					if ( ( stricmp ( it->Name.c_str(), "DEHACKED" ) == 0 )
-						&& ( ( stricmp ( checksum.GetChars(), "3c48ccc87e71d791ee3df64668b3fb42" ) == 0 ) // Freedoom 0.8-beta1
-							|| ( stricmp ( checksum.GetChars(), "9de9ddd0bc435cb8572db76a13d3140f" ) == 0 ) // Freedoom 0.8
-							|| ( stricmp ( checksum.GetChars(), "90e9007b1efc1e35eeacc99c5971a15b" ) == 0 ) // Freedoom 0.9
-							|| ( stricmp ( checksum.GetChars(), "67b253fe502cbf269e2cd2f6b7e76f17" ) == 0 ) // Freedoom 0.10
-							|| ( stricmp ( checksum.GetChars(), "61f49a1c915c7ccaea016b51441bef1d" ) == 0 ) // Freedoom 0.11.3
-							) )
+					// [SB] Use a list of the hashes instead of a long chain of conditions.
+					if ( stricmp ( it->Name.c_str(), "DEHACKED" ) == 0 && std::find( g_FreedoomDehackedHashes.cbegin(), g_FreedoomDehackedHashes.cend(), checksum.GetChars() ) != g_FreedoomDehackedHashes.cend() )
 						continue;
 
 					// [TP] The wad that had this lump is no longer optional.
@@ -607,9 +628,6 @@ void NETWORK_Construct( USHORT usPort, bool bAllocateLANSocket )
 			cls->ActorNetworkIndex = 0;
 	}
 
-	// [RC/BB] Init the list of PWADs.
-	network_InitPWADList( );
-
 	// [BB] Initialize the GeoIP database.
 	if( NETWORK_GetState() == NETSTATE_SERVER )
 	{
@@ -652,6 +670,10 @@ void NETWORK_Construct( USHORT usPort, bool bAllocateLANSocket )
 
 		delete mdata;
 	}
+
+	// [RC/BB] Init the list of PWADs.
+	// [SB] Moved this here so that WADs containing maps are correctly marked as authenticated.
+	network_InitPWADList( );
 
 	// Call NETWORK_Destruct() when Skulltag closes.
 	atterm( NETWORK_Destruct );
@@ -1160,6 +1182,13 @@ const TArray<NetworkPWAD>& NETWORK_GetPWADList( void )
 
 //*****************************************************************************
 //
+const TArray<NetworkPWAD>& NETWORK_GetAuthenticatedWADsList( void )
+{
+	return g_AuthenticatedWADs;
+}
+
+//*****************************************************************************
+//
 const char *NETWORK_GetIWAD( void )
 {
 	return g_IWAD.GetChars( );
@@ -1624,14 +1653,15 @@ static void network_InitPWADList( void )
 	// Collect all the PWADs into a list.
 	for ( ULONG ulIdx = 0; Wads.GetWadName( ulIdx ) != NULL; ulIdx++ )
 	{
-		// Skip the IWAD, zandronum.pk3, files that were automatically loaded from subdirectories (such as skin files), and WADs loaded automatically within pk3 files.
-		// [BB] The latter are marked as being loaded automatically.
-		if (( ulIdx == ulRealIWADIdx ) ||
-			( stricmp( Wads.GetWadName( ulIdx ), GAMENAMELOWERCASE ".pk3" ) == 0 ) ||
-			( Wads.GetLoadedAutomatically( ulIdx )) )
+		// [SB] Skip nested WADs, they can't be checksummed and only their parents matter anyway. 
+		if ( Wads.GetParentWad( ulIdx ) != ulIdx )
 		{
 			continue;
 		}
+
+		const bool bIsIwad = ( ulIdx == ulRealIWADIdx );
+		const bool bIsBaseWad = ( stricmp( Wads.GetWadName( ulIdx ), BASEWAD ) == 0 ); // [SB] Corrected to use BASEWAD instead of GAMENAMELOWERCASE ".pk3"
+
 		char MD5Sum[33];
 		MD5SumOfFile ( Wads.GetWadFullName( ulIdx ), MD5Sum );
 
@@ -1639,7 +1669,19 @@ static void network_InitPWADList( void )
 		pwad.name = Wads.GetWadName( ulIdx );
 		pwad.checksum = MD5Sum;
 		pwad.wadnum = ulIdx;
-		g_PWADs.Push( pwad );
+
+		// Skip the IWAD, zandronum.pk3, files that were automatically loaded from subdirectories (such as skin files), and WADs loaded automatically within pk3 files.
+		// [BB] The latter are marked as being loaded automatically.
+		if ( !bIsIwad && !bIsBaseWad && !Wads.GetLoadedAutomatically( ulIdx ) )
+		{
+			g_PWADs.Push( pwad );
+		}
+
+		// [SB] Only add files that contain protected lumps or levels.
+		if ( Wads.WadContainsAuthenticatedLumps( ulIdx ) )
+		{
+			g_AuthenticatedWADs.Push( pwad );
+		}
 	}
 }
 

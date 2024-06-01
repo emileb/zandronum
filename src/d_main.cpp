@@ -572,7 +572,7 @@ CVAR (Flag, sv_nocountendmonst,		dmflags2, DF2_NOCOUNTENDMONST);
 CVAR (Flag, sv_norunes,				dmflags2, DF2_NO_RUNES);
 CVAR (Flag, sv_instantreturn,		dmflags2, DF2_INSTANT_RETURN);
 CVAR (Flag, sv_noteamselect,		dmflags2, DF2_NO_TEAM_SELECT);
-CVAR (Flag, sv_shotgunstart,		dmflags2, DF2_COOP_SHOTGUNSTART);
+CVAR (Flag, sv_shotgunstart,		dmflags2, DF2_SHOTGUNSTART);
 
 //==========================================================================
 //
@@ -664,6 +664,7 @@ CVAR (Flag, sv_dontpushallies, zadmflags, ZADF_DONT_PUSH_ALLIES);
 CVAR (Flag, sv_dontkeepjoinqueue, zadmflags, ZADF_DONT_KEEP_JOIN_QUEUE);
 CVAR (Flag, sv_donthidestats, zadmflags, ZADF_DONT_HIDE_STATS);
 CVAR (Flag, sv_dontoverrideplayercolors, zadmflags, ZADF_DONT_OVERRIDE_PLAYER_COLORS);
+CVAR (Flag, sv_nospawntelefog, zadmflags, ZADF_NO_SPAWN_TELEFOG);
 
 // Old name kept for compatibility
 CVAR (Flag, sv_forcegldefaults,		zadmflags, ZADF_FORCE_VIDEO_DEFAULTS);
@@ -2909,6 +2910,9 @@ void D_DoomMain (void)
 		GStrings.LoadStrings (false);
 
 		V_InitFontColors ();
+
+		// [TP] Parse VOTEINFO lumps
+		CALLVOTE_ReadVoteInfo( );
 
 		// [RH] Moved these up here so that we can do most of our
 		//		startup output in a fullscreen console.

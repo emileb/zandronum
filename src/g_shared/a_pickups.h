@@ -89,6 +89,7 @@ void P_PlaybackKeyConfWeapons(FWeaponSlots *slots);
 void Net_WriteWeapon(const PClass *type);
 const PClass *Net_ReadWeapon(BYTE **stream);
 
+bool P_SetPlayerWeaponZoomFactor(player_t *player, float zoom, const int flags); // [AK]
 void P_SetupWeapons_ntohton();
 void P_WriteDemoWeaponsChunk(BYTE **demo);
 void P_ReadDemoWeaponsChunk(BYTE **demo);
@@ -279,6 +280,15 @@ public:
 	int BobStyle;							// [XA] Bobbing style. Defines type of bobbing (e.g. Normal, Alpha)
 	fixed_t BobSpeed;						// [XA] Bobbing speed. Defines how quickly a weapon bobs.
 	fixed_t BobRangeX, BobRangeY;			// [XA] Bobbing range. Defines how far a weapon bobs in either direction.
+
+	fixed_t StillBobSpeed;					// [AK] How quickly the weapon bobs up and down while standing still.
+	fixed_t StillBobRange;					// [AK] How far the weapon bobs up and down while standing still.
+	fixed_t ViewSwaySpeed;					// [JM] Sway speed when the player looks around.
+	fixed_t MotionSwaySpeed;				// [AK] Sway speed when the player moves or crouches up or down.
+	fixed_t JumpSwaySpeed;					// [AK] Sway speed when the player jumps up or down.
+	int SwayStyle;							// [JM] Sway Style
+	fixed_t ViewPitchOffset;				// [JM] View Pitch Offset
+	int ViewPitchStyle;						// [JM] View Pitch Style
 
 	// [BB] When a player uses this weapon and a skin with name equal to the PreferredSkin value exists for
 	// his/her player class, the player is forced to use this skin, overriding any personal skin settings.

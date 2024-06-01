@@ -516,7 +516,7 @@ class QueryIPQueue
 		NETADDRESS_s		Address;
 
 		// Expiration date.
-		long				lNextAllowedTime;
+		unsigned long		nextAllowedTime;
 
 	};
 
@@ -527,21 +527,21 @@ class QueryIPQueue
 	STORED_QUERY_IP_t			_IPQueue[MAX_QUERY_IPS];
 
 	// Head and tail of the queue.
-	unsigned int				_iQueueHead;
-	unsigned int				_iQueueTail;
+	unsigned int				_queueHead;
+	unsigned int				_queueTail;
 
 	// How long entries will last (seconds).
-	unsigned int				_iEntryLength;
+	unsigned int				_entryLength;
 
 //*************************************************************************
 public:
-	QueryIPQueue( int iEntryLength ) : _iQueueHead( 0 ), _iQueueTail( 0 ), _iEntryLength( iEntryLength )
+	QueryIPQueue( int entryLength ) : _queueHead( 0 ), _queueTail( 0 ), _entryLength( entryLength )
 	{
 	}
 
-	void	adjustHead( const LONG CurrentTime );
+	void	adjustHead( const unsigned long currentTime );
 	bool	addressInQueue( const NETADDRESS_s AddressFrom ) const;
-	void	addAddress( const NETADDRESS_s AddressFrom, const LONG lCurrentTime, std::ostream *errorOut = NULL );
+	void	addAddress( const NETADDRESS_s AddressFrom, const unsigned long currentTime, std::ostream *errorOut = NULL );
 	bool	isFull( ) const;
 };
 

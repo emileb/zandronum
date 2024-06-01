@@ -129,7 +129,10 @@
 #include "menu/menu.h"
 #include "v_text.h"
 #include "maprotation.h"
+#include "p_conversation.h"
 #include "st_hud.h"
+#include "voicechat.h"
+#include "gameconfigfile.h"
 
 //*****************************************************************************
 //	MISC CRAP THAT SHOULDN'T BE HERE BUT HAS TO BE BECAUSE OF SLOPPY CODING
@@ -198,7 +201,7 @@ CUSTOM_CVAR( Int, cl_backupcommands, 0, CVAR_ARCHIVE )
 // Player functions.
 // [BB] Does not work with the latest ZDoom changes. Check if it's still necessary.
 //static	void	client_SetPlayerPieces( BYTESTREAM_s *pByteStream );
-static	void	client_IgnorePlayer( BYTESTREAM_s *pByteStream );
+static	void	client_PlayerVoIPAudioPacket( BYTESTREAM_s *byteStream );
 
 // Game commands.
 static	void	client_SetGameMode( BYTESTREAM_s *pByteStream );
@@ -231,6 +234,7 @@ static	void	client_TeamFlagDropped( BYTESTREAM_s *pByteStream );
 static	void	client_CallVote( BYTESTREAM_s *pByteStream );
 static	void	client_PlayerVote( BYTESTREAM_s *pByteStream );
 static	void	client_VoteEnded( BYTESTREAM_s *pByteStream );
+static	void	client_ClearVote( BYTESTREAM_s *pByteStream );
 
 // Inventory commands.
 static	void	client_GiveInventory( BYTESTREAM_s *pByteStream );
@@ -429,6 +433,9 @@ void CLIENT_ClearAllPlayers( void )
 
 		// [AK] Clear out saved chat messages from the players.
 		CHAT_ClearChatMessages( ulIdx );
+
+		// [AK] Delete this player's VoIP channel if it exists.
+		VOIPController::GetInstance( ).RemoveVoIPChannel( ulIdx );
 	}
 
 	// [AK] Also clear out saved chat messages from the server.
@@ -591,7 +598,7 @@ void CLIENT_Tick( void )
 		// [BB] This will cause the server to send another reliable packet.
 		// This way, we notice whether we are missing the latest packets
 		// from the server.
-		CLIENTCOMMANDS_EndChat();
+		CLIENTCOMMANDS_SetStatus( );
 
 		break;
 
@@ -1519,7 +1526,7 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 					// missing, incompatible and unused client PWADs
 					TArray<Wad> missingPWADs;
 					TArray<WadDiff> incompatiblePWADs;
-					TArray<NetworkPWAD> unusedClientPWADs = *&NETWORK_GetPWADList( );
+					TArray<NetworkPWAD> unusedClientPWADs = *&NETWORK_GetAuthenticatedWADsList( );
 					for ( unsigned int serverI = 0; serverI < serverPWADs.Size( ); ++serverI )
 					{
 						bool found = false;
@@ -1544,23 +1551,23 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 							missingPWADs.Push ( serverPWADs[serverI] );
 					}
 
-					szErrorString.Format( "%s authentication failed.\nPlease make sure you are using the exact same WAD(s) as the server, and try again.", ( ulErrorCode == NETWORK_ERRORCODE_PROTECTED_LUMP_AUTHENTICATIONFAILED ) ? "Protected lump" : "Level" );
-					Printf( "The server reports %d PWAD(s), and you have %d\n", numServerPWADs, NETWORK_GetPWADList().Size() );
+					szErrorString.Format( "%s authentication failed.\nPlease make sure you are using the exact same file(s) as the server, and try again.", ( ulErrorCode == NETWORK_ERRORCODE_PROTECTED_LUMP_AUTHENTICATIONFAILED ) ? "Protected lump" : "Level" );
+					Printf( "The server reports %d file(s), and you have %d\n", numServerPWADs, NETWORK_GetAuthenticatedWADsList().Size() );
 					if ( incompatiblePWADs.Size( ) != 0 )
 					{
-						Printf( "Incompatible PWAD(s) (PWAD name - server | client):\n" );
+						Printf( "Incompatible file(s) (file name - server | client):\n" );
 						for ( unsigned int i = 0; i < incompatiblePWADs.Size( ); ++i )
 							Printf ( TEXTCOLOR_RED"%s - %s | %s\n", incompatiblePWADs[i].name.GetChars( ), incompatiblePWADs[i].checksum.GetChars( ), incompatiblePWADs[i].checksumClient.GetChars( ) );
 					}
 					if ( missingPWADs.Size( ) != 0 )
 					{
-						Printf( "Missing PWAD(s):\n" );
+						Printf( "Missing file(s):\n" );
 						for ( unsigned int i = 0; i < missingPWADs.Size( ); ++i )
 							Printf( TEXTCOLOR_RED"%s - %s\n", missingPWADs[i].name.GetChars( ), missingPWADs[i].checksum.GetChars( ) );
 					}
 					if ( unusedClientPWADs.Size( ) != 0 )
 					{
-						Printf( "Extra PWAD(s) not loaded by the server:\n" );
+						Printf( "Extra file(s) not loaded by the server:\n" );
 						for ( unsigned int i = 0; i < unusedClientPWADs.Size( ); ++i )
 							Printf( TEXTCOLOR_RED"%s - %s\n", unusedClientPWADs[i].name.GetChars( ), unusedClientPWADs[i].checksum.GetChars( ) );
 					}
@@ -1903,9 +1910,9 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 		client_AdjustPusher( pByteStream );
 		break;
 
-	case SVC_IGNOREPLAYER:
+	case SVC_PLAYERVOIPAUDIOPACKET:
 
-		client_IgnorePlayer( pByteStream );
+		client_PlayerVoIPAudioPacket( pByteStream );
 		break;
 
 	case SVC_EXTENDEDCOMMAND:
@@ -2329,6 +2336,12 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 				}
 				break;
 
+			// [RK]
+			case SVC2_CLEARVOTE:
+
+				client_ClearVote( pByteStream );
+				break;
+
 			default:
 				sprintf( szString, "CLIENT_ParsePacket: Illegible server message: %d\nLast command: %d\n", static_cast<int> (lExtCommand), static_cast<int> (g_lLastCmd) );
 				CLIENT_QuitNetworkGame( szString );
@@ -2403,6 +2416,46 @@ void CLIENT_PrintCommand( LONG lCommand )
 
 //*****************************************************************************
 //
+void CLIENT_RestoreServerInfoCVars( void )
+{
+	const char *serverInfoSections[2] = { "LocalServerInfo", "LocalServerInfo.Mod" };
+
+	// [AK] Reset all serverinfo CVars to their default values first. This is
+	// in case the server synced any CVars to us that aren't archived yet.
+	for ( FBaseCVar *cvar = CVars; cvar != nullptr; cvar = cvar->GetNext( ))
+	{
+		if ( cvar->GetFlags( ) & CVAR_SERVERINFO )
+			cvar->ResetToDefault( );
+	}
+
+	// [AK] Read from both local serverinfo sections in the config file and
+	// restore the values of any serverinfo CVars to whatever's saved in them.
+	for ( unsigned int i = 0; i < 2; i++ )
+	{
+		FString section;
+		const char *key, *value;
+		UCVarValue val;
+
+		section.Format( "%s.%s", gameinfo.ConfigName.GetChars( ), serverInfoSections[i] );
+
+		if ( GameConfig->SetSection( section ))
+		{
+			while ( GameConfig->NextInSection( key, value ))
+			{
+				FBaseCVar *cvar = FindCVar( key, nullptr );
+
+				if ( cvar != nullptr )
+				{
+					val.String = const_cast<char *>( value );
+					cvar->SetGenericRep( val, CVAR_String );
+				}
+			}
+		}
+	}
+}
+
+//*****************************************************************************
+//
 void CLIENT_QuitNetworkGame( const char *pszString )
 {
 	if ( pszString )
@@ -2466,6 +2519,11 @@ void CLIENT_QuitNetworkGame( const char *pszString )
 	// see SERVERCOMMANDS_SetGameModeLimits.
 	sv_gravity.ResetToDefault();
 
+	// [AK] We'll also restore any serverinfo CVars saved in our config and discard
+	// all of the server's settings. This is especially so that the server's settings
+	// don't overwrite ours if they're archived later.
+	CLIENT_RestoreServerInfoCVars( );
+
 	// If we're recording a demo, then finish it!
 	if ( CLIENTDEMO_IsRecording( ))
 		CLIENTDEMO_FinishRecording( );
@@ -2497,8 +2555,11 @@ void CLIENT_SendCmd( void )
 		DWORD oldButtons = players[consoleplayer].oldbuttons;
 
 		// [AK] Also toggle our "ready to go" status if we have auto-ready enabled, but do this only once.
-		if (( players[consoleplayer].bReadyToGoOn == false ) && (( cl_autoready ) || (( buttons ^ oldButtons ) && ( buttons & oldButtons ) == oldButtons )))
+		if ((( players[consoleplayer].statuses & PLAYERSTATUS_READYTOGOON ) == false ) &&
+			(( cl_autoready ) || (( buttons ^ oldButtons ) && ( buttons & oldButtons ) == oldButtons )))
+		{
 			CLIENTCOMMANDS_ReadyToGoOn( );
+		}
 
 		players[consoleplayer].oldbuttons = players[consoleplayer].cmd.ucmd.buttons;
 		return;
@@ -3053,12 +3114,10 @@ void PLAYER_ResetPlayerData( player_t *pPlayer )
 	pPlayer->lPointCount = 0;
 	pPlayer->ulDeathCount = 0;
 	PLAYER_ResetSpecialCounters ( pPlayer );
-	pPlayer->bChatting = 0;
-	pPlayer->bInConsole = 0;
-	pPlayer->bInMenu = 0;
+	pPlayer->statuses = 0;
 	pPlayer->bSpectating = 0;
-	pPlayer->bIgnoreChat = 0;
-	pPlayer->lIgnoreChatTicks = -1;
+	pPlayer->ignoreChat.Reset( );
+	pPlayer->ignoreVoice.Reset( );
 	pPlayer->bDeadSpectator = 0;
 	pPlayer->ulLivesLeft = 0;
 	pPlayer->bStruckPlayer = 0;
@@ -3070,10 +3129,8 @@ void PLAYER_ResetPlayerData( player_t *pPlayer )
 	pPlayer->ulPing = 0;
 	pPlayer->ulPingAverages = 0;
 	pPlayer->ulCountryIndex = 0;
-	pPlayer->bReadyToGoOn = 0;
 	pPlayer->pCorpse = NULL;
 	pPlayer->OldPendingWeapon = 0;
-	pPlayer->bLagging = 0;
 	pPlayer->bSpawnTelefragged = 0;
 	pPlayer->ulTime = 0;
 
@@ -3689,8 +3746,9 @@ void ServerCommands::SpawnPlayer::Execute()
 			g_bClientLagging = false;
 	}
 	// [BB] Don't spawn fog when receiving a snapshot.
+	// [AK] Don't spawn fog if ZADF_NO_SPAWN_TELEFOG is enabled.
 	// [WS] Don't spawn fog when a player is morphing. The server will tell us.
-	else if ( CLIENT_GetConnectionState() != CTS_RECEIVINGSNAPSHOT && !isMorphed && !bPlayerWasMorphed )
+	else if ( CLIENT_GetConnectionState() != CTS_RECEIVINGSNAPSHOT && !( zadmflags & ZADF_NO_SPAWN_TELEFOG ) && !isMorphed && !bPlayerWasMorphed )
 	{
 		// Spawn the respawn fog.
 		unsigned an = pActor->angle >> ANGLETOFINESHIFT;
@@ -3764,6 +3822,10 @@ void ServerCommands::SpawnPlayer::Execute()
 				PLAYER_ClearWeapon ( pPlayer );
 		}
 	}
+
+	// [AK] Reset the player's time and death count upon joining the game.
+	if ( priorState == PST_ENTER )
+		pPlayer->ulTime = pPlayer->ulDeathCount = 0;
 
 	// [TP] If we're overriding colors, rebuild translations now.
 	// If we just joined the game, rebuild all translations,
@@ -4092,10 +4154,17 @@ void ServerCommands::SetPlayerUserInfo::Execute()
 		// Other info.
 		else if ( name == NAME_Gender )
 			player->userinfo.GenderNumChanged ( value.ToLong() );
-		else if ( name == NAME_Color )
-			player->userinfo.ColorChanged ( value );
-		else if ( name == NAME_ColorSet )
-			player->userinfo.ColorSetChanged ( value.ToLong() );
+		else if (( name == NAME_Color ) || ( name == NAME_ColorSet ))
+		{
+			if ( name == NAME_Color )
+				player->userinfo.ColorChanged ( value );
+			else
+				player->userinfo.ColorSetChanged ( value.ToLong() );
+
+			// [AK] Update the status bar so that the new color appears right away.
+			if (( StatusBar != nullptr ) && ( StatusBar->GetPlayer( ) == player - players ))
+				StatusBar->AttachToPlayer( player );
+		}
 		else if ( name == NAME_RailColor )
 			player->userinfo.RailColorChanged ( value.ToLong() );
 		// Make sure the skin is valid.
@@ -4143,6 +4212,12 @@ void ServerCommands::SetPlayerUserInfo::Execute()
 		// [CK] We do compressed bitfields now.
 		else if ( name == NAME_CL_ClientFlags )
 			player->userinfo.ClientFlagsChanged ( value.ToLong() );
+		else if ( name == NAME_Voice_Enable )
+			player->userinfo.VoiceEnableChanged ( value.ToLong() );
+		else if ( name == NAME_Voice_ListenFilter )
+			player->userinfo.VoiceListenFilterChanged ( value.ToLong() );
+		else if ( name == NAME_Voice_TransmitFilter )
+			player->userinfo.VoiceTransmitFilterChanged ( value.ToLong() );
 		else
 		{
 			FBaseCVar **cvarPointer = player->userinfo.CheckKey( name );
@@ -4214,7 +4289,13 @@ void ServerCommands::SetPlayerKillCount::Execute()
 //
 void ServerCommands::SetPlayerStatus::Execute()
 {
-	PLAYER_SetStatus( player, type, value );
+	const bool isTalking = !!( player->statuses & PLAYERSTATUS_TALKING );
+
+	player->statuses = statuses;
+
+	// [AK] The server doesn't keep track of a player's "talking" status, so we
+	// must ensure that this status can't be changed here.
+	PLAYER_SetStatus( player, PLAYERSTATUS_TALKING, isTalking );
 }
 
 //*****************************************************************************
@@ -4403,6 +4484,14 @@ void ServerCommands::SetPlayerLivesLeft::Execute()
 
 //*****************************************************************************
 //
+void ServerCommands::SetPlayerACSSkin::Execute()
+{
+	player->ACSSkin = skinName;
+	player->ACSSkinOverridesWeaponSkin = overrideWeaponSkin;
+}
+
+//*****************************************************************************
+//
 void ServerCommands::UpdatePlayerPing::Execute()
 {
 	player->ulPing = ping;
@@ -4524,6 +4613,8 @@ void ServerCommands::SetLocalPlayerJumpTics::Execute()
 //
 void ServerCommands::DisconnectPlayer::Execute()
 {
+	const unsigned int playerIndex = static_cast<unsigned>( player - players );
+
 	// If we were a spectator and looking through this player's eyes, revert them.
 	if ( player->mo->CheckLocalView( consoleplayer ))
 	{
@@ -4548,16 +4639,19 @@ void ServerCommands::DisconnectPlayer::Execute()
 		player->mo = NULL;
 	}
 
-	playeringame[player - players] = false;
+	playeringame[playerIndex] = false;
 
 	// [AK] Clear all the saved chat messages this player said.
-	CHAT_ClearChatMessages( player - players );
+	CHAT_ClearChatMessages( playerIndex );
 
 	// [AK] Reset this player's custom values to their default values.
-	PLAYER_ResetCustomValues( player - players );
+	PLAYER_ResetCustomValues( playerIndex );
 
 	// Zero out all the player information.
 	PLAYER_ResetPlayerData( player );
+
+	// [AK] Delete this player's VoIP channel if it exists.
+	VOIPController::GetInstance( ).RemoveVoIPChannel( playerIndex );
 
 	// Refresh the HUD because this affects the number of players in the game.
 	HUD_ShouldRefreshBeforeRendering( );
@@ -4820,6 +4914,73 @@ void ServerCommands::SetHexenArmorSlots::Execute()
 	{
 		CLIENT_PrintWarning( "SetHexenArmorSlots: Player %td does not have HexenArmor!\n", player - players );
 	}
+}
+
+//*****************************************************************************
+//
+void ServerCommands::SendPlayerCommRule::Execute()
+{
+	// [AK] Set the player's VoIP channel volume if it was sent.
+	if ( sendVoIPChannelVolume )
+		VOIPController::GetInstance( ).SetChannelVolume( player - players, clamp<float>( VoIPChannelVolume, 0.0f, 2.0f ), false );
+
+	// [AK] Ignore the player's chat messages or voice, if necessary.
+	if (( ignoreChat ) || ( ignoreVoice ))
+	{
+		const int gender = player->userinfo.GetGender( );
+		FString message;
+
+		message.Format( "%s's ", player->userinfo.GetName( ));
+
+		if ( ignoreChat )
+		{
+			player->ignoreChat( true, ignoreChatTicks, nullptr );
+			message += "chat messages";
+		}
+
+		if ( ignoreVoice )
+		{
+			player->ignoreVoice( true, ignoreVoiceTicks, nullptr );
+
+			if ( ignoreChat )
+				message += " and ";
+
+			message += "voice";
+		}
+
+		message.AppendFormat( " will be ignored, because you're muting %s IP.\n", gender == GENDER_MALE ? "his" : ( gender == GENDER_FEMALE ? "her" : "its" ));
+		Printf( "%s\n", message.GetChars( ));
+	}
+}
+
+//*****************************************************************************
+//
+void ServerCommands::IgnoreLocalPlayer::Execute()
+{
+	if ( ignore )
+		CHAT_IgnorePlayer( player - players, doVoice, ticks, reason );
+	else
+		CHAT_UnignorePlayer( player - players, doVoice );
+}
+
+//*****************************************************************************
+//
+void ServerCommands::OpenMenu::Execute()
+{
+	// [AK] We shouldn't trust that the server sent us a valid name for the
+	// menu. We must double-check to make sure we can open it.
+	if ( M_IsValidMenu( menu ) == false )
+		return;
+
+	M_StartControlPanel( true );
+	M_SetMenu( menu, -1 );
+}
+
+//*****************************************************************************
+//
+void ServerCommands::CloseMenu::Execute()
+{
+	M_ClearMenus( );
 }
 
 //*****************************************************************************
@@ -5340,7 +5501,7 @@ void ServerCommands::SetThingSpecial1::Execute()
 //
 void ServerCommands::SetThingSpecial2::Execute()
 {
-	actor->special1 = special2;
+	actor->special2 = special2;
 }
 
 //*****************************************************************************
@@ -5677,7 +5838,7 @@ void ServerCommands::PrintMOTD::Execute()
 	// [BB] Some cleaning of the string since we can't trust the server.
 	V_RemoveTrailingCrapFromFString ( g_MOTD );
 	// [AK] Add pretty colors/formatting!
-	V_ColorizeString( g_MOTD );
+	g_MOTD = strbin1( g_MOTD.GetChars( ));
 }
 
 //*****************************************************************************
@@ -5894,6 +6055,22 @@ static void client_SetGameModeLimits( BYTESTREAM_s *pByteStream )
 	// [AK] Read in, and set the value for sv_allowprivatechat.
 	Value.Int = pByteStream->ReadByte();
 	sv_allowprivatechat.ForceSet( Value, CVAR_Int );
+
+	// [AK] Read in, and set the value for sv_allowvoicechat.
+	Value.Int = pByteStream->ReadByte();
+	sv_allowvoicechat.ForceSet( Value, CVAR_Int );
+
+	// [AK] Read in, and set the value for sv_proximityvoicechat.
+	Value.Bool = !!pByteStream->ReadByte();
+	sv_proximityvoicechat.ForceSet( Value, CVAR_Bool );
+
+	// [AK] Read in, and set the value for sv_minproximityrolloffdist.
+	Value.Float = pByteStream->ReadFloat();
+	sv_minproximityrolloffdist.ForceSet( Value, CVAR_Float );
+
+	// [AK] Read in, and set the value for sv_maxproximityrolloffdist.
+	Value.Float = pByteStream->ReadFloat();
+	sv_maxproximityrolloffdist.ForceSet( Value, CVAR_Float );
 
 	// [AK] Read in, and set the value for sv_respawndelaytime.
 	Value.Float = pByteStream->ReadFloat();
@@ -6342,6 +6519,13 @@ void ServerCommands::WeaponRailgun::Execute()
 
 	angle_t angle = source->angle + angleoffset;
 	P_DrawRailTrail( source, start, end, color1, color2, maxdiff, flags, spawnclass, angle, duration, sparsity, drift );
+}
+
+//*****************************************************************************
+//
+void ServerCommands::SetWeaponZoomFactor::Execute()
+{
+	P_SetPlayerWeaponZoomFactor( player, zoom, flags );
 }
 
 //*****************************************************************************
@@ -6885,6 +7069,13 @@ void ServerCommands::StopSound::Execute()
 
 //*****************************************************************************
 //
+void ServerCommands::StopOriginlessSound::Execute()
+{
+	S_StopSound( channel );
+}
+
+//*****************************************************************************
+//
 void ServerCommands::StartSectorSequence::Execute()
 {
 	SN_StartSequence( sector, channel, sequence.GetChars(), modeNum );
@@ -6953,6 +7144,13 @@ static void client_VoteEnded( BYTESTREAM_s *pByteStream )
 	bPassed = !!pByteStream->ReadByte();
 
 	CALLVOTE_EndVote( bPassed );
+}
+
+//*****************************************************************************
+//
+static void client_ClearVote( BYTESTREAM_s* pByteStream )
+{
+	CALLVOTE_ClearVote();
 }
 
 //*****************************************************************************
@@ -7251,7 +7449,8 @@ static void client_GiveInventory( BYTESTREAM_s *pByteStream )
 	}
 */
 	// [BB] Prevent the client from trying to switch to a different weapon while morphed.
-	if ( players[ulPlayer].morphTics )
+	// [geNia] unless +NOMORPHLIMITATIONS is used
+	if ( players[ulPlayer].morphTics && !( players[ulPlayer].mo && (players[ulPlayer].mo->PlayerFlags & PPF_NOMORPHLIMITATIONS) ) )
 		players[ulPlayer].PendingWeapon = WP_NOCHANGE;
 
 	// Since an item displayed on the HUD may have been given, refresh the HUD.
@@ -9165,18 +9364,16 @@ static void client_CreateTranslation( BYTESTREAM_s *pByteStream )
 
 //*****************************************************************************
 //
-static void client_IgnorePlayer( BYTESTREAM_s *pByteStream )
+static void client_PlayerVoIPAudioPacket( BYTESTREAM_s *byteStream )
 {
-	ULONG	ulPlayer = pByteStream->ReadByte();
-	LONG	lTicks = pByteStream->ReadLong();
+	const unsigned int player = byteStream->ReadByte( );
+	const unsigned int frame = byteStream->ReadLong( );
+	const unsigned int length = byteStream->ReadShort( );
+	unsigned char *data = new unsigned char[length];
 
-	if ( ulPlayer < MAXPLAYERS )
-	{
-		players[ulPlayer].bIgnoreChat = true;
-		players[ulPlayer].lIgnoreChatTicks = lTicks;
-
-		Printf( "%s will be ignored, because you're ignoring %s IP.\n", players[ulPlayer].userinfo.GetName(), players[ulPlayer].userinfo.GetGender() == GENDER_MALE ? "his" : players[ulPlayer].userinfo.GetGender() == GENDER_FEMALE ? "her" : "its" );
-	}
+	byteStream->ReadBuffer( data, length );
+	VOIPController::GetInstance( ).ReceiveAudioPacket( player, frame, data, length );
+	delete[] data;
 }
 
 //*****************************************************************************
@@ -9313,6 +9510,28 @@ void ServerCommands::ResetCustomPlayerValue::Execute( )
 
 	if ( pData != NULL )
 		pData->ResetToDefault( player, false );
+}
+
+//*****************************************************************************
+// [SB]
+void ServerCommands::StartConversation::Execute( )
+{
+	npc->Conversation = StrifeDialogues[node];
+	P_StartConversation( npc, player->mo, facetalker, saveangle );
+}
+
+//*****************************************************************************
+// [SB]
+void ServerCommands::ConversationReply::Execute( )
+{
+	P_ConversationReply( player - players, node, reply );
+}
+
+//*****************************************************************************
+// [SB]
+void ServerCommands::EndConversation::Execute( )
+{
+	P_ConversationClose( player - players );
 }
 
 //*****************************************************************************
@@ -9538,7 +9757,10 @@ CCMD( send_password )
 	}
 
 	if ( g_ConnectionState == CTS_ACTIVE )
+	{
 		CLIENTCOMMANDS_ChangeRCONStatus( true, argv[1] );
+		M_SetLastRconAccessRequest( -1 );
+	}
 }
 
 //*****************************************************************************

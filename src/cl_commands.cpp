@@ -257,44 +257,10 @@ void CLIENTCOMMANDS_UserInfo( const UserInfoChanges &cvars )
 
 //*****************************************************************************
 //
-void CLIENTCOMMANDS_StartChat( void )
+void CLIENTCOMMANDS_SetStatus( void )
 {
-	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_STARTCHAT );
-}
-
-//*****************************************************************************
-//
-void CLIENTCOMMANDS_EndChat( void )
-{
-	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_ENDCHAT );
-}
-
-//*****************************************************************************
-//
-void CLIENTCOMMANDS_EnterConsole( void )
-{
-	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_ENTERCONSOLE );
-}
-
-//*****************************************************************************
-//
-void CLIENTCOMMANDS_ExitConsole( void )
-{
-	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_EXITCONSOLE );
-}
-
-//*****************************************************************************
-//
-void CLIENTCOMMANDS_EnterMenu(void)
-{
-	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_ENTERMENU );
-}
-
-//*****************************************************************************
-//
-void CLIENTCOMMANDS_ExitMenu(void)
-{
-	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_EXITMENU );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_SETSTATUS );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( players[consoleplayer].statuses );
 }
 
 //*****************************************************************************
@@ -319,12 +285,13 @@ void CLIENTCOMMANDS_Say( ULONG ulMode, const char *pszString, ULONG ulPlayer )
 
 //*****************************************************************************
 //
-void CLIENTCOMMANDS_Ignore( ULONG ulPlayer, bool bIgnore, LONG lTicks )
+void CLIENTCOMMANDS_Ignore( const unsigned int player, const bool ignore, const bool doVoice, const int ticks )
 {
 	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_IGNORE );
-	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( ulPlayer );
-	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( bIgnore );
-	CLIENT_GetLocalBuffer( )->ByteStream.WriteLong( lTicks );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( player );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteBit( ignore );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteBit( doVoice );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteLong( ticks );
 }
 
 //*****************************************************************************
@@ -907,4 +874,44 @@ void CLIENTCOMMANDS_RCONSetCVar( const char *cvarName, const char *cvarValue )
 	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_RCONSETCVAR );
 	CLIENT_GetLocalBuffer( )->ByteStream.WriteString( cvarName );
 	CLIENT_GetLocalBuffer( )->ByteStream.WriteString( cvarValue );
+}
+
+//*****************************************************************************
+// [AK]
+void CLIENTCOMMANDS_VoIPAudioPacket( const unsigned int frame, const unsigned char *data, const unsigned int length )
+{
+	if (( data == nullptr ) || ( length == 0 ))
+		return;
+
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_VOIPAUDIOPACKET );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteLong( frame );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteShort( length );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteBuffer( data, length );
+}
+
+//*****************************************************************************
+// [AK]
+void CLIENTCOMMANDS_SetVoIPChannelVolume( const unsigned int player, const float volume )
+{
+	if ( PLAYER_IsValidPlayer( player ) == false )
+		return;
+
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_SETVOIPCHANNELVOLUME );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( player );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteFloat( volume );
+}
+
+//*****************************************************************************
+// [SB]
+void CLIENTCOMMANDS_ConversationReply( int selection )
+{
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_CONVERSATIONREPLY );
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteLong( selection );
+}
+
+//*****************************************************************************
+// [SB]
+void CLIENTCOMMANDS_ConversationClose( )
+{
+	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_CONVERSATIONCLOSE );
 }

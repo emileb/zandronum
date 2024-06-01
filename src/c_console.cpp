@@ -1695,14 +1695,18 @@ void C_ToggleConsole ()
 		TabbedLast = false;
 		TabbedList = false;
 
-		PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_INCONSOLE, true, PLAYERSTATUS_CLIENTSHOULDSENDUPDATE );
+		// [BB] Don't change the displayed console status when a demo is played.
+		if ( CLIENTDEMO_IsPlaying( ) == false )
+			PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_INCONSOLE, true, SETPLAYERSTATUS_CLIENTSENDSUPDATE );
 	}
 	else if (gamestate != GS_FULLCONSOLE && gamestate != GS_STARTUP)
 	{
 		ConsoleState = c_rising;
 		C_FlushDisplay ();
 
-		PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_INCONSOLE, false, PLAYERSTATUS_CLIENTSHOULDSENDUPDATE );
+		// [BB] Don't change the displayed console status when a demo is played.
+		if ( CLIENTDEMO_IsPlaying( ) == false )
+			PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_INCONSOLE, false, SETPLAYERSTATUS_CLIENTSENDSUPDATE );
 	}
 }
 
@@ -1720,9 +1724,10 @@ void C_HideConsole ()
 		HistPos = NULL;
 
 		// [BB] We are not in console anymore, so set bInConsole if necessary.
-		if ( players[consoleplayer].bInConsole )
+		// Don't change the displayed console status when a demo is played.
+		if (( players[consoleplayer].statuses & PLAYERSTATUS_INCONSOLE ) && ( CLIENTDEMO_IsPlaying( ) == false ))
 		{
-			PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_INCONSOLE, false, PLAYERSTATUS_CLIENTSHOULDSENDUPDATE );
+			PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_INCONSOLE, false, SETPLAYERSTATUS_CLIENTSENDSUPDATE );
 		}
 	}
 }
@@ -2661,7 +2666,15 @@ unsigned int C_GetMessageLevel()
 //
 void C_UpdateVirtualScreen()
 {
-	g_bScale = ( con_scaletext ) && ( con_virtualwidth > 0 ) && ( con_virtualheight > 0 );
+	g_bScale = false;
+
+	// [AK] Only enable scaling if the virtual screen's size is different from the native screen's.
+	if (( con_scaletext ) && ( con_virtualwidth > 0 ) && ( con_virtualheight > 0 ))
+	{
+		if (( con_virtualwidth != SCREENWIDTH ) || ( con_virtualheight != SCREENHEIGHT ))
+			g_bScale = true;
+	}
+
 	g_ulTextHeight = SmallFont ? SmallFont->GetHeight( ) + 1 : 0;
 
 	if ( g_bScale )

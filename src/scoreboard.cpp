@@ -49,6 +49,7 @@
 //-----------------------------------------------------------------------------
 
 #include <algorithm>
+#include <stdarg.h>
 #include "c_dispatch.h"
 #include "callvote.h"
 #include "chat.h"
@@ -65,6 +66,7 @@
 #include "d_netinf.h"
 #include "v_palette.h"
 #include "r_data/r_translate.h"
+#include "voicechat.h"
 
 // [AK] Implement the string table and the conversion functions for the scoreboard enums.
 #define GENERATE_ENUM_STRINGS  // Start string generation
@@ -80,6 +82,15 @@ static	TMap<FName, ScoreColumn *>	g_Columns;
 // [AK] The main scoreboard object.
 static	Scoreboard	g_Scoreboard;
 
+// The width of the screen to draw the scoreboard.
+static	unsigned int	g_ScreenWidth = 0;
+
+// The height of the screen to draw the scoreboard.
+static	unsigned int	g_ScreenHeight = 0;
+
+// Should the screen's actual aspect ratio still be used?
+static	bool		g_KeepScreenRatio = false;
+
 //*****************************************************************************
 //	PROTOTYPES
 
@@ -90,6 +101,10 @@ static	bool	scoreboard_TryPushingColumnToList( FScanner &sc, TArray<ColumnType *
 
 template <typename ColumnType>
 static	bool	scoreboard_TryRemovingColumnFromList( FScanner &sc, TArray<ColumnType *> &ColumnList, ColumnType *pColumn );
+
+static	unsigned int	scoreboard_GetMaxSize( const float percentage, const int alignment, const int offset, const int screenSize );
+
+static	void	scoreboard_DoAlignAndOffset( LONG &position, const int alignment, const int offset, const int screenSize, const int scoreboardSize );
 
 //*****************************************************************************
 //	CONSOLE VARIABLES
@@ -106,6 +121,15 @@ CVAR( Bool, cl_usealpha3countrycode, false, CVAR_ARCHIVE );
 // [AK] If true, then columns will use their short names in the headers.
 CVAR( Bool, cl_useshortcolumnnames, false, CVAR_ARCHIVE );
 
+// [AK] If true, then the scoreboard will be scaled using its own scale, independent of text scaling.
+CVAR( Bool, cl_usescoreboardscale, false, CVAR_ARCHIVE )
+
+// [AK] How much to offset the scoreboard horizontally.
+CVAR( Int, cl_scoreboardx, 0, CVAR_ARCHIVE );
+
+// [AK] How much to offset the scoreboard vertically.
+CVAR( Int, cl_scoreboardy, 0, CVAR_ARCHIVE );
+
 // [AK] Controls the opacity of the entire scoreboard.
 CUSTOM_CVAR( Float, cl_scoreboardalpha, 1.0f, CVAR_ARCHIVE )
 {
@@ -113,6 +137,63 @@ CUSTOM_CVAR( Float, cl_scoreboardalpha, 1.0f, CVAR_ARCHIVE )
 
 	if ( self != fClampedValue )
 		self = fClampedValue;
+}
+
+// [AK] How fast the scoreboard can scroll up or down when it's too big.
+CUSTOM_CVAR( Int, cl_scoreboardscrollspeed, 32, CVAR_ARCHIVE )
+{
+	if ( self < 1 )
+		self = 1;
+}
+
+// [AK] The width of the screen to draw the scoreboard if cl_usescoreboardscale is enabled.
+CUSTOM_CVAR( Int, cl_scoreboardscreenwidth, 640, CVAR_ARCHIVE )
+{
+	if ( self < 320 )
+		self = 320;
+}
+
+// [AK] The maximum width of the scoreboard, as a percentage of the screen's width.
+CUSTOM_CVAR( Float, cl_maxscoreboardwidth, 1.0f, CVAR_ARCHIVE )
+{
+	float clampedValue = clamp<float>( self, 0.0f, 1.0f );
+
+	if ( self != clampedValue )
+		self = clampedValue;
+}
+
+// [AK] The height of the screen to draw the scoreboard if cl_usescoreboardscale is enabled.
+CUSTOM_CVAR( Int, cl_scoreboardscreenheight, 480, CVAR_ARCHIVE )
+{
+	if ( self < 200 )
+		self = 200;
+}
+
+// [AK] The maximum height of the scoreboard, as a percentage of the screen's height.
+CUSTOM_CVAR( Float, cl_maxscoreboardheight, 1.0f, CVAR_ARCHIVE )
+{
+	float clampedValue = clamp<float>( self, 0.0f, 1.0f );
+
+	if ( self != clampedValue )
+		self = clampedValue;
+}
+
+// [AK] Controls whether the scoreboard is aligned to the left, center, or right of the screen.
+CUSTOM_CVAR( Int, cl_scoreboardhorizalign, HORIZALIGN_CENTER, CVAR_ARCHIVE )
+{
+	const int clampedValue = clamp<int>( self, HORIZALIGN_LEFT, HORIZALIGN_RIGHT );
+
+	if ( self != clampedValue )
+		self = clampedValue;
+}
+
+// [AK] Controls whether the scoreboard is aligned to the top, center, or bottom of the screen.
+CUSTOM_CVAR( Int, cl_scoreboardvertalign, VERTALIGN_CENTER, CVAR_ARCHIVE )
+{
+	const int clampedValue = clamp<int>( self, VERTALIGN_TOP, VERTALIGN_BOTTOM );
+
+	if ( self != clampedValue )
+		self = clampedValue;
 }
 
 //*****************************************************************************
@@ -588,9 +669,12 @@ ScoreColumn::ScoreColumn( const char *pszName ) :
 	DisplayName( pszName ),
 	Alignment( HORIZALIGN_LEFT ),
 	pCVar( NULL ),
+	lMinCVarValue( 1 ),
+	lMaxCVarValue( 1 ),
 	ulFlags( 0 ),
 	ulSizing( 0 ),
 	ulShortestWidth( 0 ),
+	ulShortestHeight( 0 ),
 	ulWidth( 0 ),
 	lRelX( 0 ),
 	bUsableInCurrentGame( false ),
@@ -634,6 +718,23 @@ LONG ScoreColumn::GetAlignmentPosition( ULONG ulContentWidth ) const
 //
 //*****************************************************************************
 
+void scoreboard_EnsureBothFlagsArentEnabled( FScanner &sc, const ScoreColumn *pColumn, const COLUMNFLAG_e Flag1, const COLUMNFLAG_e Flag2 )
+{
+	if (( pColumn == NULL ) || ( Flag1 == Flag2 ))
+		return;
+
+	if (( pColumn->GetFlags( ) & Flag1 ) && ( pColumn->GetFlags( ) & Flag2 ))
+	{
+		const int prefixLen = strlen( "COLUMNFLAG_" );
+		const char *pszFlagName1 = GetStringCOLUMNFLAG_e( Flag1 ) + prefixLen;
+		const char *pszFlagName2 = GetStringCOLUMNFLAG_e( Flag2 ) + prefixLen;
+
+		sc.ScriptError( "Column '%s' can't have both the %s and %s flags enabled at the same time.", pColumn->GetInternalName( ), pszFlagName1, pszFlagName2 );
+	}
+}
+
+//*****************************************************************************
+//
 void ScoreColumn::Parse( FScanner &sc )
 {
 	sc.MustGetToken( '{' );
@@ -665,8 +766,11 @@ void ScoreColumn::Parse( FScanner &sc )
 		sc.ScriptError( "Column '%s' needs a size that's greater than zero.", GetInternalName( ));
 
 	// [AK] Columns can't be offline-only and online-only at the same, that doesn't make sense.
-	if (( ulFlags & COLUMNFLAG_OFFLINEONLY ) && ( ulFlags & COLUMNFLAG_ONLINEONLY ))
-		sc.ScriptError( "Column '%s' can't have both the OFFLINEONLY and ONLINEONLY flags enabled at the same time.", GetInternalName( ));
+	scoreboard_EnsureBothFlagsArentEnabled( sc, this, COLUMNFLAG_OFFLINEONLY, COLUMNFLAG_ONLINEONLY );
+	// [AK] ...or have both the INTERMISSIONONLY and NOINTERMISSION flags enabled.
+	scoreboard_EnsureBothFlagsArentEnabled( sc, this, COLUMNFLAG_INTERMISSIONONLY, COLUMNFLAG_NOINTERMISSION );
+	// [AK] ...or have both the SPECTATORSONLY and NOSPECTATORS flags enabled.
+	scoreboard_EnsureBothFlagsArentEnabled( sc, this, COLUMNFLAG_SPECTATORSONLY, COLUMNFLAG_NOSPECTATORS );
 
 	// [AK] If the short name is longer than the display name, throw a fatal error.
 	if ( DisplayName.Len( ) < ShortName.Len( ))
@@ -691,7 +795,7 @@ void ScoreColumn::ParseCommand( FScanner &sc, const COLUMNCMD_e Command, const F
 			sc.MustGetString( );
 
 			// [AK] If the name begins with a '$', look up the string in the LANGUAGE lump.
-			const char *pszString = sc.String[0] == '$' ? GStrings[sc.String] : sc.String;
+			const char *pszString = sc.String[0] == '$' ? GStrings( sc.String + 1 ) : sc.String;
 
 			if ( Command == COLUMNCMD_DISPLAYNAME )
 				DisplayName = pszString;
@@ -757,7 +861,7 @@ void ScoreColumn::ParseCommand( FScanner &sc, const COLUMNCMD_e Command, const F
 
 		case COLUMNCMD_CVAR:
 		{
-			sc.MustGetString( );
+			sc.MustGetToken( TK_Identifier );
 
 			// [AK] Specifying "none" for the CVar clears any CVar being used by the column.
 			// This also means that a CVar named "none" (if one actually existed) can never be used.
@@ -774,10 +878,43 @@ void ScoreColumn::ParseCommand( FScanner &sc, const COLUMNCMD_e Command, const F
 					sc.ScriptError( "'%s' is not a CVar.", sc.String );
 
 				// [AK] Throw an error if this CVar isn't a boolean, integer, or flag.
-				if (( pFoundCVar->GetRealType( ) != CVAR_Bool ) && ( pFoundCVar->IsFlagCVar( ) == false ))
-					sc.ScriptError( "'%s' is not a boolean or flag CVar.", sc.String );
+				if (( pFoundCVar->GetRealType( ) != CVAR_Bool ) && ( pFoundCVar->GetRealType( ) != CVAR_Int ) && ( pFoundCVar->IsFlagCVar( ) == false ))
+					sc.ScriptError( "'%s' is not a boolean, integer, or flag CVar.", sc.String );
 
 				pCVar = pFoundCVar;
+
+				// [AK] Try parsing a min and max value range that the CVar must be inside.
+				if ( sc.CheckToken( ',' ))
+				{
+					sc.MustGetToken( TK_IntConst );
+					lMinCVarValue = sc.Number;
+
+					// [AK] Only accept 0 or 1 as values for boolean and flag CVars.
+					if (( pFoundCVar->GetRealType( ) != CVAR_Int ) && ( lMinCVarValue != 0 ) && ( lMinCVarValue != 1 ))
+						sc.ScriptError( "'%s' is not an integer CVar. The value should be either 0 or 1.", pFoundCVar->GetName( ));
+
+					if ( sc.CheckToken( ',' ))
+					{
+						// [AK] Boolean and flag CVars need only one value, there shouldn't be two of them.
+						if ( pFoundCVar->GetRealType( ) != CVAR_Int )
+							sc.ScriptError( "'%s' is not an integer CVar. There should only be one value here.", pFoundCVar->GetName( ));
+
+						sc.MustGetToken( TK_IntConst );
+						lMaxCVarValue = sc.Number;
+					}
+					else
+					{
+						lMaxCVarValue = lMinCVarValue;
+					}
+				}
+				else
+				{
+					lMinCVarValue = lMaxCVarValue = 1;
+				}
+
+				// [AK] If the min value is greater than the max value, throw a fatal error.
+				if ( lMinCVarValue > lMaxCVarValue )
+					sc.ScriptError( "Column '%s' has a min CVar value that's greater than its max CVar value.", GetInternalName( ));
 			}
 
 			break;
@@ -890,17 +1027,10 @@ void ScoreColumn::Refresh( void )
 	// active based on the CVar's value. If the conditions fail, stop here.
 	if ( pCVar != NULL )
 	{
-		const bool bValue = pCVar->GetGenericRep( CVAR_Bool ).Bool;
+		const LONG lValue = pCVar->GetGenericRep( CVAR_Int ).Int;
 
-		if ( ulFlags & COLUMNFLAG_CVARMUSTBEZERO )
-		{
-			if ( bValue != false )
-				return;
-		}
-		else if ( bValue == false )
-		{
+		if (( lMinCVarValue > lValue ) || ( lMaxCVarValue < lValue ))
 			return;
-		}
 	}
 
 	// [AK] Disable this column if it's supposed to be invisible on the intermission screen, or if it's
@@ -922,13 +1052,13 @@ void ScoreColumn::Refresh( void )
 
 //*****************************************************************************
 //
-// [AK] ScoreColumn::UpdateWidth
+// [AK] ScoreColumn::Update
 //
 // Determines what the width of the column should be right now.
 //
 //*****************************************************************************
 
-void ScoreColumn::UpdateWidth( void )
+void ScoreColumn::Update( void )
 {
 	// [AK] Don't do anything if this column isn't part of a scoreboard.
 	if ( pScoreboard == NULL )
@@ -974,7 +1104,7 @@ void ScoreColumn::UpdateWidth( void )
 
 void ScoreColumn::DrawHeader( const LONG lYPos, const ULONG ulHeight, const float fAlpha ) const
 {
-	if (( pScoreboard == NULL ) || ( bDisabled ) || ( ulFlags & COLUMNFLAG_DONTSHOWHEADER ))
+	if (( pScoreboard == NULL ) || ( bDisabled ) || ( ulFlags & COLUMNFLAG_DONTSHOWHEADER ) || ( fAlpha <= 0.0f ))
 		return;
 
 	DrawString( bUseShortName ? ShortName.GetChars( ) : DisplayName.GetChars( ), pScoreboard->pHeaderFont, pScoreboard->HeaderColor, lYPos, ulHeight, fAlpha );
@@ -990,46 +1120,26 @@ void ScoreColumn::DrawHeader( const LONG lYPos, const ULONG ulHeight, const floa
 
 void ScoreColumn::DrawString( const char *pszString, FFont *pFont, const ULONG ulColor, const LONG lYPos, const ULONG ulHeight, const float fAlpha ) const
 {
-	if (( pszString == NULL ) || ( pFont == NULL ))
-		return;
-
-	const ULONG ulLength = strlen( pszString );
-
-	// [AK] Don't bother drawing the string if it's empty.
-	if ( ulLength == 0 )
+	if (( pszString == NULL ) || ( pFont == NULL ) || ( strlen( pszString ) == 0 ))
 		return;
 
 	LONG lXPos = GetAlignmentPosition( pFont->StringWidth( pszString ));
-	ULONG ulLargestCharHeight = 0;
-
-	// [AK] Get the largest character height so the string is aligned within the centre of the specified height.
-	for ( unsigned int i = 0; i < ulLength; i++ )
-	{
-		FTexture *pCharTexture = pFont->GetChar( pszString[i], NULL );
-
-		if ( pCharTexture != NULL )
-		{
-			const ULONG ulTextureHeight = pCharTexture->GetScaledHeight( );
-
-			if ( ulTextureHeight > ulLargestCharHeight )
-				ulLargestCharHeight = ulTextureHeight;
-		}
-	}
 
 	int clipLeft = lRelX;
 	int clipWidth = ulWidth;
 	int clipTop = lYPos;
 	int clipHeight = ulHeight;
 
-	LONG lNewYPos = lYPos + ( clipHeight - static_cast<LONG>( ulLargestCharHeight )) / 2;
+	LONG lNewYPos = lYPos + ( clipHeight - static_cast<LONG>( pFont->StringHeight( pszString ))) / 2;
+
+	if ( SCOREBOARD_AdjustVerticalClipRect( clipTop, clipHeight ) == false )
+		return;
 
 	// [AK] We must take into account the virtual screen's size when setting up the clipping rectangle.
 	// Nothing should be drawn outside of this rectangle (i.e. the column's boundaries).
-	if ( g_bScale )
-		screen->VirtualToRealCoordsInt( clipLeft, clipTop, clipWidth, clipHeight, con_virtualwidth, con_virtualheight, false, !con_scaletext_usescreenratio );
+	SCOREBOARD_ConvertVirtualCoordsToReal( clipLeft, clipTop, clipWidth, clipHeight );
 
-	screen->DrawText( pFont, ulColor, lXPos, lNewYPos, pszString,
-		DTA_UseVirtualScreen, g_bScale,
+	SCOREBOARD_DrawString( pFont, ulColor, lXPos, lNewYPos, pszString,
 		DTA_ClipLeft, clipLeft,
 		DTA_ClipRight, clipLeft + clipWidth,
 		DTA_ClipTop, clipTop,
@@ -1056,11 +1166,10 @@ void ScoreColumn::DrawColor( const PalEntry color, const LONG lYPos, const ULONG
 	int clipLeft = GetAlignmentPosition( clipWidthToUse );
 	int clipTop = lYPos + ( static_cast<LONG>( ulHeight ) - clipHeightToUse ) / 2;
 
-	// [AK] We must take into account the virtual screen's size.
-	if ( g_bScale )
-		screen->VirtualToRealCoordsInt( clipLeft, clipTop, clipWidthToUse, clipHeightToUse, con_virtualwidth, con_virtualheight, false, !con_scaletext_usescreenratio );
+	if ( SCOREBOARD_AdjustVerticalClipRect( clipTop, clipHeightToUse ) == false )
+		return;
 
-	screen->Dim( color, fAlpha, clipLeft, clipTop, clipWidthToUse, clipHeightToUse );
+	SCOREBOARD_DrawColor( color, fAlpha, clipLeft, clipTop, clipWidthToUse, clipHeightToUse );
 }
 
 //*****************************************************************************
@@ -1071,34 +1180,37 @@ void ScoreColumn::DrawColor( const PalEntry color, const LONG lYPos, const ULONG
 //
 //*****************************************************************************
 
-void ScoreColumn::DrawTexture( FTexture *pTexture, const LONG lYPos, const ULONG ulHeight, const float fAlpha, const int clipWidth, const int clipHeight ) const
+void ScoreColumn::DrawTexture( FTexture *texture, const LONG yPos, const ULONG height, const float alpha, const int clipWidth, const int clipHeight, const float scale ) const
 {
 	int clipWidthToUse;
 	int clipHeightToUse;
 
-	if ( pTexture == NULL )
+	if ( texture == NULL )
 		return;
 
-	LONG lXPos = GetAlignmentPosition( pTexture->GetScaledWidth( ));
+	LONG lXPos = GetAlignmentPosition( static_cast<ULONG>( texture->GetScaledWidth( ) * scale ));
 
-	FixClipRectSize( clipWidth, clipHeight, ulHeight, clipWidthToUse, clipHeightToUse );
+	FixClipRectSize( clipWidth, clipHeight, height, clipWidthToUse, clipHeightToUse );
 
 	int clipLeft = GetAlignmentPosition( clipWidthToUse );
-	int clipTop = lYPos + ( ulHeight - clipHeightToUse ) / 2;
+	int clipTop = yPos + ( height - clipHeightToUse ) / 2;
 
-	LONG lNewYPos = lYPos + ( static_cast<LONG>( ulHeight ) - pTexture->GetScaledHeight( )) / 2;
+	LONG lNewYPos = yPos + ( static_cast<LONG>( height ) - static_cast<LONG>( texture->GetScaledHeight( ) * scale )) / 2;
+
+	if ( SCOREBOARD_AdjustVerticalClipRect( clipTop, clipHeightToUse ) == false )
+		return;
 
 	// [AK] We must take into account the virtual screen's size.
-	if ( g_bScale )
-		screen->VirtualToRealCoordsInt( clipLeft, clipTop, clipWidthToUse, clipHeightToUse, con_virtualwidth, con_virtualheight, false, !con_scaletext_usescreenratio );
+	SCOREBOARD_ConvertVirtualCoordsToReal( clipLeft, clipTop, clipWidthToUse, clipHeightToUse );
 
-	screen->DrawTexture( pTexture, lXPos, lNewYPos,
-		DTA_UseVirtualScreen, g_bScale,
+	SCOREBOARD_DrawTexture( texture, lXPos, lNewYPos, scale,
 		DTA_ClipLeft, clipLeft,
 		DTA_ClipRight, clipLeft + clipWidthToUse,
 		DTA_ClipTop, clipTop,
 		DTA_ClipBottom, clipTop + clipHeightToUse,
-		DTA_Alpha, FLOAT2FIXED( fAlpha ),
+		DTA_LeftOffset, 0,
+		DTA_TopOffset, 0,
+		DTA_Alpha, FLOAT2FIXED( alpha ),
 		TAG_DONE );
 }
 
@@ -1117,8 +1229,24 @@ bool ScoreColumn::CanDrawForPlayer( const ULONG ulPlayer ) const
 		return false;
 
 	// [AK] Don't draw for true spectators if they're meant to be excluded.
-	if (( ulFlags & COLUMNFLAG_NOSPECTATORS ) && ( PLAYER_IsTrueSpectator( &players[ulPlayer] )))
+	if ( PLAYER_IsTrueSpectator( &players[ulPlayer] ))
+	{
+		if ( ulFlags & COLUMNFLAG_NOSPECTATORS )
+			return false;
+	}
+	// [AK] ...or for active players if they're meant to be excluded too.
+	else if ( ulFlags & COLUMNFLAG_SPECTATORSONLY )
+	{
 		return false;
+	}
+
+	// [AK] Don't draw for enemies of ours. Let's be conservative and also return
+	// false when the local player's body is invalid (which shouldn't happen).
+	if ( ulFlags & COLUMNFLAG_NOENEMIES )
+	{
+		if (( players[consoleplayer].mo == NULL ) || ( players[consoleplayer].mo->IsTeammate( players[ulPlayer].mo ) == false ))
+			return false;
+	}
 
 	return true;
 }
@@ -1319,13 +1447,13 @@ FString DataScoreColumn::GetValueString( const PlayerValue &Value ) const
 
 //*****************************************************************************
 //
-// [AK] DataScoreColumn::GetValueWidth
+// [AK] DataScoreColumn::GetValueWidthOrHeight
 //
-// Gets the width of a value.
+// Gets the width or height of a value.
 //
 //*****************************************************************************
 
-ULONG DataScoreColumn::GetValueWidth( const PlayerValue &Value ) const
+ULONG DataScoreColumn::GetValueWidthOrHeight( const PlayerValue &Value, const bool bGetHeight ) const
 {
 	// [AK] Make sure that the column is part of a scoreboard.
 	if ( pScoreboard != NULL )
@@ -1340,11 +1468,14 @@ ULONG DataScoreColumn::GetValueWidth( const PlayerValue &Value ) const
 				if ( pScoreboard->pRowFont == NULL )
 					return 0;
 
-				return pScoreboard->pRowFont->StringWidth( GetValueString( Value ).GetChars( ));
+				return bGetHeight ? pScoreboard->pRowFont->GetHeight( ) : pScoreboard->pRowFont->StringWidth( GetValueString( Value ).GetChars( ));
 			}
 
 			case DATATYPE_COLOR:
 			{
+				if ( bGetHeight )
+					return lClipRectHeight > 0 ? MIN<ULONG>( pScoreboard->ulRowHeightToUse, lClipRectHeight ) : pScoreboard->ulRowHeightToUse;
+
 				// [AK] If this column must always use the shortest possible width, then return the
 				// clipping rectangle's width, whether it's zero or not.
 				if ( ulFlags & COLUMNFLAG_ALWAYSUSESHORTESTWIDTH )
@@ -1358,12 +1489,24 @@ ULONG DataScoreColumn::GetValueWidth( const PlayerValue &Value ) const
 			case DATATYPE_TEXTURE:
 			{
 				FTexture *pTexture = Value.GetValue<FTexture *>( );
+				ULONG ulTextureSize = 0;
+				LONG lClipRectSize = 0;
 
 				if ( pTexture == NULL )
 					return 0;
 
-				const ULONG ulTextureWidth = pTexture->GetScaledWidth( );
-				return lClipRectWidth > 0 ? MIN<ULONG>( ulTextureWidth, lClipRectWidth ) : ulTextureWidth;
+				if ( bGetHeight )
+				{
+					ulTextureSize = static_cast<ULONG>( pTexture->GetScaledHeight( ) * textureScale );
+					lClipRectSize = lClipRectHeight;
+				}
+				else
+				{
+					ulTextureSize = static_cast<ULONG>( pTexture->GetScaledWidth( ) * textureScale );
+					lClipRectSize = lClipRectWidth;
+				}
+
+				return lClipRectSize > 0 ? MIN<ULONG>( ulTextureSize, lClipRectSize ) : ulTextureSize;
 			}
 
 			default:
@@ -1491,26 +1634,40 @@ PlayerValue DataScoreColumn::GetValue( const ULONG ulPlayer ) const
 			}
 
 			case COLUMNTYPE_STATUSICON:
-				if (( players[ulPlayer].bLagging ) && ( gamestate == GS_LEVEL ))
+				if (( players[ulPlayer].statuses & PLAYERSTATUS_LAGGING ) && ( gamestate == GS_LEVEL ))
 					Result.SetValue<FTexture *>( TexMan.FindTexture( "LAGMINI" ));
-				else if ( players[ulPlayer].bChatting )
+				else if ( players[ulPlayer].statuses & PLAYERSTATUS_TALKING )
+					Result.SetValue<FTexture *>( TexMan.FindTexture( "SPKRMINI" ));
+				else if ( players[ulPlayer].statuses & PLAYERSTATUS_CHATTING )
 					Result.SetValue<FTexture *>( TexMan.FindTexture( "TLKMINI" ));
-				else if ( players[ulPlayer].bInConsole )
+				else if ( players[ulPlayer].statuses & PLAYERSTATUS_INCONSOLE )
 					Result.SetValue<FTexture *>( TexMan.FindTexture( "CONSMINI" ));
-				else if ( players[ulPlayer].bInMenu )
+				else if ( players[ulPlayer].statuses & PLAYERSTATUS_INMENU )
 					Result.SetValue<FTexture *>( TexMan.FindTexture( "MENUMINI" ));
 				break;
 
 			case COLUMNTYPE_READYTOGOICON:
-				if ( players[ulPlayer].bReadyToGoOn )
+				if ( players[ulPlayer].statuses & PLAYERSTATUS_READYTOGOON )
 					Result.SetValue<FTexture *>( TexMan.FindTexture( "RDYTOGO" ));
 				break;
 
 			case COLUMNTYPE_PLAYERICON:
-				if (( players[ulPlayer].mo != NULL ) && ( players[ulPlayer].mo->ScoreIcon.GetIndex( ) != 0 ))
-					Result.SetValue<FTexture *>( TexMan[players[ulPlayer].mo->ScoreIcon] );
+			{
+				APlayerPawn *pBody = players[ulPlayer].mo;
+
+				if ( pBody != NULL )
+				{
+					// [AK] If this player's current body derives from APlayerChunk due to A_SkullPop,
+					// then try to use the ScoreIcon of their original body.
+					if (( pBody->IsKindOf( RUNTIME_CLASS( APlayerChunk ))) && ( pBody->target != NULL ))
+						pBody = barrier_cast<APlayerPawn *>( pBody->target );
+
+					if ( pBody->ScoreIcon.GetIndex( ) != 0 )
+						Result.SetValue<FTexture *>( TexMan[pBody->ScoreIcon] );
+				}
 
 				break;
+			}
 
 			case COLUMNTYPE_ARTIFACTICON:
 			{
@@ -1592,30 +1749,6 @@ PlayerValue DataScoreColumn::GetValue( const ULONG ulPlayer ) const
 
 //*****************************************************************************
 //
-// [AK] DataScoreColumn::Parse
-//
-// After parsing a "column" or "customcolumn" block in SCORINFO, this checks if
-// the data column is inside a composite column, and if it is, ensures that the
-// DONTSHOWHEADER flag hasn't been disabled and it's still aligned to the left.
-//
-//*****************************************************************************
-
-void DataScoreColumn::Parse( FScanner &sc )
-{
-	ScoreColumn::Parse( sc );
-
-	if ( pCompositeColumn != NULL )
-	{
-		if (( ulFlags & COLUMNFLAG_DONTSHOWHEADER ) == false )
-			sc.ScriptError( "You can't remove the 'DONTSHOWHEADER' flag from column '%s' while it's inside a composite column.", GetInternalName( ));
-
-		if ( Alignment != HORIZALIGN_LEFT )
-			sc.ScriptError( "You can't change the alignment of column '%s' while it's inside a composite column.", GetInternalName( ));
-	}
-}
-
-//*****************************************************************************
-//
 // [AK] DataScoreColumn::ParseCommand
 //
 // Parses commands that are only used for data columns.
@@ -1684,12 +1817,27 @@ void DataScoreColumn::ParseCommand( FScanner &sc, const COLUMNCMD_e Command, con
 			sc.MustGetString( );
 
 			// [AK] If the name begins with a '$', look up the string in the LANGUAGE lump.
-			const char *pszString = sc.String[0] == '$' ? GStrings[sc.String] : sc.String;
+			const char *pszString = sc.String[0] == '$' ? GStrings( sc.String + 1 ) : sc.String;
 
 			if ( Command == COLUMNCMD_TRUETEXT )
 				TrueText = pszString;
 			else
 				FalseText = pszString;
+
+			break;
+		}
+
+		case COLUMNCMD_SCALE:
+		{
+			// [AK] Scale is only available for texture columns.
+			if ( GetDataType( ) != DATATYPE_TEXTURE )
+				sc.ScriptError( "Option '%s' is only available for texture columns.", CommandName.GetChars( ));
+
+			sc.MustGetToken( TK_FloatConst );
+			textureScale = static_cast<float>( sc.Float );
+
+			if ( textureScale <= 0.0f )
+				sc.ScriptError( "The scale must be greater than zero!" );
 
 			break;
 		}
@@ -1703,19 +1851,20 @@ void DataScoreColumn::ParseCommand( FScanner &sc, const COLUMNCMD_e Command, con
 
 //*****************************************************************************
 //
-// [AK] DataScoreColumn::UpdateWidth
+// [AK] DataScoreColumn::Update
 //
-// Gets the smallest width that will fit the contents in all player rows.
+// Gets the smallest width and height that fits the contents in all player rows.
 //
 //*****************************************************************************
 
-void DataScoreColumn::UpdateWidth( void )
+void DataScoreColumn::Update( void )
 {
 	// [AK] Don't update the width of a column that isn't part of a scoreboard.
 	if ( pScoreboard == NULL )
 		return;
 
 	ulShortestWidth = 0;
+	ulShortestHeight = 0;
 
 	for ( ULONG ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
 	{
@@ -1723,11 +1872,13 @@ void DataScoreColumn::UpdateWidth( void )
 			continue;
 
 		PlayerValue Value = GetValue( ulIdx );
-		ulShortestWidth = MAX( ulShortestWidth, GetValueWidth( Value ));
+
+		ulShortestWidth = MAX( ulShortestWidth, GetValueWidthOrHeight( Value, false ));
+		ulShortestHeight = MAX( ulShortestHeight, GetValueWidthOrHeight( Value, true ));
 	}
 
 	// [AK] Call the superclass's function to finish updating the width.
-	ScoreColumn::UpdateWidth( );
+	ScoreColumn::Update( );
 }
 
 //*****************************************************************************
@@ -1793,7 +1944,7 @@ void DataScoreColumn::DrawValue( const ULONG ulPlayer, const ULONG ulColor, cons
 			break;
 
 		case DATATYPE_TEXTURE:
-			DrawTexture( Value.GetValue<FTexture *>( ), lYPos, ulHeight, fAlpha, lClipRectWidth, lClipRectHeight );
+			DrawTexture( Value.GetValue<FTexture *>( ), lYPos, ulHeight, fAlpha, lClipRectWidth, lClipRectHeight, textureScale );
 			break;
 
 		default:
@@ -1831,23 +1982,23 @@ CountryFlagScoreColumn::CountryFlagScoreColumn( FScanner &sc, const char *pszNam
 
 //*****************************************************************************
 //
-// [AK] CountryFlagScoreColumn::GetValueWidth
+// [AK] CountryFlagScoreColumn::GetValueWidthOrHeight
 //
-// This should always return the width of a mini flag icon, assuming that the
-// passed value is a texture set to "CTRYFLAG".
+// This should always return the width or height of a mini flag icon, assuming
+// that the passed value is a texture set to "CTRYFLAG".
 //
 //*****************************************************************************
 
-ULONG CountryFlagScoreColumn::GetValueWidth( const PlayerValue &Value ) const
+ULONG CountryFlagScoreColumn::GetValueWidthOrHeight( const PlayerValue &Value, const bool bGetHeight ) const
 {
 	// [AK] Always return zero if this column isn't part of a scoreboard.
 	if ( pScoreboard != NULL )
 	{
 		if (( Value.GetDataType( ) == DATATYPE_TEXTURE ) && ( Value.GetValue<FTexture *>( ) == pFlagIconSet ))
-			return ulFlagWidth;
+			return bGetHeight ? ulFlagHeight : ulFlagWidth;
 
 		// [AK] If we somehow end up here, throw a fatal error.
-		I_Error( "CountryFlagScoreColumn::GetValueWidth: tried to get the width of a value that isn't 'CTRYFLAG'!" );
+		I_Error( "CountryFlagScoreColumn::GetValueWidth: tried to get the %s of a value that isn't 'CTRYFLAG'!", bGetHeight ? "height" : "width" );
 	}
 
 	return 0;
@@ -1899,12 +2050,13 @@ void CountryFlagScoreColumn::DrawValue( const ULONG ulPlayer, const ULONG ulColo
 		int clipTop = lNewYPos;
 		int clipHeight = ulFlagHeight;
 
-		// [AK] We must take into account the virtual screen's size.
-		if ( g_bScale )
-			screen->VirtualToRealCoordsInt( clipLeft, clipTop, clipWidth, clipHeight, con_virtualwidth, con_virtualheight, false, !con_scaletext_usescreenratio );
+		if ( SCOREBOARD_AdjustVerticalClipRect( clipTop, clipHeight ) == false )
+			return;
 
-		screen->DrawTexture( pFlagIconSet, lXPos, lNewYPos,
-			DTA_UseVirtualScreen, g_bScale,
+		// [AK] We must take into account the virtual screen's size.
+		SCOREBOARD_ConvertVirtualCoordsToReal( clipLeft, clipTop, clipWidth, clipHeight );
+
+		SCOREBOARD_DrawTexture( pFlagIconSet, lXPos, lNewYPos, textureScale,
 			DTA_ClipLeft, clipLeft,
 			DTA_ClipRight, clipLeft + clipWidth,
 			DTA_ClipTop, clipTop,
@@ -1954,14 +2106,6 @@ void CompositeScoreColumn::ParseCommand( FScanner &sc, const COLUMNCMD_e Command
 				// [AK] Don't add a data column that's already inside a scoreboard's column order.
 				if ( pDataColumn->GetScoreboard( ) != NULL )
 					sc.ScriptError( "You can't put column '%s' into composite column '%s' when it's already inside a scoreboard's column order.", sc.String, GetInternalName( ));
-
-				// [AK] All data columns require the DONTSHOWHEADER flag to be enabled to be inside a composite column.
-				if (( pDataColumn->GetFlags( ) & COLUMNFLAG_DONTSHOWHEADER ) == false )
-					sc.ScriptError( "Column '%s' must have 'DONTSHOWHEADER' enabled before it can be put inside a composite column.", sc.String );
-
-				// [AK] All data columns must be alignment to the left to be inside a composite column.
-				if ( pDataColumn->Alignment != HORIZALIGN_LEFT )
-					sc.ScriptError( "Column '%s' must be aligned to the left before it can be put inside a composite column.", sc.String );
 
 				if ( scoreboard_TryPushingColumnToList( sc, SubColumns, pDataColumn ))
 				{
@@ -2065,31 +2209,33 @@ void CompositeScoreColumn::Refresh( void )
 
 //*****************************************************************************
 //
-// [AK] CompositeScoreColumn::UpdateWidth
+// [AK] CompositeScoreColumn::Update
 //
-// Gets the smallest width that can fit the contents of all active sub-columns
-// in all player rows.
+// Gets the smallest width and height that can fit the contents of all active
+// sub-columns in all player rows.
 //
 //*****************************************************************************
 
-void CompositeScoreColumn::UpdateWidth( void )
+void CompositeScoreColumn::Update( void )
 {
 	// [AK] Don't update the width of a column that isn't part of a scoreboard.
 	if ( pScoreboard == NULL )
 		return;
 
 	ulShortestWidth = 0;
+	ulShortestHeight = 0;
 
 	for ( ULONG ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
 	{
 		if ( CanDrawForPlayer( ulIdx ) == false )
 			continue;
 
-		ulShortestWidth = MAX( ulShortestWidth, GetRowWidth( ulIdx ));
+		ulShortestWidth = MAX( ulShortestWidth, GetRowWidthOrHeight( ulIdx, false ));
+		ulShortestHeight = MAX( ulShortestHeight, GetRowWidthOrHeight( ulIdx, true ));
 	}
 
 	// [AK] Call the superclass's function to finish updating the width.
-	ScoreColumn::UpdateWidth( );
+	ScoreColumn::Update( );
 }
 
 //*****************************************************************************
@@ -2107,8 +2253,7 @@ void CompositeScoreColumn::DrawValue( const ULONG ulPlayer, const ULONG ulColor,
 	if ( CanDrawForPlayer( ulPlayer ) == false )
 		return;
 
-	const bool bIsTrueSpectator = PLAYER_IsTrueSpectator( &players[ulPlayer] );
-	const ULONG ulRowWidth = GetRowWidth( ulPlayer );
+	const ULONG ulRowWidth = GetRowWidthOrHeight( ulPlayer, false );
 
 	// [AK] If this row's width is zero, then there's nothing to draw, so stop here.
 	if ( ulRowWidth == 0 )
@@ -2120,14 +2265,15 @@ void CompositeScoreColumn::DrawValue( const ULONG ulPlayer, const ULONG ulColor,
 	// [AK] Draw the contents of the sub-columns!
 	for ( unsigned int i = 0; i < SubColumns.Size( ); i++ )
 	{
-		if (( SubColumns[i]->IsDisabled( )) || (( SubColumns[i]->GetFlags( ) & COLUMNFLAG_NOSPECTATORS ) && ( bIsTrueSpectator )))
+		if ( SubColumns[i]->CanDrawForPlayer( ulPlayer ) == false )
 			continue;
 
 		Value = SubColumns[i]->GetValue( ulPlayer );
 
 		if (( Value.GetDataType( ) != DATATYPE_UNKNOWN ) || (( SubColumns[i]->GetFlags( ) & COLUMNFLAG_DISABLEIFEMPTY ) == false ))
 		{
-			const ULONG ulValueWidth = SubColumns[i]->GetValueWidth( Value );
+			const ULONG ulValueWidth = SubColumns[i]->GetValueWidthOrHeight( Value, false );
+			const ULONG ulSubColumnWidth = GetSubColumnWidth( i, ulValueWidth );
 
 			// [AK] We didn't update the sub-column's x-position or width since they're part of
 			// a composite column, but we need to make sure that the contents appear properly.
@@ -2137,13 +2283,13 @@ void CompositeScoreColumn::DrawValue( const ULONG ulPlayer, const ULONG ulColor,
 			if ( Value.GetDataType( ) != DATATYPE_UNKNOWN )
 			{
 				SubColumns[i]->lRelX = lXPos;
-				SubColumns[i]->ulWidth = ulValueWidth;
+				SubColumns[i]->ulWidth = ulSubColumnWidth;
 				SubColumns[i]->DrawValue( ulPlayer, ulColor, lYPos, ulHeight, fAlpha );
 
 				SubColumns[i]->lRelX = SubColumns[i]->ulWidth = 0;
 			}
 
-			lXPos += GetSubColumnWidth( i, ulValueWidth ) + ulGapBetweenSubColumns;
+			lXPos += ulSubColumnWidth + ulGapBetweenSubColumns;
 		}
 	}
 }
@@ -2189,39 +2335,45 @@ void CompositeScoreColumn::ClearSubColumns( void )
 
 //*****************************************************************************
 //
-// [AK] CompositeScoreColumn::GetRowWidth
+// [AK] CompositeScoreColumn::GetRowWidthOrHeight
 //
-// Gets the width of an entire row for a particular player.
+// Gets the width or height of an entire row for a particular player.
 //
 //*****************************************************************************
 
-ULONG CompositeScoreColumn::GetRowWidth( const ULONG ulPlayer ) const
+ULONG CompositeScoreColumn::GetRowWidthOrHeight( const ULONG ulPlayer, const bool bGetHeight ) const
 {
 	if (( pScoreboard == NULL ) || ( PLAYER_IsValidPlayer( ulPlayer ) == false ))
 		return 0;
 
-	const bool bIsTrueSpectator = PLAYER_IsTrueSpectator( &players[ulPlayer] );
-	ULONG ulRowWidth = 0;
+	ULONG ulResult = 0;
 
 	for ( unsigned int i = 0; i < SubColumns.Size( ); i++ )
 	{
-		// [AK] Ignore sub-columns that are disabled or cannot be shown for true spectators.
-		if (( SubColumns[i]->IsDisabled( )) || (( SubColumns[i]->GetFlags( ) & COLUMNFLAG_NOSPECTATORS ) && ( bIsTrueSpectator )))
+		// [AK] Ignore sub-columns that can't draw anything for this player.
+		if ( SubColumns[i]->CanDrawForPlayer( ulPlayer ) == false )
 			continue;
 
 		PlayerValue Value = SubColumns[i]->GetValue( ulPlayer );
 
 		if (( Value.GetDataType( ) != DATATYPE_UNKNOWN ) || (( SubColumns[i]->GetFlags( ) & COLUMNFLAG_DISABLEIFEMPTY ) == false ))
 		{
-			// [AK] Include the gap between sub-columns if the width is already non-zero.
-			if ( ulRowWidth > 0 )
-				ulRowWidth += ulGapBetweenSubColumns;
+			if ( bGetHeight == false )
+			{
+				// [AK] Include the gap between sub-columns if the width is already non-zero.
+				if ( ulResult > 0 )
+					ulResult += ulGapBetweenSubColumns;
 
-			ulRowWidth += GetSubColumnWidth( i, SubColumns[i]->GetValueWidth( Value ));
+				ulResult += GetSubColumnWidth( i, SubColumns[i]->GetValueWidthOrHeight( Value, false ));
+			}
+			else
+			{
+				ulResult = MAX<ULONG>( ulResult, SubColumns[i]->GetValueWidthOrHeight( Value, true ));
+			}
 		}
 	}
 
-	return ulRowWidth;
+	return ulResult;
 }
 
 //*****************************************************************************
@@ -2229,8 +2381,8 @@ ULONG CompositeScoreColumn::GetRowWidth( const ULONG ulPlayer ) const
 // [AK] CompositeScoreColumn::GetSubColumnWidth
 //
 // Gets the width of a sub-column. This requires that the width of the value be
-// determined first (using DataScoreColumn::GetValueWidth) and passed into this
-// function to work.
+// determined first (using DataScoreColumn::GetValueWidthOrHeight) and passed
+// into this function to work.
 //
 //*****************************************************************************
 
@@ -2275,7 +2427,8 @@ Scoreboard::Scoreboard( void ) :
 	fBackgroundAmount( 0.0f ),
 	fRowBackgroundAmount( 0.0f ),
 	fDeadRowBackgroundAmount( 0.0f ),
-	fDeadTextAlpha( 0.0f ),
+	fContentAlpha( 1.0f ),
+	fDeadTextAlpha( 1.0f ),
 	ulBackgroundBorderSize( 0 ),
 	ulGapBetweenHeaderAndRows( 0 ),
 	ulGapBetweenColumns( 0 ),
@@ -2283,11 +2436,18 @@ Scoreboard::Scoreboard( void ) :
 	ulColumnPadding( 0 ),
 	lHeaderHeight( 0 ),
 	lRowHeight( 0 ),
+	ulRowHeightToUse( 0 ),
+	totalScrollHeight( 0 ),
+	visibleScrollHeight( 0 ),
+	minClipRectY( 0 ),
+	maxClipRectY( 0 ),
 	MainHeader( MARGINTYPE_HEADER_OR_FOOTER, "MainHeader" ),
 	TeamHeader( MARGINTYPE_TEAM, "TeamHeader" ),
 	SpectatorHeader( MARGINTYPE_SPECTATOR, "SpectatorHeader" ),
 	Footer( MARGINTYPE_HEADER_OR_FOOTER, "Footer" ),
-	lLastRefreshTick( 0 ) { }
+	lLastRefreshTick( 0 ),
+	currentScrollOffset( 0 ),
+	interpolateScrollOffset( 0 ) { }
 
 //*****************************************************************************
 //
@@ -2422,6 +2582,7 @@ void Scoreboard::Parse( FScanner &sc )
 					break;
 				}
 
+				case SCOREBOARDCMD_CONTENTALPHA:
 				case SCOREBOARDCMD_DEADPLAYERTEXTALPHA:
 				case SCOREBOARDCMD_BACKGROUNDAMOUNT:
 				case SCOREBOARDCMD_ROWBACKGROUNDAMOUNT:
@@ -2430,7 +2591,9 @@ void Scoreboard::Parse( FScanner &sc )
 					sc.MustGetFloat( );
 					const float fClampedValue = clamp( static_cast<float>( sc.Float ), 0.0f, 1.0f );
 
-					if ( Command == SCOREBOARDCMD_DEADPLAYERTEXTALPHA )
+					if ( Command == SCOREBOARDCMD_CONTENTALPHA )
+						fContentAlpha = fClampedValue;
+					else if ( Command == SCOREBOARDCMD_DEADPLAYERTEXTALPHA )
 						fDeadTextAlpha = fClampedValue;
 					else if ( Command == SCOREBOARDCMD_BACKGROUNDAMOUNT )
 						fBackgroundAmount = fClampedValue;
@@ -2749,10 +2912,27 @@ bool Scoreboard::PlayerComparator::operator( )( const int &arg1, const int &arg2
 			return ( result < 0 );
 	}
 
+	// [AK] Sort dead spectators underneath live players if we should.
+	if (( pScoreboard->ulFlags & SCOREBOARDFLAG_SEPARATEDEADSPECTATORS ) && ( players[arg1].bDeadSpectator != players[arg2].bDeadSpectator ))
+	{
+		if ( players[arg1].bDeadSpectator )
+			return false;
+		else
+			return true;
+	}
+
 	for ( unsigned int i = 0; i < pScoreboard->RankOrder.Size( ); i++ )
 	{
 		if ( pScoreboard->RankOrder[i]->IsDisabled( ))
-			continue;
+		{
+			// [AK] If this column's unusable, then we definitely can't use it to sort players.
+			if ( pScoreboard->RankOrder[i]->IsUsableInCurrentGame( ) == false )
+				continue;
+
+			// [AK] If the column doesn't have the SORTWHENDISABLED flag enabled, skip it.
+			if (( pScoreboard->RankOrder[i]->GetFlags( ) & COLUMNFLAG_SORTWHENDISABLED ) == false )
+				continue;
+		}
 
 		const PlayerValue Value1 = pScoreboard->RankOrder[i]->GetValue( arg1 );
 		const PlayerValue Value2 = pScoreboard->RankOrder[i]->GetValue( arg2 );
@@ -2816,6 +2996,33 @@ bool Scoreboard::PlayerComparator::operator( )( const int &arg1, const int &arg2
 
 void Scoreboard::Refresh( const ULONG ulDisplayPlayer )
 {
+	ulRowHeightToUse = lRowHeight;
+
+	// [AK] Determine the size of the screen to draw the scoreboard.
+	if ( cl_usescoreboardscale )
+	{
+		g_ScreenWidth = cl_scoreboardscreenwidth;
+		g_ScreenHeight = cl_scoreboardscreenheight;
+
+		// [AK] Don't use con_scaletext_usescreenratio if the resolution of the
+		// scoreboard matches the screen's actual ratio.
+		if (( g_ScreenWidth != SCREENWIDTH ) || ( g_ScreenHeight != SCREENHEIGHT ))
+			g_KeepScreenRatio = con_scaletext_usescreenratio;
+		else
+			g_KeepScreenRatio = true;
+	}
+	else
+	{
+		g_ScreenWidth = HUD_GetWidth( );
+		g_ScreenHeight = HUD_GetHeight( );
+		g_KeepScreenRatio = g_bScale ? con_scaletext_usescreenratio : true;
+	}
+
+	// [AK] The scoreboard needs the player and spectator counts in "st_hud.cpp".
+	// Since the HUD doesn't refresh during intermissions, update the counts here.
+	if ( gamestate == GS_INTERMISSION )
+		HUD_RefreshPlayerCounts( );
+
 	// [AK] Refresh all of the scoreboard's columns, then update the widths of any active columns.
 	for ( unsigned int i = 0; i < ColumnOrder.Size( ); i++ )
 	{
@@ -2824,7 +3031,11 @@ void Scoreboard::Refresh( const ULONG ulDisplayPlayer )
 		if ( ColumnOrder[i]->IsDisabled( ))
 			continue;
 
-		ColumnOrder[i]->UpdateWidth( );
+		ColumnOrder[i]->Update( );
+
+		// [AK] Increase the row height to fit the column's contents, if necessary.
+		if (( ulFlags & SCOREBOARDFLAG_DONTSTRETCHROWHEIGHT ) == false )
+			ulRowHeightToUse = MAX<ULONG>( ulRowHeightToUse, ColumnOrder[i]->ulShortestHeight );
 	}
 
 	UpdateWidth( );
@@ -2834,6 +3045,14 @@ void Scoreboard::Refresh( const ULONG ulDisplayPlayer )
 		return;
 
 	UpdateHeight( ulDisplayPlayer );
+
+	// [AK] Clamp the scroll offset (i.e. how far the user has scrolled down on
+	// the scoreboard), depending on how much bigger the total height of the
+	// player rows and headers are compared to what's visible.
+	if ( visibleScrollHeight < totalScrollHeight )
+		currentScrollOffset = clamp<int>( interpolateScrollOffset, 0, totalScrollHeight - visibleScrollHeight );
+	else
+		currentScrollOffset = interpolateScrollOffset = 0;
 
 	// [AK] Reset the player list then sort players based on the scoreboard's rank order.
 	for ( ULONG ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
@@ -2855,7 +3074,7 @@ void Scoreboard::UpdateWidth( void )
 {
 	const ULONG ulGameModeFlags = GAMEMODE_GetCurrentFlags( );
 	ULONG ulNumActiveColumns = 0;
-	ULONG ulShortestWidthOfAllColumns = 0;
+	ULONG ulShortestColumnWidths = 0;
 
 	ulWidth = 0;
 
@@ -2865,7 +3084,7 @@ void Scoreboard::UpdateWidth( void )
 			continue;
 
 		ulWidth += ColumnOrder[i]->GetWidth( );
-		ulShortestWidthOfAllColumns += ColumnOrder[i]->GetShortestWidth( );
+		ulShortestColumnWidths += ColumnOrder[i]->GetShortestWidth( );
 		ulNumActiveColumns++;
 	}
 
@@ -2878,19 +3097,21 @@ void Scoreboard::UpdateWidth( void )
 	// [AK] Add the gaps between each of the active columns and the background border size to the total width.
 	ulWidth += ulExtraSpace;
 
+	const unsigned int maxWidth = scoreboard_GetMaxSize( cl_maxscoreboardwidth, cl_scoreboardhorizalign, cl_scoreboardx, g_ScreenWidth );
+
 	// [AK] If the scoreboard is too wide, try shrinking the columns as much as possible.
-	if ( ulWidth > static_cast<ULONG>( HUD_GetWidth( )))
+	if ( ulWidth > maxWidth )
 	{
 		// [AK] Choose whichever's bigger: the shortest combined width of all active columns, or the width of
 		// the screen minus the extra space.
-		const ULONG ulShortestPossibleWidth = MAX<ULONG>( ulShortestWidthOfAllColumns, HUD_GetWidth( ) - ulExtraSpace );
+		const ULONG ulShortestWidth = maxWidth > ulExtraSpace ? MAX<ULONG>( ulShortestColumnWidths, maxWidth - ulExtraSpace ) : ulShortestColumnWidths;
 		const ULONG ulWidthWithoutSpace = ulWidth - ulExtraSpace;
 
 		// [AK] If we're able to shrink down any active columns, then re-adjust their widths as necessary.
-		if ( ulShortestPossibleWidth < ulWidthWithoutSpace )
+		if ( ulShortestWidth < ulWidthWithoutSpace )
 		{
-			const ULONG ulMinWidthDiff = ulWidthWithoutSpace - ulShortestPossibleWidth;
-			const ULONG ulMaxWidthDiff = ulWidthWithoutSpace - ulShortestWidthOfAllColumns;
+			const ULONG ulMinWidthDiff = ulWidthWithoutSpace - ulShortestWidth;
+			const ULONG ulMaxWidthDiff = ulWidthWithoutSpace - ulShortestColumnWidths;
 
 			ulWidth = ulExtraSpace;
 
@@ -2913,7 +3134,7 @@ void Scoreboard::UpdateWidth( void )
 		}
 	}
 
-	lRelX = ( HUD_GetWidth( ) - static_cast<LONG>( ulWidth )) / 2;
+	scoreboard_DoAlignAndOffset( lRelX, cl_scoreboardhorizalign, cl_scoreboardx, g_ScreenWidth, ulWidth );
 
 	LONG lCurXPos = lRelX + ulBackgroundBorderSize + ulColumnPadding;
 
@@ -2942,14 +3163,16 @@ void Scoreboard::UpdateWidth( void )
 
 void Scoreboard::UpdateHeight( const ULONG ulDisplayPlayer )
 {
-	const ULONG ulRowYOffset = lRowHeight + ulGapBetweenRows;
+	const ULONG ulRowYOffset = ulRowHeightToUse + ulGapBetweenRows;
 	const ULONG ulNumActivePlayers = HUD_GetNumPlayers( );
 	const ULONG ulNumSpectators = HUD_GetNumSpectators( );
-	const ULONG ulWidthWithoutBorder = ulWidth - 2 * ulBackgroundBorderSize;
+	const ULONG marginWidth = ulWidth - 2 * ulBackgroundBorderSize;
+	const int marginRelX = lRelX + ulBackgroundBorderSize;
 
 	ulHeight = 2 * ulBackgroundBorderSize + lHeaderHeight + ulGapBetweenHeaderAndRows;
+	totalScrollHeight = visibleScrollHeight = 0;
 
-	MainHeader.Refresh( ulDisplayPlayer, ulWidthWithoutBorder );
+	MainHeader.Refresh( ulDisplayPlayer, marginWidth, marginRelX );
 	ulHeight += MainHeader.GetHeight( );
 
 	if (( ulFlags & SCOREBOARDFLAG_DONTDRAWBORDERS ) == false )
@@ -2967,7 +3190,7 @@ void Scoreboard::UpdateHeight( const ULONG ulDisplayPlayer )
 	// [AK] Add the total height of all rows for active players.
 	if ( ulNumActivePlayers > 0 )
 	{
-		ulHeight += ulNumActivePlayers * ulRowYOffset;
+		totalScrollHeight += ulNumActivePlayers * ulRowYOffset;
 
 		if ( ShouldSeparateTeams( ))
 		{
@@ -2978,11 +3201,11 @@ void Scoreboard::UpdateHeight( const ULONG ulDisplayPlayer )
 				// [AK] Refresh and add the heights of all team headers too, if allowed.
 				if (( ulFlags & SCOREBOARDFLAG_DONTSHOWTEAMHEADERS ) == false )
 				{
-					TeamHeader.Refresh( ulDisplayPlayer, ulWidthWithoutBorder );
-					ulHeight += TeamHeader.GetHeight( ) * ulNumTeamsWithPlayers;
+					TeamHeader.Refresh( ulDisplayPlayer, marginWidth, marginRelX );
+					totalScrollHeight += TeamHeader.GetHeight( ) * ulNumTeamsWithPlayers;
 				}
 
-				ulHeight += lRowHeight * ( ulNumTeamsWithPlayers - 1 );
+				totalScrollHeight += ulRowHeightToUse * ( ulNumTeamsWithPlayers - 1 );
 			}
 		}
 	}
@@ -2990,23 +3213,31 @@ void Scoreboard::UpdateHeight( const ULONG ulDisplayPlayer )
 	// [AK] Do the same for any true spectators.
 	if ( ulNumSpectators > 0 )
 	{
-		if ( ulNumActivePlayers > 0 )
-			ulHeight += lRowHeight;
+		totalScrollHeight += ulRowHeightToUse;
 
 		// [AK] Refresh and add the height of the spectator header too, if allowed.
 		if (( ulFlags & SCOREBOARDFLAG_DONTSHOWTEAMHEADERS ) == false )
 		{
-			SpectatorHeader.Refresh( ulDisplayPlayer, ulWidthWithoutBorder );
-			ulHeight += SpectatorHeader.GetHeight( );
+			SpectatorHeader.Refresh( ulDisplayPlayer, marginWidth, marginRelX );
+			totalScrollHeight += SpectatorHeader.GetHeight( );
 		}
 
-		ulHeight += ulNumSpectators * ulRowYOffset;
+		totalScrollHeight += ulNumSpectators * ulRowYOffset;
 	}
 
-	Footer.Refresh( ulDisplayPlayer, ulWidthWithoutBorder );
+	Footer.Refresh( ulDisplayPlayer, marginWidth, marginRelX );
 	ulHeight += Footer.GetHeight( );
+	visibleScrollHeight = totalScrollHeight;
 
-	lRelY = ( HUD_GetHeight( ) - static_cast<LONG>( ulHeight )) / 2;
+	const unsigned int maxHeight = scoreboard_GetMaxSize( cl_maxscoreboardheight, cl_scoreboardvertalign, cl_scoreboardy, g_ScreenHeight );
+
+	// [AK] Check if the scroreboard is too big to everything on the screen.
+	if ( ulHeight + totalScrollHeight > maxHeight )
+		visibleScrollHeight = maxHeight > ulHeight ? maxHeight - ulHeight : 0;
+
+	ulHeight += visibleScrollHeight;
+
+	scoreboard_DoAlignAndOffset( lRelY, cl_scoreboardvertalign, cl_scoreboardy, g_ScreenHeight, ulHeight );
 }
 
 //*****************************************************************************
@@ -3019,11 +3250,6 @@ void Scoreboard::UpdateHeight( const ULONG ulDisplayPlayer )
 
 void Scoreboard::Render( const ULONG ulDisplayPlayer, const float fAlpha )
 {
-	int clipLeft = lRelX;
-	int clipTop = lRelY;
-	int clipWidth = ulWidth;
-	int clipHeight = ulHeight;
-
 	// [AK] If we need to update the scoreboard, do so before rendering it.
 	if ( lLastRefreshTick != gametic )
 	{
@@ -3035,32 +3261,56 @@ void Scoreboard::Render( const ULONG ulDisplayPlayer, const float fAlpha )
 	if (( ulWidth == 0 ) || ( ulHeight == 0 ) || ( fAlpha <= 0.0f ))
 		return;
 
-	// [AK] We must take into account the virtual screen's size.
-	if ( g_bScale )
-		screen->VirtualToRealCoordsInt( clipLeft, clipTop, clipWidth, clipHeight, con_virtualwidth, con_virtualheight, false, !con_scaletext_usescreenratio );
+	int clipLeft = lRelX;
+	int clipTop = lRelY;
+	int clipWidth = ulWidth;
+	int clipHeight = ulHeight;
 
-	screen->Dim( BackgroundColor, fBackgroundAmount * fAlpha, clipLeft, clipTop, clipWidth, clipHeight );
+	minClipRectY = lRelY;
+	maxClipRectY = lRelY + ulHeight;
+
+	SCOREBOARD_DrawColor( BackgroundColor, fBackgroundAmount * fAlpha, clipLeft, clipTop, clipWidth, clipHeight );
 
 	const ULONG ulNumActivePlayers = HUD_GetNumPlayers( );
 	const ULONG ulNumTrueSpectators = HUD_GetNumSpectators( );
+	const float fCombinedAlpha = fContentAlpha * fAlpha;
 	LONG lYPos = lRelY + ulBackgroundBorderSize;
 	bool bUseLightBackground = true;
 
 	// [AK] Draw the main header first.
-	MainHeader.Render( ulDisplayPlayer, ScoreMargin::NO_TEAM, lYPos, fAlpha );
+	MainHeader.Render( ulDisplayPlayer, ScoreMargin::NO_TEAM, lYPos, fCombinedAlpha );
 
 	// [AK] Draw a border above the column headers.
-	DrawBorder( HeaderColor, lYPos, fAlpha, false );
+	DrawBorder( HeaderColor, lYPos, fCombinedAlpha, false );
 
 	// [AK] Draw all of the column headers.
 	for ( unsigned int i = 0; i < ColumnOrder.Size( ); i++ )
-		ColumnOrder[i]->DrawHeader( lYPos, lHeaderHeight, fAlpha );
+		ColumnOrder[i]->DrawHeader( lYPos, lHeaderHeight, fCombinedAlpha );
 
 	lYPos += lHeaderHeight;
 
 	// [AK] Draw another border below the headers.
-	DrawBorder( HeaderColor, lYPos, fAlpha, true );
+	DrawBorder( HeaderColor, lYPos, fCombinedAlpha, true );
 	lYPos += ulGapBetweenHeaderAndRows;
+
+	minClipRectY = lYPos;
+	maxClipRectY = lYPos + visibleScrollHeight;
+
+	// [AK] Check if the user wants to scroll the scoreboard up or down.
+	if ( visibleScrollHeight < totalScrollHeight )
+	{
+		const int offset = static_cast<int>( cl_scoreboardscrollspeed * FIXED2FLOAT( r_TicFrac ));
+
+		if ( Button_SB_ScrollUp.bDown )
+			interpolateScrollOffset = currentScrollOffset - offset;
+
+		if ( Button_SB_ScrollDn.bDown )
+			interpolateScrollOffset = currentScrollOffset + offset;
+
+		interpolateScrollOffset = clamp<int>( interpolateScrollOffset, 0, totalScrollHeight - visibleScrollHeight );
+	}
+
+	lYPos -= interpolateScrollOffset;
 
 	// [AK] Draw rows for all active players.
 	for ( ULONG ulIdx = 0; ulIdx < ulNumActivePlayers; ulIdx++ )
@@ -3074,13 +3324,13 @@ void Scoreboard::Render( const ULONG ulDisplayPlayer, const float fAlpha )
 		{
 			if ( ulIdx > 0 )
 			{
-				lYPos += lRowHeight;
+				lYPos += ulRowHeightToUse;
 				bUseLightBackground = true;
 			}
 
 			// [AK] Draw the header for this team, if allowed.
 			if (( ulFlags & SCOREBOARDFLAG_DONTSHOWTEAMHEADERS ) == false )
-				TeamHeader.Render( ulDisplayPlayer, ulTeam, lYPos, fAlpha );
+				TeamHeader.Render( ulDisplayPlayer, ulTeam, lYPos, fCombinedAlpha );
 		}
 
 		DrawRow( ulPlayer, ulDisplayPlayer, lYPos, fAlpha, bUseLightBackground );
@@ -3091,17 +3341,15 @@ void Scoreboard::Render( const ULONG ulDisplayPlayer, const float fAlpha )
 	{
 		const ULONG ulTotalPlayers = ulNumActivePlayers + ulNumTrueSpectators;
 
-		// [AK] If there are any active players, leave a gap between them and the true
-		// spectators, and make the row background light.
+		lYPos += ulRowHeightToUse;
+
+		// [AK] If there are any active players, make the row background light.
 		if ( ulNumActivePlayers > 0 )
-		{
-			lYPos += lRowHeight;
 			bUseLightBackground = true;
-		}
 
 		// [AK] Draw the header for spectators, if allowed.
 		if (( ulFlags & SCOREBOARDFLAG_DONTSHOWTEAMHEADERS ) == false )
-			SpectatorHeader.Render( ulDisplayPlayer, ScoreMargin::NO_TEAM, lYPos, fAlpha );
+			SpectatorHeader.Render( ulDisplayPlayer, ScoreMargin::NO_TEAM, lYPos, fCombinedAlpha );
 
 		// [AK] The index of the first true spectator should be the same as the number of active
 		// players. The list is organized such that all active players come before any true spectators.
@@ -3109,13 +3357,17 @@ void Scoreboard::Render( const ULONG ulDisplayPlayer, const float fAlpha )
 			DrawRow( ulPlayerList[ulIdx], ulDisplayPlayer, lYPos, fAlpha, bUseLightBackground );
 	}
 
+	lYPos = maxClipRectY;
+	minClipRectY = lRelY;
+	maxClipRectY = lRelY + ulHeight;
+
 	// [AK] Draw a border at the bottom of the scoreboard. We must subtract ulGapBetweenRows here (a bit hacky)
 	// because SCOREBOARD_s::DrawPlayerRow adds it every time a row is drawn. This isn't necessary for the last row.
 	lYPos += ulGapBetweenHeaderAndRows - ulGapBetweenRows;
-	DrawBorder( HeaderColor, lYPos, fAlpha, false );
+	DrawBorder( HeaderColor, lYPos, fCombinedAlpha, false );
 
 	// [AK] Finally, draw the footer.
-	Footer.Render( ulDisplayPlayer, ScoreMargin::NO_TEAM, lYPos, fAlpha );
+	Footer.Render( ulDisplayPlayer, ScoreMargin::NO_TEAM, lYPos, fCombinedAlpha );
 }
 
 //*****************************************************************************
@@ -3175,16 +3427,16 @@ void Scoreboard::DrawRow( const ULONG ulPlayer, const ULONG ulDisplayPlayer, LON
 			DrawRowBackground( RowBackgroundColors[RowBackground], lYPos, fBackgroundAlpha );
 	}
 
-	const float fTextAlpha = ( bPlayerIsDead ? fDeadTextAlpha : 1.0f ) * fAlpha;
+	const float fTextAlpha = ( bPlayerIsDead ? fDeadTextAlpha : fContentAlpha ) * fAlpha;
 
 	// Draw the data for each column, but only if the text alpha is non-zero.
 	if ( fTextAlpha > 0.0f )
 	{
 		for ( unsigned int i = 0; i < ColumnOrder.Size( ); i++ )
-			ColumnOrder[i]->DrawValue( ulPlayer, ulColor, lYPos, lRowHeight, fTextAlpha );
+			ColumnOrder[i]->DrawValue( ulPlayer, ulColor, lYPos, ulRowHeightToUse, fTextAlpha );
 	}
 
-	lYPos += lRowHeight + ulGapBetweenRows;
+	lYPos += ulRowHeightToUse + ulGapBetweenRows;
 	bUseLightBackground = !bUseLightBackground;
 }
 
@@ -3198,7 +3450,7 @@ void Scoreboard::DrawRow( const ULONG ulPlayer, const ULONG ulDisplayPlayer, LON
 
 void Scoreboard::DrawBorder( const EColorRange Color, LONG &lYPos, const float fAlpha, const bool bReverse ) const
 {
-	if ( ulFlags & SCOREBOARDFLAG_DONTDRAWBORDERS )
+	if (( ulFlags & SCOREBOARDFLAG_DONTDRAWBORDERS ) || ( fAlpha <= 0.0f ))
 		return;
 
 	int x = lRelX + ulBackgroundBorderSize;
@@ -3213,17 +3465,17 @@ void Scoreboard::DrawBorder( const EColorRange Color, LONG &lYPos, const float f
 
 		height = pBorderTexture->GetScaledHeight( );
 
-		if ( g_bScale )
-			screen->VirtualToRealCoordsInt( x, y, width, height, con_virtualwidth, con_virtualheight, false, !con_scaletext_usescreenratio );
+		SCOREBOARD_ConvertVirtualCoordsToReal( x, y, width, height );
 
 		while ( lXPos < lRight )
 		{
-			screen->DrawTexture( pBorderTexture, lXPos, lYPos,
-				DTA_UseVirtualScreen, g_bScale,
+			SCOREBOARD_DrawTexture( pBorderTexture, lXPos, lYPos, 1.0f,
 				DTA_ClipLeft, x,
 				DTA_ClipRight, x + width,
 				DTA_ClipTop, y,
 				DTA_ClipBottom, y + height,
+				DTA_LeftOffset, 0,
+				DTA_TopOffset, 0,
 				DTA_Alpha, FLOAT2FIXED( fAlpha ),
 				TAG_DONE );
 
@@ -3236,9 +3488,6 @@ void Scoreboard::DrawBorder( const EColorRange Color, LONG &lYPos, const float f
 	{
 		uint32 lightColor, darkColor;
 		height = 1;
-
-		if ( g_bScale )
-			screen->VirtualToRealCoordsInt( x, y, width, height, con_virtualwidth, con_virtualheight, false, !con_scaletext_usescreenratio );
 
 		// [AK] Do we want to use the font's translation table and text color to colorize the border,
 		// or the predetermined hexadecimal colors for the border?
@@ -3260,8 +3509,8 @@ void Scoreboard::DrawBorder( const EColorRange Color, LONG &lYPos, const float f
 		}
 
 		// [AK] The dark color goes above the light one, unless it's reversed.
-		screen->Dim( bReverse ? lightColor : darkColor, fAlpha, x, y, width, height );
-		screen->Dim( bReverse ? darkColor : lightColor, fAlpha, x, y + height, width, height );
+		SCOREBOARD_DrawColor( bReverse ? lightColor : darkColor, fAlpha, x, y, width, height );
+		SCOREBOARD_DrawColor( bReverse ? darkColor : lightColor, fAlpha, x, y + height, width, height );
 		lYPos += 2;
 	}
 }
@@ -3279,10 +3528,7 @@ void Scoreboard::DrawRowBackground( const PalEntry color, int x, int y, int widt
 	if (( fAlpha <= 0.0f ) || ( fRowBackgroundAmount <= 0.0f ))
 		return;
 
-	if ( g_bScale )
-		screen->VirtualToRealCoordsInt( x, y, width, height, con_virtualwidth, con_virtualheight, false, !con_scaletext_usescreenratio );
-
-	screen->Dim( color, fAlpha * fRowBackgroundAmount, x, y, width, height );
+	SCOREBOARD_DrawColor( color, fAlpha * fRowBackgroundAmount, x, y, width, height );
 }
 
 //*****************************************************************************
@@ -3292,7 +3538,11 @@ void Scoreboard::DrawRowBackground( const PalEntry color, const int y, const flo
 	if (( fAlpha <= 0.0f ) || ( fRowBackgroundAmount <= 0.0f ))
 		return;
 
-	const int height = lRowHeight;
+	int yToUse = y;
+	int height = ulRowHeightToUse;
+
+	if ( SCOREBOARD_AdjustVerticalClipRect( yToUse, height ) == false )
+		return;
 
 	// [AK] If gaps must be shown in the row's background, then only draw the background where
 	// the active columns are. Otherwise, draw a single background across the scoreboard.
@@ -3303,12 +3553,12 @@ void Scoreboard::DrawRowBackground( const PalEntry color, const int y, const flo
 			if ( ColumnOrder[i]->IsDisabled( ))
 				continue;
 
-			DrawRowBackground( color, ColumnOrder[i]->GetRelX( ) - ulColumnPadding, y, ColumnOrder[i]->GetWidth( ) + 2 * ulColumnPadding, height, fAlpha );
+			DrawRowBackground( color, ColumnOrder[i]->GetRelX( ) - ulColumnPadding, yToUse, ColumnOrder[i]->GetWidth( ) + 2 * ulColumnPadding, height, fAlpha );
 		}
 	}
 	else
 	{
-		DrawRowBackground( color, lRelX + ulBackgroundBorderSize, y, ulWidth - 2 * ulBackgroundBorderSize, height, fAlpha );
+		DrawRowBackground( color, lRelX + ulBackgroundBorderSize, yToUse, ulWidth - 2 * ulBackgroundBorderSize, height, fAlpha );
 	}
 }
 
@@ -3353,6 +3603,10 @@ bool Scoreboard::ShouldSeparateTeams( void ) const
 
 void SCOREBOARD_Construct( void )
 {
+	// [AK] Reset the scroll up/down buttons.
+	Button_SB_ScrollUp.Reset( );
+	Button_SB_ScrollDn.Reset( );
+
 	if ( Wads.CheckNumForName( "SCORINFO" ) != -1 )
 	{
 		int currentLump, lastLump = 0;
@@ -3494,6 +3748,64 @@ void SCOREBOARD_Render( ULONG ulDisplayPlayer )
 
 //*****************************************************************************
 //
+// SCOREBOARD_DrawString
+//
+// Helper function to draw strings on the scoreboard.
+//
+//*****************************************************************************
+
+void STACK_ARGS	SCOREBOARD_DrawString( FFont *font, const int color, const int x, const int y, const char *string, ... )
+{
+	va_list tags;
+	va_start( tags, string );
+
+	screen->DrawText( font, color, x, y, string,
+		DTA_VirtualWidth, g_ScreenWidth,
+		DTA_VirtualHeight, g_ScreenHeight,
+		DTA_KeepRatio, g_KeepScreenRatio,
+		TAG_MORE, &tags );
+}
+
+//*****************************************************************************
+//
+// SCOREBOARD_DrawColor
+//
+// Helper function to draw colors on the scoreboard.
+//
+//*****************************************************************************
+
+void SCOREBOARD_DrawColor( const PalEntry color, const float alpha, int left, int top, int width, int height )
+{
+	// [AK] We must take into account the virtual screen's size.
+	SCOREBOARD_ConvertVirtualCoordsToReal( left, top, width, height );
+
+	screen->Dim( color, alpha, left, top, width, height );
+}
+
+//*****************************************************************************
+//
+// SCOREBOARD_DrawTexture
+//
+// Helper function to draw textures on the scoreboard.
+//
+//*****************************************************************************
+
+void STACK_ARGS SCOREBOARD_DrawTexture( FTexture *texture, const int x, const int y, const float scale, ... )
+{
+	va_list tags;
+	va_start( tags, scale );
+
+	screen->DrawTexture( texture, x, y,
+		DTA_VirtualWidth, g_ScreenWidth,
+		DTA_VirtualHeight, g_ScreenHeight,
+		DTA_KeepRatio, g_KeepScreenRatio,
+		DTA_DestWidthF, texture->GetScaledWidth( ) * scale,
+		DTA_DestHeightF, texture->GetScaledHeight( ) * scale,
+		TAG_MORE, &tags );
+}
+
+//*****************************************************************************
+//
 // SCOREBOARD_ShouldDrawBoard
 //
 // Checks if the user wants to see the scoreboard and is allowed to.
@@ -3512,6 +3824,52 @@ bool SCOREBOARD_ShouldDrawBoard( void )
 		return false;
 
 	return true;
+}
+
+//*****************************************************************************
+//
+// [AK] SCOREBOARD_AdjustVerticalClipRect
+//
+// This checks if a clipping rectangle is within the vertical boundaries of the
+// scoreboard (i.e. it isn't too far up or down). If the enire clipping rectangle
+// is out of bounds, then it returns false.
+//
+// Otherwise, the clipping rectangle is adjusted to ensure that it isn't outside
+// of the scoreboard, then returns true.
+//
+//*****************************************************************************
+
+bool SCOREBOARD_AdjustVerticalClipRect( int &clipTop, int &clipHeight )
+{
+	if (( clipTop + clipHeight <= g_Scoreboard.minClipRectY ) || ( clipTop >= g_Scoreboard.maxClipRectY ))
+		return false;
+
+	if ( clipTop < g_Scoreboard.minClipRectY )
+	{
+		clipHeight -= g_Scoreboard.minClipRectY - clipTop;
+		clipTop = g_Scoreboard.minClipRectY;
+	}
+
+	if ( clipTop + clipHeight > g_Scoreboard.maxClipRectY )
+		clipHeight = g_Scoreboard.maxClipRectY - clipTop;
+
+	return true;
+}
+
+//*****************************************************************************
+//
+// [AK] SCOREBOARD_ConvertVirtualCoordsToRead
+//
+// Checks if the scoreboard should be scaled (whether it uses its own scale or
+// the virtual screen), then convert the virtual coordinates of a clipping
+// rectangle to their actual coordinates on the screen.
+//
+//*****************************************************************************
+
+void SCOREBOARD_ConvertVirtualCoordsToReal( int &left, int &top, int &width, int &height )
+{
+	if (( cl_usescoreboardscale ) || ( g_bScale ))
+		screen->VirtualToRealCoordsInt( left, top, width, height, g_ScreenWidth, g_ScreenHeight, false, !g_KeepScreenRatio );
 }
 
 //*****************************************************************************
@@ -3624,4 +3982,98 @@ static bool scoreboard_TryRemovingColumnFromList( FScanner &sc, TArray<ColumnTyp
 	// [AK] If we get this far, then the column wasn't in the list. Inform the user.
 	sc.ScriptMessage( "Couldn't find column '%s' in the list.", pColumn->GetInternalName( ));
 	return false;
+}
+
+//*****************************************************************************
+//
+// [AK] scoreboard_GetMaxSize
+//
+// A helper function used to find the maximum possible width or height of the
+// scoreboard, based on how it should be aligned (e.g. cl_scoreboardhorizalign).
+// This picks the smallest of two sizes: the screen's width/height subtracted by
+// the offset (e.g. cl_scoreboardx), or the screen's width/height multiplied by
+// a percentage (e.g. cl_maxscoreboardwidth).
+//
+// For the alignments:
+//
+// 0 = left/top
+// 1 = center
+// 2 = right/bottom
+//
+//*****************************************************************************
+
+static unsigned int scoreboard_GetMaxSize( const float percentage, const int alignment, const int offset, const int screenSize )
+{
+	unsigned int maxSize = MAX<int>( static_cast<int>( screenSize * percentage ), 0 );
+
+	if ( offset != 0 )
+	{
+		unsigned int maxSizeWithOffset = 0;
+
+		// [AK] Double the offset when aligned to the center of the screen.
+		if ( alignment == 1 )
+			maxSizeWithOffset = MAX<int>( screenSize - 2 * offset, 0 );
+		else
+			maxSizeWithOffset = MAX<int>( screenSize - offset, 0 );
+
+		maxSize = MIN<unsigned>( maxSize, maxSizeWithOffset );
+	}
+
+	return maxSize;
+}
+
+//*****************************************************************************
+//
+// [AK] scoreboard_DoAlignAndOffset
+//
+// A helper function used to determine the scoreboard's x and y-position on the
+// screen, depending on how it should be aligned (e.g. cl_scoreboardhorizalign)
+// and offset (e.g. cl_scoreboardx). The scoreboard's final width or height
+// must also be known when calling this function.
+//
+//*****************************************************************************
+
+void scoreboard_DoAlignAndOffset( LONG &position, const int alignment, const int offset, const int screenSize, const int scoreboardSize )
+{
+	const int sizeDiff = screenSize - scoreboardSize;
+
+	// [AK] Align to the center of the screen.
+	if ( alignment == 1 )
+	{
+		if ( sizeDiff > 0 )
+		{
+			position = offset + sizeDiff / 2;
+
+			if ( position < 0 )
+				position = 0;
+			else if ( position + scoreboardSize > screenSize )
+				position = sizeDiff;
+		}
+		else
+		{
+			position = sizeDiff / 2;
+		}
+	}
+	else
+	{
+		// [AK] The offset can't be negative when uncentered.
+		const int clampedOffset = MAX<int>( offset, 0 );
+
+		// [AK] Align to the left or top of the screen.
+		if ( alignment == 0 )
+		{
+			position = 0;
+
+			if ( sizeDiff > 0 )
+				position = MIN<LONG>( clampedOffset, sizeDiff );
+		}
+		// [AK] Otherwise, align to the right or bottom of the screen.
+		else
+		{
+			position = sizeDiff;
+
+			if ( sizeDiff > 0 )
+				position = MAX<LONG>( position - clampedOffset, 0 );
+		}
+	}
 }

@@ -573,6 +573,26 @@ void CLIENTDEMO_ReadPacket( void )
 					P_TeleportMove( players[consoleplayer].mo, x, y, ONFLOORZ, true );
 				}
 				break;
+			case CLD_LCMD_SETSTATUS:
+
+				{
+					const int statuses = g_ByteStream.ReadByte( );
+					const bool enable = !!g_ByteStream.ReadByte( );
+					PLAYER_SetStatus( &players[consoleplayer], statuses, !!enable );
+				}
+				break;
+			case CLD_LCMD_FREECHASECAM:
+
+				{
+					const bool enable = !!g_ByteStream.ReadByte( );
+					const fixed_t angle = g_ByteStream.ReadLong( );
+
+					FreeChasecam::enabled = enable;
+
+					if ( players[consoleplayer].mo != nullptr )
+						players[consoleplayer].mo->angle = angle;
+				}
+				break;
 			}
 			break;
 		case CLD_DEMOEND:
@@ -765,6 +785,28 @@ void CLIENTDEMO_WriteWarpCheat ( fixed_t x, fixed_t y )
 
 //*****************************************************************************
 //
+void CLIENTDEMO_WriteSetStatus ( const int statuses, const bool enable )
+{
+	clientdemo_CheckDemoBuffer( 4 );
+	g_ByteStream.WriteByte( CLD_LOCALCOMMAND );
+	g_ByteStream.WriteByte( CLD_LCMD_SETSTATUS );
+	g_ByteStream.WriteByte( statuses );
+	g_ByteStream.WriteByte( enable );
+}
+
+//*****************************************************************************
+//
+void CLIENTDEMO_WriteFreeChasecam( const bool enable, const fixed_t angle )
+{
+	clientdemo_CheckDemoBuffer( 7 );
+	g_ByteStream.WriteByte( CLD_LOCALCOMMAND );
+	g_ByteStream.WriteByte( CLD_LCMD_FREECHASECAM );
+	g_ByteStream.WriteByte( enable );
+	g_ByteStream.WriteLong( angle );
+}
+
+//*****************************************************************************
+//
 bool CLIENTDEMO_IsRecording( void )
 {
 	return ( g_bDemoRecording );
@@ -840,7 +882,7 @@ bool CLIENTDEMO_IsInFreeSpectateMode( void )
 bool CLIENTDEMO_ShouldLetFreeSpectatorThink( void )
 {
 	// [AK] Let the free spectator "think" while using the free chasecam to control the camera's movement.
-	return (( CLIENTDEMO_IsInFreeSpectateMode( )) || ( P_IsUsingFreeChasecam( players[consoleplayer].camera )));
+	return (( CLIENTDEMO_IsInFreeSpectateMode( )) || ( FreeChasecam::IsBeingUsed( )));
 }
 
 //*****************************************************************************

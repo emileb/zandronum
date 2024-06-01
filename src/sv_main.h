@@ -88,6 +88,9 @@
 // [AK] Maximum amount of characters that can be put in sv_hostname.
 #define MAX_HOSTNAME_LENGTH			160
 
+// [AK] Divide milliseconds by this constant to get the number of ticks.
+#define MS_PER_TIC					( 1000.0 / TICRATE )
+
 // This is for the server console, but since we normally can't include that (win32 stuff),
 // we can just put it here.
 #define	UDF_NAME					0x00000001
@@ -144,13 +147,14 @@
 #define SQF2_COUNTRY				0x00000002
 #define SQF2_GAMEMODE_NAME			0x00000004
 #define SQF2_GAMEMODE_SHORTNAME		0x00000008
+#define SQF2_VOICECHAT				0x00000010
 
 #define	SQF_ALL						( SQF_NAME|SQF_URL|SQF_EMAIL|SQF_MAPNAME|SQF_MAXCLIENTS|SQF_MAXPLAYERS| \
 									  SQF_PWADS|SQF_GAMETYPE|SQF_GAMENAME|SQF_IWAD|SQF_FORCEPASSWORD|SQF_FORCEJOINPASSWORD|SQF_GAMESKILL| \
 									  SQF_BOTSKILL|SQF_DMFLAGS|SQF_LIMITS|SQF_TEAMDAMAGE|SQF_TEAMSCORES|SQF_NUMPLAYERS|SQF_PLAYERDATA|SQF_TEAMINFO_NUMBER|SQF_TEAMINFO_NAME|SQF_TEAMINFO_COLOR|SQF_TEAMINFO_SCORE| \
 									  SQF_TESTING_SERVER|SQF_DATA_MD5SUM|SQF_ALL_DMFLAGS|SQF_SECURITY_SETTINGS|SQF_OPTIONAL_WADS|SQF_DEH|SQF_EXTENDED_INFO )
 
-#define SQF2_ALL					( SQF2_PWAD_HASHES|SQF2_COUNTRY|SQF2_GAMEMODE_NAME|SQF2_GAMEMODE_SHORTNAME )
+#define SQF2_ALL					( SQF2_PWAD_HASHES|SQF2_COUNTRY|SQF2_GAMEMODE_NAME|SQF2_GAMEMODE_SHORTNAME|SQF2_VOICECHAT )
 
 // [SB] Set to indicate when the last segment in a response is reached.
 #define LAUNCHER_LAST_SEGMENT		0x80
@@ -182,6 +186,24 @@ enum CLIENTSTATE_e
 	// Client is in the game.
 	CLS_SPAWNED,
 
+};
+
+//*****************************************************************************
+//
+// [SB] Reasons a player disconnected from the server. Intended for GAMEEVENT_PLAYERLEAVESSERVER.
+//
+enum LEAVEREASON_e
+{
+	// Disconnected of their own accord.
+	LEAVEREASON_LEFT,
+	// Kicked by a server admin.
+	LEAVEREASON_KICKED,
+	// An error occurred.
+	LEAVEREASON_ERROR,
+	// The client timed out.
+	LEAVEREASON_TIMEOUT,
+	// The client is re-connecting, for example the map command was used.
+	LEAVEREASON_RECONNECT,
 };
 
 //*****************************************************************************
@@ -272,6 +294,25 @@ struct CLIENT_PLAYER_DATA_s
 	// [AK] Restore's the player's data to whatever's stored in the structure.
 	// We won't restore the morphed player class though.
 	void Restore ( player_t *player );
+};
+
+//*****************************************************************************
+struct ClientCommRule
+{
+	NETADDRESS_s	address;
+	bool			ignoreChat;
+	bool			ignoreVoice;
+	int				unignoreChatGametic;
+	int				unignoreVoiceGametic;
+	float			VoIPChannelVolume;
+
+	ClientCommRule( NETADDRESS_s address );
+
+	// [AK] Updates ignore (chat messages or voice) rules for this address.
+	void SetIgnore( const bool doVoice, const bool ignore, const int unignoreTick );
+
+	// [AK] Checks if this rule isn't needed anymore and should be deleted.
+	bool IsObsolete( void ) const;
 };
 
 //*****************************************************************************
@@ -479,8 +520,8 @@ struct CLIENT_s
 	// What is the name of the client's skin?
 	char			szSkin[MAX_SKIN_NAME+1];
 
-	// [RC] List of IP addresses that this client is ignoring.
-	std::list<STORED_QUERY_IP_s> IgnoredAddresses;
+	// [AK] A list of IP addresses that this client has set up communication rules for.
+	std::list<ClientCommRule> commRules;
 
 	// [K6] Last tic we got some action from the client. Used to determine his presence.
 	LONG			lLastActionTic;
@@ -520,10 +561,8 @@ struct CLIENT_s
 	WORD			ScreenWidth;
 	WORD			ScreenHeight;
 
-	// [AK] The reason why the client has been muted on the server, if one is provided.
-	FString			MutedReason;
-
-	FString GetAccountName() const;
+	FString GetAccountName( void ) const;
+	void UpdateCommRules( void );
 };
 
 //*****************************************************************************
@@ -605,7 +644,7 @@ void		SERVER_SendFullUpdate( ULONG ulClient );
 void		SERVER_WriteCommands( void );
 bool		SERVER_IsValidClient( ULONG ulClient );
 void		SERVER_AdjustPlayersReactiontime( const ULONG ulPlayer );
-void		SERVER_DisconnectClient( ULONG ulClient, bool bBroadcast, bool bSaveInfo );
+void		SERVER_DisconnectClient( ULONG ulClient, bool bBroadcast, bool bSaveInfo, LEAVEREASON_e reason );
 void		SERVER_SendHeartBeat( void );
 void		STACK_ARGS SERVER_Printf( ULONG ulPrintLevel, const char *pszString, ... ) GCCPRINTF(2,3);
 void		STACK_ARGS SERVER_Printf( const char *pszString, ... ) GCCPRINTF(1,2);
@@ -625,7 +664,7 @@ void		SERVER_ForceToSpectate( ULONG ulPlayer, const char *pszReason );
 void		SERVER_AddCommand( const char *pszCommand );
 void		SERVER_DeleteCommand( void );
 bool		SERVER_IsEveryoneReadyToGoOn( void );
-LONG		SERVER_GetPlayerIgnoreTic( ULONG ulPlayer, NETADDRESS_s Address ); // [RC]
+LONG		SERVER_GetPlayerIgnoreTic( const unsigned int player, NETADDRESS_s address, const bool doVoice ); // [RC/AK]
 bool		SERVER_IsPlayerVisible( ULONG ulPlayer, ULONG ulPlayer2 );
 bool		SERVER_IsPlayerAllowedToKnowHealth( ULONG ulPlayer, ULONG ulPlayer2 );
 LONG		SERVER_AdjustDoorDirection( LONG lDirection );
@@ -636,7 +675,7 @@ ULONG		SERVER_GetMaxPacketSize( void );
 const char	*SERVER_GetMapMusic( void );
 int			SERVER_GetMapMusicOrder( void );
 void		SERVER_SetMapMusic( const char *pszMusic, int order );
-void		SERVER_ResetInventory( ULONG ulClient, const bool bChangeClientWeapon = true );
+void		SERVER_ResetInventory( ULONG ulClient, const bool bChangeClientWeapon = true, bool bGiveReverseOrder = true ); // [RK] Added bGiveReverseOrder
 void		SERVER_AddEditedTranslation( ULONG ulTranslation, ULONG ulStart, ULONG ulEnd, ULONG ulPal1, ULONG ulPal2 );
 void		SERVER_AddEditedTranslation( ULONG ulTranslation, ULONG ulStart, ULONG ulEnd, ULONG ulR1, ULONG ulG1, ULONG ulB1, ULONG ulR2, ULONG ulG2, ULONG ulB2 );
 void		SERVER_AddEditedDesaturatedTranslation( ULONG ulTranslation, ULONG ulStart, ULONG ulEnd, float fR1, float fG1, float fB1, float fR2, float fG2, float fB2 );
@@ -671,7 +710,6 @@ bool		SERVER_IsExtrapolatingPlayer( ULONG ulClient );
 bool		SERVER_IsBacktracingPlayer( ULONG ulClient );
 void		SERVER_ResetClientTicBuffer( ULONG ulClient );
 void		SERVER_ResetClientExtrapolation( ULONG ulClient, bool bAfterBacktrace = false );
-void		SERVER_PrintMutedMessageToPlayer( ULONG ulPlayer );
 
 // From sv_master.cpp
 void		SERVER_MASTER_Construct( void );

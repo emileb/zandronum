@@ -112,6 +112,7 @@
 #include "p_3dmidtex.h"
 #include "a_lightning.h"
 #include "po_man.h"
+#include "voicechat.h"
 
 #include <zlib.h>
 
@@ -264,6 +265,9 @@ FString			shotfile;
 
 AActor* 		bodyque[BODYQUESIZE]; 
 int 			bodyqueslot; 
+
+// [AK] The player that a corpse in the same slot belonged to.
+player_t		*bodyquePlayer[BODYQUESIZE];
 
 void R_ExecuteSetViewSize (void);
 
@@ -436,6 +440,10 @@ CCMD (weapnext)
 	if (( players[consoleplayer].bSpectating ) || ( players[consoleplayer].playerstate != PST_LIVE ))
 		return;
 
+	// [RK] If player is holding a hellstone, don't allow to send the command.
+	if ( players[consoleplayer].cheats2 & CF2_POSSESSIONARTIFACT )
+		return;
+
 	SendItemUse = players[consoleplayer].weapons.PickNextWeapon (&players[consoleplayer]);
  	// [BC] Option to display the name of the weapon being cycled to.
  	if ((displaynametags & 2) && StatusBar && SmallFont && SendItemUse)
@@ -456,6 +464,10 @@ CCMD (weapprev)
 
 	// [Zandronum] No weapprev when player is spectating or not alive.
 	if (( players[consoleplayer].bSpectating ) || ( players[consoleplayer].playerstate != PST_LIVE ))
+		return;
+
+	// [RK] If player is holding a hellstone, don't allow to send the command.
+	if ( players[consoleplayer].cheats2 & CF2_POSSESSIONARTIFACT )
 		return;
 
 	SendItemUse = players[consoleplayer].weapons.PickPrevWeapon (&players[consoleplayer]);
@@ -1165,7 +1177,7 @@ void G_FinishChangeSpy( ULONG ulPlayer )
 
 	// [AK] If we're using the free chasecam, reset the orientation so that it's facing
 	// in the same direction of whoever we're spying.
-	P_ResetFreeChasecamView( );
+	FreeChasecam::Reset( );
 
 	// [TP] Rebuild translations if we're overriding player colors, they
 	// may very likely have changed by now.
@@ -1994,6 +2006,9 @@ void G_Ticker ()
 		break;
 	}
 
+	// [AK] Tick the VoIP controller.
+	VOIPController::GetInstance( ).Tick( );
+
 	// [BC] If any data has accumulated in our packet, send it out now.
 	if ( NETWORK_GetState( ) == NETSTATE_CLIENT )
 		CLIENT_EndTick( );
@@ -2139,6 +2154,7 @@ void G_PlayerReborn (int player, bool bGiveInventory)
 	const PClass *cls;
 	FString		log;
 	bool		bOnTeam;
+	int			statuses;
 	bool		bSpectating;
 	bool		bDeadSpectator;
 	ULONG		ulLivesLeft;
@@ -2151,13 +2167,15 @@ void G_PlayerReborn (int player, bool bGiveInventory)
 	ULONG		ulUnrewardedDamageDealt;
 	ULONG		ulMedalCount[NUM_MEDALS];
 	CSkullBot	*pSkullBot;
-	bool		bIgnoreChat;
-	LONG		lIgnoreChatTicks;
+	IgnoreComm	ignoreChat;
+	IgnoreComm	ignoreVoice;
 	ULONG		ulPing;
 	ULONG		ulPingAverages;
 	ULONG		ulCountryIndex;
 	ULONG		ulWins;
 	ULONG		ulTime;
+	FNameNoInit	ACSSkin;
+	bool		ACSSkinOverridesWeaponSkin;
 	int			timefreezer;
 	FName		StartingWeaponName;
 
@@ -2175,9 +2193,7 @@ void G_PlayerReborn (int player, bool bGiveInventory)
 	chasecam = p->cheats & CF_CHASECAM;
 
 	bOnTeam = p->bOnTeam;
-	const bool bChatting = p->bChatting;
-	const bool bInConsole = p->bInConsole;
-	const bool bInMenu = p->bInMenu;
+	statuses = p->statuses;
 	bSpectating = p->bSpectating;
 	bDeadSpectator = p->bDeadSpectator;
 	ulLivesLeft = p->ulLivesLeft;
@@ -2190,16 +2206,17 @@ void G_PlayerReborn (int player, bool bGiveInventory)
 	ulUnrewardedDamageDealt = p->ulUnrewardedDamageDealt;
 	memcpy( &ulMedalCount, &p->ulMedalCount, sizeof( ulMedalCount ));
 	pSkullBot = p->pSkullBot;
-	bIgnoreChat = p->bIgnoreChat;
-	lIgnoreChatTicks = p->lIgnoreChatTicks;
+	ignoreChat = p->ignoreChat;
+	ignoreVoice = p->ignoreVoice;
 	ulPing = p->ulPing;
 	ulPingAverages = p->ulPingAverages;
 	ulCountryIndex = p->ulCountryIndex;
 	ulWins = p->ulWins;
 	ulTime = p->ulTime;
+	ACSSkin = p->ACSSkin;
+	ACSSkinOverridesWeaponSkin = p->ACSSkinOverridesWeaponSkin;
 	timefreezer = p->timefreezer;
 	StartingWeaponName = p->StartingWeaponName;
-	const bool bLagging = p->bLagging;
 
 	// [AK] Get the weapons the player was using before they respawn.
 	if ( NETWORK_GetState() != NETSTATE_SERVER )
@@ -2239,9 +2256,7 @@ void G_PlayerReborn (int player, bool bGiveInventory)
 	p->original_oldbuttons = ~0;
 
 	p->bOnTeam = bOnTeam;
-	p->bChatting = bChatting;
-	p->bInConsole = bInConsole;
-	p->bInMenu = bInMenu;
+	p->statuses = statuses;
 	p->bSpectating = bSpectating;
 	p->bDeadSpectator = bDeadSpectator;
 	p->ulLivesLeft = ulLivesLeft;
@@ -2254,18 +2269,19 @@ void G_PlayerReborn (int player, bool bGiveInventory)
 	p->ulUnrewardedDamageDealt = ulUnrewardedDamageDealt;
 	memcpy( &p->ulMedalCount, &ulMedalCount, sizeof( ulMedalCount ));
 	p->pSkullBot = pSkullBot;
-	p->bIgnoreChat = bIgnoreChat;
-	p->lIgnoreChatTicks = lIgnoreChatTicks;
+	p->ignoreChat = ignoreChat;
+	p->ignoreVoice = ignoreVoice;
 	p->ulPing = ulPing;
 	p->ulPingAverages = ulPingAverages;
 	p->ulCountryIndex = ulCountryIndex;
 	p->ulWins = ulWins;
 	p->ulTime = ulTime;
+	p->ACSSkin = ACSSkin;
+	p->ACSSkinOverridesWeaponSkin = ACSSkinOverridesWeaponSkin;
 	// [BB] Players who were able to move while a APowerTimeFreezer is active,
 	// should also be able to do so after being reborn.
 	p->timefreezer = timefreezer;
 	p->StartingWeaponName = StartingWeaponName;
-	p->bLagging = bLagging;
 	p->bIsBot = p->pSkullBot ? true : false;
 
 	p->playerstate = PST_LIVE;
@@ -2586,7 +2602,17 @@ void G_DeathMatchSpawnPlayer( int playernum, bool bClientUpdate )
 	selections = deathmatchstarts.Size ();
 	// [RH] We can get by with just 1 deathmatch start
 	if (selections < 1)
-		I_Error( "No deathmatch starts!" );
+	{
+		// [RK] If the mode is something like TDM or TLMS, try to use the team spawns
+		// in the map and without limiting a player to using only their team color.
+		if ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSONTEAMS )
+		{
+			G_TemporaryTeamSpawnPlayer( playernum, bClientUpdate );
+			return;
+		}
+		else
+			I_Error("No deathmatch starts!");
+	}
 
 	if ( teamlms && ( players[playernum].bOnTeam ))
 	{
@@ -2768,8 +2794,10 @@ FPlayerStart *G_PickPlayerStart(int playernum, int flags)
 	if (bodyqueslot >= BODYQUESIZE && bodyque[modslot] != NULL)
 	{
 		bodyque[modslot]->Destroy ();
+		bodyquePlayer[modslot] = nullptr; // [AK] Nullify the player slot too.
 	}
 	bodyque[modslot] = body;
+	bodyquePlayer[modslot] = body->player; // [AK] Queue the player that owned the corpse too.
 
 	// Copy the player's translation, so that if they change their color later, only
 	// their current body will change and not all their old corpses.
@@ -2785,6 +2813,25 @@ FPlayerStart *G_PickPlayerStart(int playernum, int flags)
 	PLAYER_ApplySkinScaleToBody( body->player, body, body->player->ReadyWeapon );
 
 	bodyqueslot++;
+}
+
+// [AK] Only useful in A_PlayerScream and A_XScream. If this actor is a corpse, then
+// this (temporarily) assigns its player pointer to whoever owned the corpse.
+bool G_TransferPlayerFromCorpse (AActor *actor)
+{
+	if ((actor != nullptr) && (actor->player == nullptr))
+	{
+		for (unsigned int i = 0; i < BODYQUESIZE; i++)
+		{
+			if ((actor == bodyque[i]) && (playeringame[bodyquePlayer[i] - players]))
+			{
+				actor->player = bodyquePlayer[i];
+				return true;
+			}
+		}
+	}
+
+	return false;
 }
 
 //
@@ -3380,6 +3427,7 @@ void GAME_ResetMap( bool bRunEnterScripts )
 	fixed_t							Y;
 	fixed_t							Z;
 	TThinkerIterator<AActor>		ActorIterator;
+	TArray<AActor *>				untouchedActors;
 
 	// Unload decals.
 	DECAL_ClearDecals( );
@@ -3928,7 +3976,7 @@ void GAME_ResetMap( bool bRunEnterScripts )
 				else if ( pActorInfo->flags2 & MF2_SPAWNFLOAT )
 					Z = FLOATRANDZ;
 				else if ( pActorInfo->flags2 & MF2_FLOATBOB )
-					Z = pActor->SpawnPoint[2];
+					Z = pActor->Sector->e->XFloor.ffloors.Size() > 0 ? pActor->SpawnPoint[2] : pActor->floorz + pActor->SpawnPoint[2]; // [RK] Check if on 3dfloor
 				else
 					Z = ONFLOORZ;
 
@@ -4043,6 +4091,8 @@ void GAME_ResetMap( bool bRunEnterScripts )
 				pActor->tid = pActor->SavedTID;
 				pActor->AddToHash();
 			}
+
+			untouchedActors.Push( pActor );
 			continue;
 		}
 
@@ -4075,7 +4125,7 @@ void GAME_ResetMap( bool bRunEnterScripts )
 		else if ( pActorInfo->flags2 & MF2_SPAWNFLOAT )
 			Z = FLOATRANDZ;
 		else if ( pActorInfo->flags2 & MF2_FLOATBOB )
-			Z = pActor->SpawnPoint[2];
+			Z = pActor->Sector->e->XFloor.ffloors.Size() > 0 ? pActor->SpawnPoint[2] : pActor->floorz + pActor->SpawnPoint[2]; // [RK] Check if on 3dfloor
 		else
 			Z = ONFLOORZ;
 
@@ -4203,6 +4253,24 @@ void GAME_ResetMap( bool bRunEnterScripts )
 		}
 	}
 
+	// [RK] This is ran for P_Setup but we need to run it here for resets.
+	if (dmflags2 & DF2_NOCOUNTENDMONST)
+	{
+		TThinkerIterator<AActor> it;
+		AActor* mo;
+
+		while ((mo = it.Next()))
+		{
+			if (mo->flags & MF_COUNTKILL)
+			{
+				if (mo->Sector->special == 75) // 75 = dDamage_End
+				{
+					mo->ClearCounters();
+				}
+			}
+		}
+	}
+
 	// [BB] Restore the special gamemode actors that were not spawned by the map, e.g. terminator sphere or hellstone.
 	GAMEMODE_SpawnSpecialGamemodeThings();
 
@@ -4255,6 +4323,11 @@ void GAME_ResetMap( bool bRunEnterScripts )
 			}
 		}
 	}
+
+	// [AK] For any actors that weren't respawned, AActor::PostBeginPlay won't
+	// be executed and trigger GAMEEVENT_ACTOR_SPAWNED normally, so do it here.
+	for ( unsigned int i = 0; i < untouchedActors.Size( ); i++ )
+		GAMEMODE_HandleSpawnEvent( untouchedActors[i] );
 }
 
 //*****************************************************************************

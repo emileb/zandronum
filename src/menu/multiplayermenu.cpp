@@ -75,6 +75,7 @@
 #include "invasion.h"
 #include "lastmanstanding.h"
 #include "st_hud.h"
+#include "voicechat.h"
 
 static void M_StartSkirmishGame();
 static void M_ClearBotSlots();
@@ -137,9 +138,11 @@ CVAR ( Int, menu_callvoteplayer, 0, 0 )
 CVAR ( Bool, menu_callvoteban, 0, 0 )
 CVAR ( Int, menu_jointeamidx, 0, 0 )
 CVAR ( Int, menu_joinclassidx, 0, 0 )
-CVAR ( Int, menu_ignoreplayer, 0, 0 )
+CVAR ( Int, menu_playerindex, 0, 0 )
 CVAR ( Int, menu_ignoreduration, 0, 0 )
-CVAR ( Bool, menu_ignoreaction, false, 0 )
+CVAR ( Bool, menu_ignoreaction, true, 0 )
+CVAR ( Bool, menu_ignoretype, false, 0 )
+CVAR ( Float, menu_voicevolume, 1.0f, 0 )
 CVAR ( String, menu_authusername, 0, 0 )
 CVAR ( String, menu_authpassword, 0, 0 )
 CVAR ( Int, menu_skirmishskill, 0, CVAR_ARCHIVE )
@@ -454,12 +457,19 @@ public:
 		bool letterBox;
 		int numModes = 0;
 		int textsizescalar = 0;
+		bool bFoundExactMatch = false;
 
 		Video->StartModeIterator( 8, true );
 		while ( Video->NextMode( &width, &height, &letterBox ))
 		{
-			if (( width <= con_virtualwidth ) && ( height <= con_virtualheight ))
+			// [AK] Don't change the slider if we already found a mode that matches the virtual screen's size.
+			if (( bFoundExactMatch == false ) && ( width <= con_virtualwidth ) && ( height <= con_virtualheight ))
+			{
+				if (( width == con_virtualwidth ) && ( height == con_virtualheight ))
+					bFoundExactMatch = true;
+
 				textsizescalar = numModes;
+			}
 
 			numModes++;
 		}
@@ -581,6 +591,156 @@ public:
 };
 
 IMPLEMENT_CLASS( DWeaponSetupMenu )
+
+// =================================================================================================
+//
+// [AK] DVoiceChatMenu
+//
+// The voice chat options menu, which initializes the record driver list.
+//
+// =================================================================================================
+
+class DVoiceChatMenu : public DOptionMenu
+{
+	DECLARE_CLASS( DVoiceChatMenu, DOptionMenu )
+
+public:
+	void Init( DMenu *parent, FOptionMenuDescriptor *desc )
+	{
+		FOptionValues **opt = OptionValues.CheckKey( "ZA_RecordDrivers" );
+
+		if ( opt != nullptr )
+		{
+			TArray<FString> recordDriverList;
+			VOIPController::GetInstance( ).RetrieveRecordDrivers( recordDriverList );
+
+			RefreshRecordDriverList( *opt, recordDriverList );
+		}
+
+		Super::Init( parent, desc );
+	}
+
+	virtual void Ticker( void )
+	{
+		Super::Ticker( );
+
+		FOptionValues **opt = OptionValues.CheckKey( "ZA_RecordDrivers" );
+		TArray<FString> recordDriverList;
+
+		VOIPController::GetInstance( ).RetrieveRecordDrivers( recordDriverList );
+
+		if ( opt != nullptr )
+		{
+			int numRecordDrivers = ( *opt )->mValues.Size( );
+
+			// [AK] "None" doesn't count as a record driver.
+			if ( stricmp(( *opt )->mValues[0].Text, "None" ) == 0 )
+				numRecordDrivers = 0;
+
+			// [AK] Refresh the list of record drivers if any got added or removed.
+			if ( numRecordDrivers != recordDriverList.Size( ))
+				RefreshRecordDriverList( *opt, recordDriverList );
+		}
+
+		// [AK] Stop the microphone test if we're not recording (e.g. the device was disconnected).
+		if (( VOIPController::GetInstance( ).IsRecording( ) == false ) && ( VOIPController::GetInstance( ).IsTestingMicrophone( )))
+		{
+			VOIPController::GetInstance( ).SetMicrophoneTest( false );
+
+			// [AK] If no record drivers are connected, then the microphone test bar shouldn't be selected.
+			if ( recordDriverList.Size( ) == 0 )
+			{
+				FOptionMenuItem *it = mDesc->GetItem( "MicTestBar" );
+
+				if (( it != nullptr ) && ( it == mDesc->mItems[mDesc->mSelectedItem] ))
+					mDesc->mSelectedItem = FirstSelectable( );
+			}
+		}
+	}
+
+	virtual void Close( void )
+	{
+		// [AK] Stop testing the microphone when we exit the menu.
+		if ( VOIPController::GetInstance( ).IsTestingMicrophone( ))
+			VOIPController::GetInstance( ).SetMicrophoneTest( false );
+
+		Super::Close( );
+	}
+
+private:
+	void RefreshRecordDriverList( FOptionValues *opt, TArray<FString> recordDriverList )
+	{
+		FOptionValues::Pair pair;
+
+		if ( opt == nullptr )
+			return;
+
+		opt->mValues.Clear( );
+
+		if ( recordDriverList.Size( ) > 0 )
+		{
+			for ( unsigned int i = 0; i < recordDriverList.Size( ); i++ )
+			{
+				pair.Value = i;
+				pair.Text = recordDriverList[i];
+				opt->mValues.Push( pair );
+			}
+		}
+		else
+		{
+			pair.Value = 0;
+			pair.Text = "None";
+			opt->mValues.Push( pair );
+		}
+
+		if ( static_cast<unsigned>( voice_recorddriver ) >= opt->mValues.Size( ))
+			voice_recorddriver = opt->mValues.Size( ) - 1;
+	}
+};
+
+IMPLEMENT_CLASS( DVoiceChatMenu )
+
+// =================================================================================================
+//
+// [AK] DPlayerListMenu
+//
+// The player list menu, allowing the user to (un)ignore another player's chat messages or voice,
+// or adjust the volume of their VoIP channel.
+//
+// =================================================================================================
+
+class DPlayerListMenu : public DOptionMenu
+{
+	DECLARE_CLASS( DPlayerListMenu, DOptionMenu )
+
+public:
+	void Init( DMenu *parent, FOptionMenuDescriptor *desc )
+	{
+		// [AK] Set the volume slider to the selected player's VoIP channel volume. If no valid
+		// player is selected, then reset the slider back to default.
+		if ( PLAYER_IsValidPlayer( menu_playerindex ))
+			menu_voicevolume = VOIPController::GetInstance( ).GetChannelVolume( menu_playerindex );
+		else
+			menu_voicevolume.ResetToDefault( );
+
+		Super::Init( parent, desc );
+	}
+
+	void CVarChanged( FBaseCVar *cvar )
+	{
+		if ( PLAYER_IsValidPlayer( menu_playerindex ) == false )
+			return;
+
+		// [AK] If the selected player has changed, set the volume slider to their VoIP channel volume.
+		if ( cvar == &menu_playerindex )
+			menu_voicevolume = VOIPController::GetInstance( ).GetChannelVolume( menu_playerindex );
+		// [AK] If the volume slider has changed, update the selected player's VoIP channel volume.
+		else if (( cvar == &menu_voicevolume ) && ( mDesc->mItems[mDesc->mSelectedItem]->GetAction( nullptr ) == FName( "menu_voicevolume" )))
+			VOIPController::GetInstance( ).SetChannelVolume( menu_playerindex, menu_voicevolume, true );
+	}
+};
+
+IMPLEMENT_CLASS( DPlayerListMenu )
 
 // =================================================================================================
 //
@@ -731,23 +891,22 @@ static void M_CallResetMapVote()
 
 static void M_ExecuteIgnore()
 {
-	if ( PLAYER_IsValidPlayer( menu_ignoreplayer ) )
+	if ( PLAYER_IsValidPlayer( menu_playerindex ) )
 	{
 		FString command;
 
-		if ( menu_ignoreaction == 0 )
+		if ( menu_ignoreaction )
 		{
 			// Ignore a player
-			command.Format( "ignore_idx %d %d", *menu_ignoreplayer, *menu_ignoreduration );
+			command.Format( "%signore_idx %d %d", menu_ignoretype ? "voice_" : "", *menu_playerindex, *menu_ignoreduration );
 		}
 		else
 		{
 			// Unignore a player
-			command.Format( "unignore_idx %d", *menu_ignoreplayer );
+			command.Format( "%sunignore_idx %d", menu_ignoretype ? "voice_" : "", *menu_playerindex );
 		}
 
 		C_DoCommand( command );
-		M_ClearMenus();
 	}
 }
 
@@ -862,6 +1021,18 @@ void M_RconAccessGranted()
 	// [TP] We got RCON access. If this was done from the menu, forward the user to the server setup menu.
 	if (( g_LastRconAccessRequest > 0 ) && ( g_LastRconAccessRequest > gametic - 10 * TICRATE ))
 		M_SetMenu( "ZA_ServerSetupMenu" );
+}
+
+// =================================================================================================
+//
+//
+//
+//
+// =================================================================================================
+
+void M_SetLastRconAccessRequest( int tic )
+{
+	g_LastRconAccessRequest = tic;
 }
 
 // =================================================================================================
@@ -1007,6 +1178,6 @@ CCMD ( menu_rconlogin )
 		FString command;
 		command.Format ("send_password \"%s\"", *menu_rconpassword );
 		C_DoCommand( command );
-		g_LastRconAccessRequest = gametic;
+		M_SetLastRconAccessRequest( gametic );
 	}
 }

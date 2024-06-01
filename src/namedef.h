@@ -606,6 +606,12 @@ xx(CL_TicsPerUpdate)
 xx(CL_ConnectionType)
 // [CK] Client flags for various booleans masked in a bitfield.
 xx(CL_ClientFlags)
+// [AK] Let the user decide whether voice chat is on/off and how to transmit audio.
+xx(Voice_Enable)
+// [AK] Determines what kind of players the client can receive/send VoIP packets to/from.
+xx(Voice_ListenFilter)
+xx(Voice_TransmitFilter)
+
 // [BB] For the bot skill menu
 xx(BotSkillMenu)
 xx(ChooseBotSkill)

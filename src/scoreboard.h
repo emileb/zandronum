@@ -212,17 +212,17 @@ public:
 	bool IsUsableInCurrentGame( void ) const { return bUsableInCurrentGame; }
 	bool IsDisabled( void ) const { return bDisabled; }
 	bool ShouldUseShortName( void ) const { return bUseShortName; }
+	void Parse( FScanner &sc );
 	void DrawHeader( const LONG lYPos, const ULONG ulHeight, const float fAlpha ) const;
 	void DrawString( const char *pszString, FFont *pFont, const ULONG ulColor, const LONG lYPos, const ULONG ulHeight, const float fAlpha ) const;
 	void DrawColor( const PalEntry color, const LONG lYPos, const ULONG ulHeight, const float fAlpha, const int clipWidth, const int clipHeight ) const;
-	void DrawTexture( FTexture *pTexture, const LONG lYPos, const ULONG ulHeight, const float fAlpha, const int clipWidth, const int clipHeight ) const;
+	void DrawTexture( FTexture *texture, const LONG yPos, const ULONG height, const float alpha, const int clipWidth, const int clipHeight, const float scale ) const;
 
 	virtual COLUMNTEMPLATE_e GetTemplate( void ) const { return COLUMNTEMPLATE_UNKNOWN; }
-	virtual void Parse( FScanner &sc );
 	virtual void ParseCommand( FScanner &sc, const COLUMNCMD_e Command, const FString CommandName );
 	virtual void CheckIfUsable( void );
 	virtual void Refresh( void );
-	virtual void UpdateWidth( void );
+	virtual void Update( void );
 	virtual void DrawValue( const ULONG ulPlayer, const ULONG ulColor, const LONG lYPos, const ULONG ulHeight, const float fAlpha ) const = 0;
 
 protected:
@@ -234,11 +234,14 @@ protected:
 	FString ShortName;
 	HORIZALIGN_e Alignment;
 	FBaseCVar *pCVar;
+	LONG lMinCVarValue;
+	LONG lMaxCVarValue;
 	ULONG ulFlags;
 	ULONG ulGameAndEarnTypeFlags;
 	std::set<GAMEMODE_e> GameModeList;
 	ULONG ulSizing;
 	ULONG ulShortestWidth;
+	ULONG ulShortestHeight;
 	ULONG ulWidth;
 	LONG lRelX;
 	bool bUsableInCurrentGame;
@@ -275,6 +278,7 @@ public:
 		ulMaxLength( 0 ),
 		lClipRectWidth( 0 ),
 		lClipRectHeight( 0 ),
+		textureScale( 1.0f ),
 		pCompositeColumn( NULL ) { }
 
 	CompositeScoreColumn *GetCompositeColumn( void ) const { return pCompositeColumn; }
@@ -284,11 +288,10 @@ public:
 
 	virtual COLUMNTEMPLATE_e GetTemplate( void ) const { return COLUMNTEMPLATE_DATA; }
 	virtual DATATYPE_e GetDataType( void ) const;
-	virtual ULONG GetValueWidth( const PlayerValue &Value ) const;
+	virtual ULONG GetValueWidthOrHeight( const PlayerValue &Value, const bool bGetHeight ) const;
 	virtual PlayerValue GetValue( const ULONG ulPlayer ) const;
-	virtual void Parse( FScanner &sc );
 	virtual void ParseCommand( FScanner &sc, const COLUMNCMD_e Command, const FString CommandName );
-	virtual void UpdateWidth( void );
+	virtual void Update( void );
 	virtual void DrawValue( const ULONG ulPlayer, const ULONG ulColor, const LONG lYPos, const ULONG ulHeight, const float fAlpha ) const;
 
 protected:
@@ -300,6 +303,7 @@ protected:
 	ULONG ulMaxLength;
 	LONG lClipRectWidth;
 	LONG lClipRectHeight;
+	float textureScale;
 
 	// [AK] The composite column that this column belongs to, if there is one.
 	CompositeScoreColumn *pCompositeColumn;
@@ -317,7 +321,7 @@ class CountryFlagScoreColumn : public DataScoreColumn
 public:
 	CountryFlagScoreColumn( FScanner &sc, const char *pszName );
 
-	virtual ULONG GetValueWidth( const PlayerValue &Value ) const;
+	virtual ULONG GetValueWidthOrHeight( const PlayerValue &Value, const bool bGetHeight ) const;
 	virtual PlayerValue GetValue( const ULONG ulPlayer ) const;
 	virtual void DrawValue( const ULONG ulPlayer, const ULONG ulColor, const LONG lYPos, const ULONG ulHeight, const float fAlpha ) const;
 
@@ -348,7 +352,7 @@ public:
 	virtual void ParseCommand( FScanner &sc, const COLUMNCMD_e Command, const FString CommandName );
 	virtual void CheckIfUsable( void );
 	virtual void Refresh( void );
-	virtual void UpdateWidth( void );
+	virtual void Update( void );
 	virtual void DrawValue( const ULONG ulPlayer, const ULONG ulColor, const LONG lYPos, const ULONG ulHeight, const float fAlpha ) const;
 
 protected:
@@ -359,7 +363,7 @@ protected:
 	ULONG ulGapBetweenSubColumns;
 
 private:
-	ULONG GetRowWidth( const ULONG ulPlayer ) const;
+	ULONG GetRowWidthOrHeight( const ULONG ulPlayer, const bool bGetHeight ) const;
 	ULONG GetSubColumnWidth( const ULONG ulSubColumn, const ULONG ulValueWidth ) const;
 };
 
@@ -391,6 +395,9 @@ public:
 		// [AK] By default, a margin command isn't a block (i.e. multi-line or row) element.
 		virtual bool IsBlockElement( void ) const { return false; }
 
+		// [AK] By default, a margin command also isn't a flow control command.
+		virtual bool IsFlowControl( void ) const { return false; }
+
 	protected:
 		ScoreMargin *const pParentMargin;
 		BaseCommand *const pParentCommand;
@@ -402,7 +409,8 @@ public:
 	public:
 		~CommandBlock( void ) { Clear( ); }
 
-		void ParseCommands( FScanner &sc, ScoreMargin *pMargin, BaseCommand *pParentCommand );
+		void ParseBlock( FScanner &sc, ScoreMargin *pMargin, BaseCommand *pParentCommand );
+		void ParseCommand( FScanner &sc, ScoreMargin *pMargin, BaseCommand *pParentCommand, const bool bOnlyFlowControl );
 		void Clear( void );
 		void Refresh( const ULONG ulDisplayPlayer );
 		void Draw( const ULONG ulDisplayPlayer, const ULONG ulTeam, const LONG lYPos, const float fAlpha, const LONG lXOffsetBonus = 0 ) const;
@@ -419,9 +427,10 @@ public:
 	const char *GetName( void ) const { return Name.GetChars( ); }
 	ULONG GetWidth( void ) const { return ulWidth; }
 	ULONG GetHeight( void ) const { return ulHeight; }
+	int GetRelX( void ) const { return relX; }
 	void IncreaseHeight( ULONG ulExtraHeight ) { ulHeight += ulExtraHeight; }
 	void Parse( FScanner &sc );
-	void Refresh( const ULONG ulDisplayPlayer, const ULONG ulNewWidth );
+	void Refresh( const ULONG displayPlayer, const ULONG newWidth, const int newRelX );
 	void Render( const ULONG ulDisplayPlayer, const ULONG ulTeam, LONG &lYPos, const float fAlpha ) const;
 
 	// [AK] Indicates that this margin is drawing for no team.
@@ -433,6 +442,7 @@ private:
 	const FName Name;
 	ULONG ulWidth;
 	ULONG ulHeight;
+	int relX;
 };
 
 //*****************************************************************************
@@ -491,6 +501,7 @@ struct Scoreboard
 	float fBackgroundAmount;
 	float fRowBackgroundAmount;
 	float fDeadRowBackgroundAmount;
+	float fContentAlpha;
 	float fDeadTextAlpha;
 	ULONG ulBackgroundBorderSize;
 	ULONG ulGapBetweenHeaderAndRows;
@@ -499,6 +510,11 @@ struct Scoreboard
 	ULONG ulColumnPadding;
 	LONG lHeaderHeight;
 	LONG lRowHeight;
+	ULONG ulRowHeightToUse;
+	unsigned int totalScrollHeight;
+	unsigned int visibleScrollHeight;
+	int minClipRectY;
+	int maxClipRectY;
 
 	Scoreboard( void );
 
@@ -528,6 +544,8 @@ private:
 	ScoreMargin SpectatorHeader;
 	ScoreMargin Footer;
 	LONG lLastRefreshTick;
+	int currentScrollOffset;
+	int interpolateScrollOffset;
 
 	void AddColumnToList( FScanner &sc, const bool bAddToRankOrder );
 	void RemoveColumnFromList( FScanner &sc, const bool bRemoveFromRankOrder );
@@ -542,7 +560,12 @@ private:
 void			SCOREBOARD_Construct( void );
 void			SCOREBOARD_Reset( void );
 void			SCOREBOARD_Render( ULONG ulDisplayPlayer );
+void STACK_ARGS SCOREBOARD_DrawString( FFont *font, const int color, const int x, const int y, const char *string, ... );
+void			SCOREBOARD_DrawColor( const PalEntry color, const float alpha, int left, int top, int width, int height );
+void STACK_ARGS SCOREBOARD_DrawTexture( FTexture *texture, const int x, const int y, const float scale, ... );
 bool			SCOREBOARD_ShouldDrawBoard( void );
+bool			SCOREBOARD_AdjustVerticalClipRect( int &clipTop, int &clipHeight );
+void			SCOREBOARD_ConvertVirtualCoordsToReal( int &left, int &top, int &width, int &height );
 void			SCOREBOARD_BuildLimitStrings( std::list<FString> &lines, bool bAcceptColors );
 ScoreColumn		*SCOREBOARD_GetColumn( FName Name, const bool bMustBeUsable );
 LONG			SCOREBOARD_GetLeftToLimit( void );

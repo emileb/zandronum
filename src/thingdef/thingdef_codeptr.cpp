@@ -385,7 +385,7 @@ static void DoAttack (AActor *self, bool domelee, bool domissile,
 			{
 				missile->tracer=self->target;
 			}
-			bool bSucces = P_CheckMissileSpawn(missile, self->radius);
+			bool bSucces = P_CheckMissileSpawn(missile, self->radius, true, false);
 
 			// [BC] If we're the server, tell clients to spawn the missile.
 			if ( bSucces && ( NETWORK_GetState( ) == NETSTATE_SERVER ) )
@@ -1448,7 +1448,7 @@ DEFINE_ACTION_FUNCTION_PARAMS(AActor, A_CustomComboAttack)
 			{
 				missile->tracer=self->target;
 			}
-			bool bSucces = P_CheckMissileSpawn(missile, self->radius);
+			bool bSucces = P_CheckMissileSpawn(missile, self->radius, true, false);
 
 			// [BB] If we're the server, tell clients to spawn this missile.
 			if ( bSucces && ( NETWORK_GetState( ) == NETSTATE_SERVER ) )
@@ -2655,8 +2655,9 @@ DEFINE_ACTION_FUNCTION_PARAMS(AActor, A_SpawnItemEx)
 			if ( mo->Translation )
 				SERVERCOMMANDS_SetThingTranslation( mo );
 
+			// [TRSR] It is useful to always sync the AAPTR_TARGET field for missiles.
 			// [BB] To properly handle actor-actor bouncing, the client must know the target.
-			if ( mo->BounceFlags != BOUNCE_None )
+			if ( mo->flags & MF_MISSILE || mo->BounceFlags != BOUNCE_None )
 				SERVERCOMMANDS_SetThingTarget ( mo );
 
 			// [BB] Set scale if necessary.
