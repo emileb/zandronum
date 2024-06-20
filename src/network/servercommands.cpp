@@ -1,4 +1,4 @@
-// 6733be247db4612b5ac1d0ee86859195
+// 83556b6f2cad3d099cb3ffaccdd00310
 // This file has been automatically generated. Do not edit by hand.
 #include "cl_main.h"
 #include "servercommands.h"
@@ -713,8 +713,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			ServerCommands::SetPlayerStatus command;
 			int temp19;
 			command.player = &players[bytestream->ReadByte()];
-			command.type = bytestream->ReadShortByte( 7 );
-			command.value = bytestream->ReadBit();
+			command.statuses = bytestream->ReadByte();
 			temp19 = command.player - players;
 
 			if ( PLAYER_IsValidPlayer( temp19 ) == false )
@@ -4393,6 +4392,32 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 		}
 		return true;
 
+	case SVC2_SETPLAYERACSSKIN:
+		{
+			ServerCommands::SetPlayerACSSkin command;
+			int temp142;
+			command.player = &players[bytestream->ReadByte()];
+			command.skinName = NETWORK_ReadName( bytestream );
+			command.overrideWeaponSkin = bytestream->ReadBit();
+			temp142 = command.player - players;
+
+			if ( PLAYER_IsValidPlayer( temp142 ) == false )
+			{
+				CLIENT_PrintWarning( "SetPlayerACSSkin: Invalid player number: %d\n", temp142 );
+				return true;
+			}
+
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "SetPlayerACSSkin: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
 	case SVC2_SETLOCALPLAYERJUMPTICS:
 		{
 			ServerCommands::SetLocalPlayerJumpTics command;
@@ -4412,17 +4437,17 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_GIVEWEAPONHOLDER:
 		{
 			ServerCommands::GiveWeaponHolder command;
-			int temp142;
 			int temp143;
+			int temp144;
 			command.player = &players[bytestream->ReadByte()];
 			command.pieceMask = bytestream->ReadShort();
-			temp142 = bytestream->ReadShort();
-			command.pieceWeapon = NETWORK_GetClassFromIdentification( temp142 );
-			temp143 = command.player - players;
+			temp143 = bytestream->ReadShort();
+			command.pieceWeapon = NETWORK_GetClassFromIdentification( temp143 );
+			temp144 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp143 ) == false )
+			if ( PLAYER_IsValidPlayer( temp144 ) == false )
 			{
-				CLIENT_PrintWarning( "GiveWeaponHolder: Invalid player number: %d\n", temp143 );
+				CLIENT_PrintWarning( "GiveWeaponHolder: Invalid player number: %d\n", temp144 );
 				return true;
 			}
 
@@ -4433,7 +4458,7 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 
 			if ( command.pieceWeapon == NULL )
 			{
-				CLIENT_PrintWarning( "GiveWeaponHolder: unknown class ID for pieceWeapon: %d\n", temp142 );
+				CLIENT_PrintWarning( "GiveWeaponHolder: unknown class ID for pieceWeapon: %d\n", temp143 );
 				return true;
 			}
 
@@ -4452,18 +4477,18 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SETHEXENARMORSLOTS:
 		{
 			ServerCommands::SetHexenArmorSlots command;
-			int temp144;
+			int temp145;
 			command.player = &players[bytestream->ReadByte()];
 			command.slot0 = bytestream->ReadLong();
 			command.slot1 = bytestream->ReadLong();
 			command.slot2 = bytestream->ReadLong();
 			command.slot3 = bytestream->ReadLong();
 			command.slot4 = bytestream->ReadLong();
-			temp144 = command.player - players;
+			temp145 = command.player - players;
 
-			if ( PLAYER_IsValidPlayer( temp144 ) == false )
+			if ( PLAYER_IsValidPlayer( temp145 ) == false )
 			{
-				CLIENT_PrintWarning( "SetHexenArmorSlots: Invalid player number: %d\n", temp144 );
+				CLIENT_PrintWarning( "SetHexenArmorSlots: Invalid player number: %d\n", temp145 );
 				return true;
 			}
 
@@ -4482,20 +4507,102 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 		}
 		return true;
 
+	case SVC2_SENDPLAYERCOMMRULE:
+		{
+			ServerCommands::SendPlayerCommRule command;
+			int temp146;
+			command.player = &players[bytestream->ReadByte()];
+			command.ignoreChat = bytestream->ReadBit();
+			command.ignoreVoice = bytestream->ReadBit();
+			command.sendVoIPChannelVolume = bytestream->ReadBit();
+			if ( command.ContainsIgnoreChatTicks() )
+			{
+				command.ignoreChatTicks = bytestream->ReadLong();
+			}
+			if ( command.ContainsIgnoreVoiceTicks() )
+			{
+				command.ignoreVoiceTicks = bytestream->ReadLong();
+			}
+			if ( command.ContainsVoIPChannelVolume() )
+			{
+				command.VoIPChannelVolume = bytestream->ReadFloat();
+			}
+			temp146 = command.player - players;
+
+			if (( temp146 < 0 ) || ( temp146 >= MAXPLAYERS ))
+			{
+				CLIENT_PrintWarning( "SendPlayerCommRule: Invalid player number: %d\n", temp146 );
+				return true;
+			}
+
+			if ( command.ContainsIgnoreChatTicks() )
+			{
+			}
+			if ( command.ContainsIgnoreVoiceTicks() )
+			{
+			}
+			if ( command.ContainsVoIPChannelVolume() )
+			{
+			}
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "SendPlayerCommRule: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_IGNORELOCALPLAYER:
+		{
+			ServerCommands::IgnoreLocalPlayer command;
+			int temp147;
+			command.player = &players[bytestream->ReadByte()];
+			command.ignore = bytestream->ReadBit();
+			command.doVoice = bytestream->ReadBit();
+			if ( command.CheckIgnore() )
+			{
+				command.ticks = bytestream->ReadLong();
+				command.reason = bytestream->ReadString();
+			}
+			temp147 = command.player - players;
+
+			if (( temp147 < 0 ) || ( temp147 >= MAXPLAYERS ))
+			{
+				CLIENT_PrintWarning( "IgnoreLocalPlayer: Invalid player number: %d\n", temp147 );
+				return true;
+			}
+
+			if ( command.CheckIgnore() )
+			{
+			}
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "IgnoreLocalPlayer: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
 	case SVC2_LEVELSPAWNTHING:
 		{
 			ServerCommands::LevelSpawnThing command;
-			int temp145;
+			int temp148;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
-			temp145 = bytestream->ReadShort();
-			command.type = NETWORK_GetClassFromIdentification( temp145 );
+			temp148 = bytestream->ReadShort();
+			command.type = NETWORK_GetClassFromIdentification( temp148 );
 			command.id = bytestream->ReadShort();
 
 			if ( command.type == NULL )
 			{
-				CLIENT_PrintWarning( "LevelSpawnThing: unknown class ID for type: %d\n", temp145 );
+				CLIENT_PrintWarning( "LevelSpawnThing: unknown class ID for type: %d\n", temp148 );
 				return true;
 			}
 
@@ -4514,16 +4621,16 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_LEVELSPAWNTHINGNONETID:
 		{
 			ServerCommands::LevelSpawnThingNoNetID command;
-			int temp146;
+			int temp149;
 			command.x = bytestream->ReadShort() << FRACBITS;
 			command.y = bytestream->ReadShort() << FRACBITS;
 			command.z = bytestream->ReadShort() << FRACBITS;
-			temp146 = bytestream->ReadShort();
-			command.type = NETWORK_GetClassFromIdentification( temp146 );
+			temp149 = bytestream->ReadShort();
+			command.type = NETWORK_GetClassFromIdentification( temp149 );
 
 			if ( command.type == NULL )
 			{
-				CLIENT_PrintWarning( "LevelSpawnThingNoNetID: unknown class ID for type: %d\n", temp146 );
+				CLIENT_PrintWarning( "LevelSpawnThingNoNetID: unknown class ID for type: %d\n", temp149 );
 				return true;
 			}
 
@@ -4542,11 +4649,11 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SETTHINGSTRINGPROPERTY:
 		{
 			ServerCommands::SetThingStringProperty command;
-			int temp147;
-			temp147 = bytestream->ReadShort();
+			int temp150;
+			temp150 = bytestream->ReadShort();
 			command.property = bytestream->ReadByte();
 			command.value = bytestream->ReadString();
-			if ( CLIENT_ReadActorFromNetID( temp147, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp150, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingStringProperty", "actor" ) == false )
 			{
@@ -4568,10 +4675,10 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SETTHINGREACTIONTIME:
 		{
 			ServerCommands::SetThingReactionTime command;
-			int temp148;
-			temp148 = bytestream->ReadShort();
+			int temp151;
+			temp151 = bytestream->ReadShort();
 			command.reactiontime = bytestream->ReadShort();
-			if ( CLIENT_ReadActorFromNetID( temp148, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp151, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingReactionTime", "actor" ) == false )
 			{
@@ -4593,8 +4700,8 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SETTHINGSCALE:
 		{
 			ServerCommands::SetThingScale command;
-			int temp149;
-			temp149 = bytestream->ReadShort();
+			int temp152;
+			temp152 = bytestream->ReadShort();
 			command.scaleflags = bytestream->ReadByte();
 			if ( command.ContainsScaleX() )
 			{
@@ -4604,7 +4711,7 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 			{
 				command.scaleY = bytestream->ReadLong();
 			}
-			if ( CLIENT_ReadActorFromNetID( temp149, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp152, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"SetThingScale", "actor" ) == false )
 			{
@@ -4621,6 +4728,101 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
 				CLIENT_PrintWarning( "SetThingScale: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_STARTCONVERSATION:
+		{
+			ServerCommands::StartConversation command;
+			int temp153;
+			int temp154;
+			temp153 = bytestream->ReadShort();
+			command.player = &players[bytestream->ReadByte()];
+			command.node = bytestream->ReadLong();
+			command.facetalker = bytestream->ReadBit();
+			command.saveangle = bytestream->ReadBit();
+			if ( CLIENT_ReadActorFromNetID( temp153, RUNTIME_CLASS( AActor ), false,
+											reinterpret_cast<AActor *&>( command.npc ),
+											"StartConversation", "npc" ) == false )
+			{
+				return true;
+			}
+
+
+			temp154 = command.player - players;
+
+			if ( PLAYER_IsValidPlayer( temp154 ) == false )
+			{
+				CLIENT_PrintWarning( "StartConversation: Invalid player number: %d\n", temp154 );
+				return true;
+			}
+
+
+			if ( command.player->mo == NULL )
+				return true;
+
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "StartConversation: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_CONVERSATIONREPLY:
+		{
+			ServerCommands::ConversationReply command;
+			int temp155;
+			command.player = &players[bytestream->ReadByte()];
+			command.node = bytestream->ReadLong();
+			command.reply = bytestream->ReadLong();
+			temp155 = command.player - players;
+
+			if ( PLAYER_IsValidPlayer( temp155 ) == false )
+			{
+				CLIENT_PrintWarning( "ConversationReply: Invalid player number: %d\n", temp155 );
+				return true;
+			}
+
+
+			if ( command.player->mo == NULL )
+				return true;
+
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "ConversationReply: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_ENDCONVERSATION:
+		{
+			ServerCommands::EndConversation command;
+			int temp156;
+			command.player = &players[bytestream->ReadByte()];
+			temp156 = command.player - players;
+
+			if ( PLAYER_IsValidPlayer( temp156 ) == false )
+			{
+				CLIENT_PrintWarning( "EndConversation: Invalid player number: %d\n", temp156 );
+				return true;
+			}
+
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "EndConversation: Packet contained %td too few bytes\n",
 					bytestream->pbStream - bytestream->pbStreamEnd );
 				return true;
 			}
@@ -4670,9 +4872,9 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SOUNDSECTOR:
 		{
 			ServerCommands::SoundSector command;
-			int temp150;
-			temp150 = bytestream->ReadShort();
-			command.sector = CLIENT_FindSectorByID( temp150 );
+			int temp157;
+			temp157 = bytestream->ReadShort();
+			command.sector = CLIENT_FindSectorByID( temp157 );
 			command.channel = bytestream->ReadShort();
 			command.sound = bytestream->ReadString();
 			command.volume = bytestream->ReadByte();
@@ -4680,7 +4882,7 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 
 			if ( command.sector == NULL )
 			{
-				CLIENT_PrintWarning( "SoundSector: couldn't find sector: %d\n", temp150 );
+				CLIENT_PrintWarning( "SoundSector: couldn't find sector: %d\n", temp157 );
 				return true;
 			}
 
@@ -4699,10 +4901,10 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_STOPSOUND:
 		{
 			ServerCommands::StopSound command;
-			int temp151;
-			temp151 = bytestream->ReadShort();
+			int temp158;
+			temp158 = bytestream->ReadShort();
 			command.channel = bytestream->ReadByte();
-			if ( CLIENT_ReadActorFromNetID( temp151, RUNTIME_CLASS( AActor ), false,
+			if ( CLIENT_ReadActorFromNetID( temp158, RUNTIME_CLASS( AActor ), false,
 											reinterpret_cast<AActor *&>( command.actor ),
 											"StopSound", "actor" ) == false )
 			{
@@ -4721,14 +4923,59 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 		}
 		return true;
 
+	case SVC2_STOPORIGINLESSSOUND:
+		{
+			ServerCommands::StopOriginlessSound command;
+			command.channel = bytestream->ReadByte();
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "StopOriginlessSound: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_SETWEAPONZOOMFACTOR:
+		{
+			ServerCommands::SetWeaponZoomFactor command;
+			int temp159;
+			command.player = &players[bytestream->ReadByte()];
+			command.zoom = bytestream->ReadFloat();
+			command.flags = bytestream->ReadByte();
+			temp159 = command.player - players;
+
+			if ( PLAYER_IsValidPlayer( temp159 ) == false )
+			{
+				CLIENT_PrintWarning( "SetWeaponZoomFactor: Invalid player number: %d\n", temp159 );
+				return true;
+			}
+
+
+			if ( command.player->mo == NULL )
+				return true;
+
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "SetWeaponZoomFactor: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
 	case SVC2_ACSSENDSTRING:
 		{
 			ServerCommands::ACSSendString command;
-			int temp152;
+			int temp160;
 			command.netid = bytestream->ReadShort();
-			temp152 = bytestream->ReadShort();
+			temp160 = bytestream->ReadShort();
 			command.string = bytestream->ReadString();
-			if ( CLIENT_ReadActorFromNetID( temp152, RUNTIME_CLASS( AActor ), true,
+			if ( CLIENT_ReadActorFromNetID( temp160, RUNTIME_CLASS( AActor ), true,
 											reinterpret_cast<AActor *&>( command.activator ),
 											"ACSSendString", "activator" ) == false )
 			{
@@ -4750,10 +4997,10 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SYNCJOINQUEUE:
 		{
 			ServerCommands::SyncJoinQueue command;
-			unsigned int temp153;
-			temp153 = bytestream->ReadByte();
-			command.slots.Reserve( temp153 );
-			for ( unsigned int i = 0; i < temp153; ++i )
+			unsigned int temp161;
+			temp161 = bytestream->ReadByte();
+			command.slots.Reserve( temp161 );
+			for ( unsigned int i = 0; i < temp161; ++i )
 			{
 				command.slots[i].player = bytestream->ReadByte();
 				command.slots[i].team = bytestream->ReadByte();
@@ -4775,10 +5022,10 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 	case SVC2_SYNCMAPROTATION:
 		{
 			ServerCommands::SyncMapRotation command;
-			unsigned int temp154;
-			temp154 = bytestream->ReadByte();
-			command.entries.Reserve( temp154 );
-			for ( unsigned int i = 0; i < temp154; ++i )
+			unsigned int temp162;
+			temp162 = bytestream->ReadByte();
+			command.entries.Reserve( temp162 );
+			for ( unsigned int i = 0; i < temp162; ++i )
 			{
 				command.entries[i].name = bytestream->ReadString();
 				command.entries[i].isUsed = bytestream->ReadByte();
@@ -4829,6 +5076,28 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 				return true;
 			}
 
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_OPENMENU:
+		{
+			ServerCommands::OpenMenu command;
+			command.menu = bytestream->ReadString();
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "OpenMenu: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
+	case SVC2_CLOSEMENU:
+		{
+			ServerCommands::CloseMenu command;
 			command.Execute();
 		}
 		return true;
@@ -5977,8 +6246,7 @@ NetCommand ServerCommands::SetPlayerStatus::BuildNetCommand() const
 	}
 	NetCommand command ( SVC_SETPLAYERSTATUS );
 	command.addByte( this->player - players );
-	command.addShortByte( this->type, 7 );
-	command.addBit( this->value );
+	command.addByte( this->statuses );
 	return command;
 }
 
@@ -5988,16 +6256,10 @@ void ServerCommands::SetPlayerStatus::SetPlayer( player_t * value )
 	this->_playerInitialized = true;
 }
 
-void ServerCommands::SetPlayerStatus::SetType( int value )
+void ServerCommands::SetPlayerStatus::SetStatuses( int value )
 {
-	this->type = value;
-	this->_typeInitialized = true;
-}
-
-void ServerCommands::SetPlayerStatus::SetValue( bool value )
-{
-	this->value = value;
-	this->_valueInitialized = true;
+	this->statuses = value;
+	this->_statusesInitialized = true;
 }
 
 NetCommand ServerCommands::SetPlayerTeam::BuildNetCommand() const
@@ -6290,6 +6552,38 @@ void ServerCommands::SetPlayerLivesLeft::SetLivesLeft( int value )
 {
 	this->livesLeft = value;
 	this->_livesLeftInitialized = true;
+}
+
+NetCommand ServerCommands::SetPlayerACSSkin::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: SetPlayerACSSkin::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_SETPLAYERACSSKIN );
+	command.addByte( this->player - players );
+	command.addName( this->skinName );
+	command.addBit( this->overrideWeaponSkin );
+	return command;
+}
+
+void ServerCommands::SetPlayerACSSkin::SetPlayer( player_t * value )
+{
+	this->player = value;
+	this->_playerInitialized = true;
+}
+
+void ServerCommands::SetPlayerACSSkin::SetSkinName( FName value )
+{
+	this->skinName = value;
+	this->_skinNameInitialized = true;
+}
+
+void ServerCommands::SetPlayerACSSkin::SetOverrideWeaponSkin( bool value )
+{
+	this->overrideWeaponSkin = value;
+	this->_overrideWeaponSkinInitialized = true;
 }
 
 NetCommand ServerCommands::UpdatePlayerPing::BuildNetCommand() const
@@ -6791,6 +7085,144 @@ void ServerCommands::SetHexenArmorSlots::SetSlot4( int value )
 {
 	this->slot4 = value;
 	this->_slot4Initialized = true;
+}
+
+NetCommand ServerCommands::SendPlayerCommRule::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: SendPlayerCommRule::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_SENDPLAYERCOMMRULE );
+	command.addByte( this->player - players );
+	command.addBit( this->ignoreChat );
+	command.addBit( this->ignoreVoice );
+	command.addBit( this->sendVoIPChannelVolume );
+	if ( ContainsIgnoreChatTicks() )
+	{
+		command.addLong( this->ignoreChatTicks );
+	}
+	if ( ContainsIgnoreVoiceTicks() )
+	{
+		command.addLong( this->ignoreVoiceTicks );
+	}
+	if ( ContainsVoIPChannelVolume() )
+	{
+		command.addFloat( this->VoIPChannelVolume );
+	}
+	return command;
+}
+
+void ServerCommands::SendPlayerCommRule::SetPlayer( player_t * value )
+{
+	this->player = value;
+	this->_playerInitialized = true;
+}
+
+void ServerCommands::SendPlayerCommRule::SetIgnoreChat( bool value )
+{
+	this->ignoreChat = value;
+	this->_ignoreChatInitialized = true;
+}
+
+void ServerCommands::SendPlayerCommRule::SetIgnoreVoice( bool value )
+{
+	this->ignoreVoice = value;
+	this->_ignoreVoiceInitialized = true;
+}
+
+void ServerCommands::SendPlayerCommRule::SetSendVoIPChannelVolume( bool value )
+{
+	this->sendVoIPChannelVolume = value;
+	this->_sendVoIPChannelVolumeInitialized = true;
+}
+
+void ServerCommands::SendPlayerCommRule::SetIgnoreChatTicks( int value )
+{
+	this->ignoreChatTicks = value;
+	this->_ignoreChatTicksInitialized = true;
+}
+
+void ServerCommands::SendPlayerCommRule::SetIgnoreVoiceTicks( int value )
+{
+	this->ignoreVoiceTicks = value;
+	this->_ignoreVoiceTicksInitialized = true;
+}
+
+void ServerCommands::SendPlayerCommRule::SetVoIPChannelVolume( float value )
+{
+	this->VoIPChannelVolume = value;
+	this->_VoIPChannelVolumeInitialized = true;
+}
+
+bool ServerCommands::SendPlayerCommRule::ContainsIgnoreChatTicks() const
+{
+	return !!( ignoreChat );
+}
+
+bool ServerCommands::SendPlayerCommRule::ContainsIgnoreVoiceTicks() const
+{
+	return !!( ignoreVoice );
+}
+
+bool ServerCommands::SendPlayerCommRule::ContainsVoIPChannelVolume() const
+{
+	return !!( sendVoIPChannelVolume );
+}
+
+NetCommand ServerCommands::IgnoreLocalPlayer::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: IgnoreLocalPlayer::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_IGNORELOCALPLAYER );
+	command.addByte( this->player - players );
+	command.addBit( this->ignore );
+	command.addBit( this->doVoice );
+	if ( CheckIgnore() )
+	{
+		command.addLong( this->ticks );
+		command.addString( this->reason );
+	}
+	return command;
+}
+
+void ServerCommands::IgnoreLocalPlayer::SetPlayer( player_t * value )
+{
+	this->player = value;
+	this->_playerInitialized = true;
+}
+
+void ServerCommands::IgnoreLocalPlayer::SetIgnore( bool value )
+{
+	this->ignore = value;
+	this->_ignoreInitialized = true;
+}
+
+void ServerCommands::IgnoreLocalPlayer::SetDoVoice( bool value )
+{
+	this->doVoice = value;
+	this->_doVoiceInitialized = true;
+}
+
+void ServerCommands::IgnoreLocalPlayer::SetTicks( int value )
+{
+	this->ticks = value;
+	this->_ticksInitialized = true;
+}
+
+void ServerCommands::IgnoreLocalPlayer::SetReason( const FString & value )
+{
+	this->reason = value;
+	this->_reasonInitialized = true;
+}
+
+bool ServerCommands::IgnoreLocalPlayer::CheckIgnore() const
+{
+	return !!( ignore );
 }
 
 NetCommand ServerCommands::Print::BuildNetCommand() const
@@ -8930,6 +9362,102 @@ bool ServerCommands::SpawnPuffNoNetID::ContainsTranslation() const
 	return !!( receiveTranslation );
 }
 
+NetCommand ServerCommands::StartConversation::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: StartConversation::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_STARTCONVERSATION );
+	command.addShort( this->npc ? this->npc->NetID : -1 );
+	command.addByte( this->player - players );
+	command.addLong( this->node );
+	command.addBit( this->facetalker );
+	command.addBit( this->saveangle );
+	return command;
+}
+
+void ServerCommands::StartConversation::SetNpc( AActor * value )
+{
+	this->npc = value;
+	this->_npcInitialized = true;
+}
+
+void ServerCommands::StartConversation::SetPlayer( player_t * value )
+{
+	this->player = value;
+	this->_playerInitialized = true;
+}
+
+void ServerCommands::StartConversation::SetNode( int value )
+{
+	this->node = value;
+	this->_nodeInitialized = true;
+}
+
+void ServerCommands::StartConversation::SetFacetalker( bool value )
+{
+	this->facetalker = value;
+	this->_facetalkerInitialized = true;
+}
+
+void ServerCommands::StartConversation::SetSaveangle( bool value )
+{
+	this->saveangle = value;
+	this->_saveangleInitialized = true;
+}
+
+NetCommand ServerCommands::ConversationReply::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: ConversationReply::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_CONVERSATIONREPLY );
+	command.addByte( this->player - players );
+	command.addLong( this->node );
+	command.addLong( this->reply );
+	return command;
+}
+
+void ServerCommands::ConversationReply::SetPlayer( player_t * value )
+{
+	this->player = value;
+	this->_playerInitialized = true;
+}
+
+void ServerCommands::ConversationReply::SetNode( int value )
+{
+	this->node = value;
+	this->_nodeInitialized = true;
+}
+
+void ServerCommands::ConversationReply::SetReply( int value )
+{
+	this->reply = value;
+	this->_replyInitialized = true;
+}
+
+NetCommand ServerCommands::EndConversation::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: EndConversation::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_ENDCONVERSATION );
+	command.addByte( this->player - players );
+	return command;
+}
+
+void ServerCommands::EndConversation::SetPlayer( player_t * value )
+{
+	this->player = value;
+	this->_playerInitialized = true;
+}
+
 NetCommand ServerCommands::SetSectorFloorPlane::BuildNetCommand() const
 {
 	if ( AllParametersInitialized() == false )
@@ -10560,6 +11088,24 @@ void ServerCommands::StopSound::SetChannel( int value )
 	this->_channelInitialized = true;
 }
 
+NetCommand ServerCommands::StopOriginlessSound::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: StopOriginlessSound::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_STOPORIGINLESSSOUND );
+	command.addByte( this->channel );
+	return command;
+}
+
+void ServerCommands::StopOriginlessSound::SetChannel( int value )
+{
+	this->channel = value;
+	this->_channelInitialized = true;
+}
+
 NetCommand ServerCommands::SpawnMissile::BuildNetCommand() const
 {
 	if ( AllParametersInitialized() == false )
@@ -10918,6 +11464,38 @@ bool ServerCommands::WeaponRailgun::CheckExtended() const
 	return !!( extended );
 }
 
+NetCommand ServerCommands::SetWeaponZoomFactor::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: SetWeaponZoomFactor::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_SETWEAPONZOOMFACTOR );
+	command.addByte( this->player - players );
+	command.addFloat( this->zoom );
+	command.addByte( this->flags );
+	return command;
+}
+
+void ServerCommands::SetWeaponZoomFactor::SetPlayer( player_t * value )
+{
+	this->player = value;
+	this->_playerInitialized = true;
+}
+
+void ServerCommands::SetWeaponZoomFactor::SetZoom( float value )
+{
+	this->zoom = value;
+	this->_zoomInitialized = true;
+}
+
+void ServerCommands::SetWeaponZoomFactor::SetFlags( int value )
+{
+	this->flags = value;
+	this->_flagsInitialized = true;
+}
+
 NetCommand ServerCommands::ACSScriptExecute::BuildNetCommand() const
 {
 	if ( AllParametersInitialized() == false )
@@ -11173,5 +11751,29 @@ void ServerCommands::ResetCustomPlayerValue::SetPlayer( int value )
 {
 	this->player = value;
 	this->_playerInitialized = true;
+}
+
+NetCommand ServerCommands::OpenMenu::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: OpenMenu::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_OPENMENU );
+	command.addString( this->menu );
+	return command;
+}
+
+void ServerCommands::OpenMenu::SetMenu( const FString & value )
+{
+	this->menu = value;
+	this->_menuInitialized = true;
+}
+
+NetCommand ServerCommands::CloseMenu::BuildNetCommand() const
+{
+	NetCommand command ( SVC2_CLOSEMENU );
+	return command;
 }
 

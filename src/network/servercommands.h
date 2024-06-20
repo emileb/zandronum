@@ -1,4 +1,4 @@
-// bca28782c1a3599b56e71a5e42fdb0ba
+// 2b6e04bdb0648f61c11891cfebd0fb9c
 // This file has been automatically generated. Do not edit by hand.
 #pragma once
 #include "actor.h"
@@ -1384,37 +1384,30 @@ namespace ServerCommands
 	public:
 		SetPlayerStatus() :
 			_playerInitialized( false ),
-			_typeInitialized( false ),
-			_valueInitialized( false ) {}
+			_statusesInitialized( false ) {}
 		void SetPlayer( player_t * value );
-		void SetType( int value );
-		void SetValue( bool value );
+		void SetStatuses( int value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
 		bool AllParametersInitialized() const
 		{
 			return _playerInitialized
-				&& _typeInitialized
-				&& _valueInitialized;
+				&& _statusesInitialized;
 		}
 		void PrintMissingParameters() const
 		{
 			if ( _playerInitialized == false )
 				Printf( "Missing: player\n" );
-			if ( _typeInitialized == false )
-				Printf( "Missing: type\n" );
-			if ( _valueInitialized == false )
-				Printf( "Missing: value\n" );
+			if ( _statusesInitialized == false )
+				Printf( "Missing: statuses\n" );
 		}
 
 	protected:
 		player_t *player;
-		int type;
-		bool value;
+		int statuses;
 		bool _playerInitialized;
-		bool _typeInitialized;
-		bool _valueInitialized;
+		bool _statusesInitialized;
 	};
 
 	class SetPlayerTeam : public BaseServerCommand
@@ -1767,6 +1760,44 @@ namespace ServerCommands
 		int livesLeft;
 		bool _playerInitialized;
 		bool _livesLeftInitialized;
+	};
+
+	class SetPlayerACSSkin : public BaseServerCommand
+	{
+	public:
+		SetPlayerACSSkin() :
+			_playerInitialized( false ),
+			_skinNameInitialized( false ),
+			_overrideWeaponSkinInitialized( false ) {}
+		void SetPlayer( player_t * value );
+		void SetSkinName( FName value );
+		void SetOverrideWeaponSkin( bool value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _playerInitialized
+				&& _skinNameInitialized
+				&& _overrideWeaponSkinInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _playerInitialized == false )
+				Printf( "Missing: player\n" );
+			if ( _skinNameInitialized == false )
+				Printf( "Missing: skinName\n" );
+			if ( _overrideWeaponSkinInitialized == false )
+				Printf( "Missing: overrideWeaponSkin\n" );
+		}
+
+	protected:
+		player_t *player;
+		FName skinName;
+		bool overrideWeaponSkin;
+		bool _playerInitialized;
+		bool _skinNameInitialized;
+		bool _overrideWeaponSkinInitialized;
 	};
 
 	class UpdatePlayerPing : public BaseServerCommand
@@ -2381,6 +2412,128 @@ namespace ServerCommands
 		bool _slot2Initialized;
 		bool _slot3Initialized;
 		bool _slot4Initialized;
+	};
+
+	class SendPlayerCommRule : public BaseServerCommand
+	{
+	public:
+		SendPlayerCommRule() :
+			_playerInitialized( false ),
+			_ignoreChatInitialized( false ),
+			_ignoreVoiceInitialized( false ),
+			_sendVoIPChannelVolumeInitialized( false ),
+			_ignoreChatTicksInitialized( false ),
+			_ignoreVoiceTicksInitialized( false ),
+			_VoIPChannelVolumeInitialized( false ) {}
+		void SetPlayer( player_t * value );
+		void SetIgnoreChat( bool value );
+		void SetIgnoreVoice( bool value );
+		void SetSendVoIPChannelVolume( bool value );
+		void SetIgnoreChatTicks( int value );
+		void SetIgnoreVoiceTicks( int value );
+		void SetVoIPChannelVolume( float value );
+		bool ContainsIgnoreChatTicks() const;
+		bool ContainsIgnoreVoiceTicks() const;
+		bool ContainsVoIPChannelVolume() const;
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _playerInitialized
+				&& _ignoreChatInitialized
+				&& _ignoreVoiceInitialized
+				&& _sendVoIPChannelVolumeInitialized
+				&& _ignoreChatTicksInitialized
+				&& _ignoreVoiceTicksInitialized
+				&& _VoIPChannelVolumeInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _playerInitialized == false )
+				Printf( "Missing: player\n" );
+			if ( _ignoreChatInitialized == false )
+				Printf( "Missing: ignoreChat\n" );
+			if ( _ignoreVoiceInitialized == false )
+				Printf( "Missing: ignoreVoice\n" );
+			if ( _sendVoIPChannelVolumeInitialized == false )
+				Printf( "Missing: sendVoIPChannelVolume\n" );
+			if ( _ignoreChatTicksInitialized == false )
+				Printf( "Missing: ignoreChatTicks\n" );
+			if ( _ignoreVoiceTicksInitialized == false )
+				Printf( "Missing: ignoreVoiceTicks\n" );
+			if ( _VoIPChannelVolumeInitialized == false )
+				Printf( "Missing: VoIPChannelVolume\n" );
+		}
+
+	protected:
+		player_t *player;
+		bool ignoreChat;
+		bool ignoreVoice;
+		bool sendVoIPChannelVolume;
+		int ignoreChatTicks;
+		int ignoreVoiceTicks;
+		float VoIPChannelVolume;
+		bool _playerInitialized;
+		bool _ignoreChatInitialized;
+		bool _ignoreVoiceInitialized;
+		bool _sendVoIPChannelVolumeInitialized;
+		bool _ignoreChatTicksInitialized;
+		bool _ignoreVoiceTicksInitialized;
+		bool _VoIPChannelVolumeInitialized;
+	};
+
+	class IgnoreLocalPlayer : public BaseServerCommand
+	{
+	public:
+		IgnoreLocalPlayer() :
+			_playerInitialized( false ),
+			_ignoreInitialized( false ),
+			_doVoiceInitialized( false ),
+			_ticksInitialized( false ),
+			_reasonInitialized( false ) {}
+		void SetPlayer( player_t * value );
+		void SetIgnore( bool value );
+		void SetDoVoice( bool value );
+		void SetTicks( int value );
+		void SetReason( const FString & value );
+		bool CheckIgnore() const;
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _playerInitialized
+				&& _ignoreInitialized
+				&& _doVoiceInitialized
+				&& _ticksInitialized
+				&& _reasonInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _playerInitialized == false )
+				Printf( "Missing: player\n" );
+			if ( _ignoreInitialized == false )
+				Printf( "Missing: ignore\n" );
+			if ( _doVoiceInitialized == false )
+				Printf( "Missing: doVoice\n" );
+			if ( _ticksInitialized == false )
+				Printf( "Missing: ticks\n" );
+			if ( _reasonInitialized == false )
+				Printf( "Missing: reason\n" );
+		}
+
+	protected:
+		player_t *player;
+		bool ignore;
+		bool doVoice;
+		int ticks;
+		FString reason;
+		bool _playerInitialized;
+		bool _ignoreInitialized;
+		bool _doVoiceInitialized;
+		bool _ticksInitialized;
+		bool _reasonInitialized;
 	};
 
 	class Print : public BaseServerCommand
@@ -4570,6 +4723,120 @@ namespace ServerCommands
 		bool _translationInitialized;
 	};
 
+	class StartConversation : public BaseServerCommand
+	{
+	public:
+		StartConversation() :
+			_npcInitialized( false ),
+			_playerInitialized( false ),
+			_nodeInitialized( false ),
+			_facetalkerInitialized( false ),
+			_saveangleInitialized( false ) {}
+		void SetNpc( AActor * value );
+		void SetPlayer( player_t * value );
+		void SetNode( int value );
+		void SetFacetalker( bool value );
+		void SetSaveangle( bool value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _npcInitialized
+				&& _playerInitialized
+				&& _nodeInitialized
+				&& _facetalkerInitialized
+				&& _saveangleInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _npcInitialized == false )
+				Printf( "Missing: npc\n" );
+			if ( _playerInitialized == false )
+				Printf( "Missing: player\n" );
+			if ( _nodeInitialized == false )
+				Printf( "Missing: node\n" );
+			if ( _facetalkerInitialized == false )
+				Printf( "Missing: facetalker\n" );
+			if ( _saveangleInitialized == false )
+				Printf( "Missing: saveangle\n" );
+		}
+
+	protected:
+		AActor *npc;
+		player_t *player;
+		int node;
+		bool facetalker;
+		bool saveangle;
+		bool _npcInitialized;
+		bool _playerInitialized;
+		bool _nodeInitialized;
+		bool _facetalkerInitialized;
+		bool _saveangleInitialized;
+	};
+
+	class ConversationReply : public BaseServerCommand
+	{
+	public:
+		ConversationReply() :
+			_playerInitialized( false ),
+			_nodeInitialized( false ),
+			_replyInitialized( false ) {}
+		void SetPlayer( player_t * value );
+		void SetNode( int value );
+		void SetReply( int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _playerInitialized
+				&& _nodeInitialized
+				&& _replyInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _playerInitialized == false )
+				Printf( "Missing: player\n" );
+			if ( _nodeInitialized == false )
+				Printf( "Missing: node\n" );
+			if ( _replyInitialized == false )
+				Printf( "Missing: reply\n" );
+		}
+
+	protected:
+		player_t *player;
+		int node;
+		int reply;
+		bool _playerInitialized;
+		bool _nodeInitialized;
+		bool _replyInitialized;
+	};
+
+	class EndConversation : public BaseServerCommand
+	{
+	public:
+		EndConversation() :
+			_playerInitialized( false ) {}
+		void SetPlayer( player_t * value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _playerInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _playerInitialized == false )
+				Printf( "Missing: player\n" );
+		}
+
+	protected:
+		player_t *player;
+		bool _playerInitialized;
+	};
+
 	class SetSectorFloorPlane : public BaseServerCommand
 	{
 	public:
@@ -6483,6 +6750,30 @@ namespace ServerCommands
 		bool _channelInitialized;
 	};
 
+	class StopOriginlessSound : public BaseServerCommand
+	{
+	public:
+		StopOriginlessSound() :
+			_channelInitialized( false ) {}
+		void SetChannel( int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _channelInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _channelInitialized == false )
+				Printf( "Missing: channel\n" );
+		}
+
+	protected:
+		int channel;
+		bool _channelInitialized;
+	};
+
 	class SpawnMissile : public BaseServerCommand
 	{
 	public:
@@ -6866,6 +7157,44 @@ namespace ServerCommands
 		bool _driftInitialized;
 	};
 
+	class SetWeaponZoomFactor : public BaseServerCommand
+	{
+	public:
+		SetWeaponZoomFactor() :
+			_playerInitialized( false ),
+			_zoomInitialized( false ),
+			_flagsInitialized( false ) {}
+		void SetPlayer( player_t * value );
+		void SetZoom( float value );
+		void SetFlags( int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _playerInitialized
+				&& _zoomInitialized
+				&& _flagsInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _playerInitialized == false )
+				Printf( "Missing: player\n" );
+			if ( _zoomInitialized == false )
+				Printf( "Missing: zoom\n" );
+			if ( _flagsInitialized == false )
+				Printf( "Missing: flags\n" );
+		}
+
+	protected:
+		player_t *player;
+		float zoom;
+		int flags;
+		bool _playerInitialized;
+		bool _zoomInitialized;
+		bool _flagsInitialized;
+	};
+
 	class ACSScriptExecute : public BaseServerCommand
 	{
 	public:
@@ -7177,6 +7506,47 @@ namespace ServerCommands
 		int player;
 		bool _indexInitialized;
 		bool _playerInitialized;
+	};
+
+	class OpenMenu : public BaseServerCommand
+	{
+	public:
+		OpenMenu() :
+			_menuInitialized( false ) {}
+		void SetMenu( const FString & value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _menuInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _menuInitialized == false )
+				Printf( "Missing: menu\n" );
+		}
+
+	protected:
+		FString menu;
+		bool _menuInitialized;
+	};
+
+	class CloseMenu : public BaseServerCommand
+	{
+	public:
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return true;
+		}
+		void PrintMissingParameters() const
+		{
+		}
+
+	protected:
 	};
 
 }
