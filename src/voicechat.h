@@ -56,6 +56,9 @@
 #include "i_soundinternal.h"
 #include "v_font.h"
 
+#define NO_SOUND
+
+
 // [AK] Only include FMOD, Opus, and RNNoise files if compiling with sound.
 #ifndef NO_SOUND
 #include "fmod_wrap.h"
@@ -267,7 +270,7 @@ private:
 	int EncodeOpusFrame( const float *inBuffer, const unsigned int inLength, unsigned char *outBuffer, const unsigned int outLength );
 
 	static FMOD_CREATESOUNDEXINFO CreateSoundExInfo( const unsigned int sampleRate, const unsigned int fileLength );
-	static FMOD_RESULT F_CALLBACK ChannelCallback( FMOD_CHANNEL *channel, FMOD_CHANNEL_CALLBACKTYPE type, void *commanddata1, void *commanddata2 );
+	//static FMOD_RESULT F_CALLBACK ChannelCallback( FMOD_CHANNEL *channel, FMOD_CHANNEL_CALLBACKTYPE type, void *commanddata1, void *commanddata2 );
 
 	VOIPChannel *VoIPChannels[MAXPLAYERS];
 	float channelVolumes[MAXPLAYERS];
@@ -363,5 +366,7 @@ EXTERN_CVAR( Int, sv_allowvoicechat )
 EXTERN_CVAR( Bool, sv_proximityvoicechat )
 EXTERN_CVAR( Float, sv_minproximityrolloffdist )
 EXTERN_CVAR( Float, sv_maxproximityrolloffdist )
+
+#undef NO_SOUND
 
 #endif // __VOICECHAT_H__

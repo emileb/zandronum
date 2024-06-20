@@ -34,8 +34,10 @@ LOCAL_C_INCLUDES := \
  $(GZDOOM_TOP_PATH)/src/g_shared \
  $(GZDOOM_TOP_PATH)/src/huffman \
  $(GZDOOM_TOP_PATH)/src/sdl \
+ $(GZDOOM_TOP_PATH)/rnnoise \
  $(SDL_INCLUDE_PATHS) \
  $(TOP_DIR)/AudioLibs_OpenTouch/openal/include/AL \
+ $(TOP_DIR)/AudioLibs_OpenTouch/timidity/opus/include \
  $(TOP_DIR)/AudioLibs_OpenTouch/libsndfile-android/jni/ \
  $(TOP_DIR)/AudioLibs_OpenTouch/libmpg123 \
  $(TOP_DIR)/AudioLibs_OpenTouch/FMOD_studio/api/lowlevel/inc \
@@ -484,6 +486,7 @@ GAME_ALL = \
 	r_data/renderstyle.cpp \
 	r_data/r_interpolate.cpp \
 	r_data/r_translate.cpp \
+    voicechat.cpp \
 	zzautozend.cpp \
 
 LOCAL_SRC_FILES = \
@@ -497,7 +500,7 @@ LOCAL_SRC_FILES = \
 LOCAL_LDLIBS := -ldl -llog -lOpenSLES  -lGLESv1_CM
 LOCAL_LDLIBS +=  -lEGL
 
-LOCAL_STATIC_LIBRARIES := sndfile mpg123 fluidsynth-static SDL2_net libjpeg zlib_zan31 lzma_zan31 gdtoa_zan31 dumb_zan31 gme_zan31 bzip2_zan31 logwritter #ssl_static crypto_static
+LOCAL_STATIC_LIBRARIES := sndfile mpg123 fluidsynth-static SDL2_net libjpeg zlib_zan31 lzma_zan31 gdtoa_zan31 dumb_zan31 gme_zan31 bzip2_zan31 logwritter opus #ssl_static crypto_static
 LOCAL_SHARED_LIBRARIES := touchcontrols openal SDL2 jwzgles_shared fmod core_shared saffal
 
 #Strip unused functions/data
