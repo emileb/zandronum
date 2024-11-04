@@ -1,4 +1,4 @@
-// 2b6e04bdb0648f61c11891cfebd0fb9c
+// c53eeb2946e2b8c8637c965137ad3ece
 // This file has been automatically generated. Do not edit by hand.
 #pragma once
 #include "actor.h"
@@ -32,6 +32,12 @@ namespace ServerCommands
 		int isUsed;
 		int minPlayers;
 		int maxPlayers;
+	};
+
+	struct Medal
+	{
+		int index;
+		unsigned int count;
 	};
 
 	class BaseServerCommand
@@ -207,16 +213,19 @@ namespace ServerCommands
 	public:
 		MapExit() :
 			_positionInitialized( false ),
-			_nextMapInitialized( false ) {}
+			_nextMapInitialized( false ),
+			_changeFlagsInitialized( false ) {}
 		void SetPosition( int value );
 		void SetNextMap( const FString & value );
+		void SetChangeFlags( int value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
 		bool AllParametersInitialized() const
 		{
 			return _positionInitialized
-				&& _nextMapInitialized;
+				&& _nextMapInitialized
+				&& _changeFlagsInitialized;
 		}
 		void PrintMissingParameters() const
 		{
@@ -224,13 +233,17 @@ namespace ServerCommands
 				Printf( "Missing: position\n" );
 			if ( _nextMapInitialized == false )
 				Printf( "Missing: nextMap\n" );
+			if ( _changeFlagsInitialized == false )
+				Printf( "Missing: changeFlags\n" );
 		}
 
 	protected:
 		int position;
 		FString nextMap;
+		int changeFlags;
 		bool _positionInitialized;
 		bool _nextMapInitialized;
+		bool _changeFlagsInitialized;
 	};
 
 	class MapAuthenticate : public BaseServerCommand
@@ -1805,16 +1818,19 @@ namespace ServerCommands
 	public:
 		UpdatePlayerPing() :
 			_playerInitialized( false ),
-			_pingInitialized( false ) {}
+			_pingInitialized( false ),
+			_connectionStrengthInitialized( false ) {}
 		void SetPlayer( player_t * value );
 		void SetPing( unsigned int value );
+		void SetConnectionStrength( int value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
 		bool AllParametersInitialized() const
 		{
 			return _playerInitialized
-				&& _pingInitialized;
+				&& _pingInitialized
+				&& _connectionStrengthInitialized;
 		}
 		void PrintMissingParameters() const
 		{
@@ -1822,13 +1838,17 @@ namespace ServerCommands
 				Printf( "Missing: player\n" );
 			if ( _pingInitialized == false )
 				Printf( "Missing: ping\n" );
+			if ( _connectionStrengthInitialized == false )
+				Printf( "Missing: connectionStrength\n" );
 		}
 
 	protected:
 		player_t *player;
 		unsigned int ping;
+		int connectionStrength;
 		bool _playerInitialized;
 		bool _pingInitialized;
+		bool _connectionStrengthInitialized;
 	};
 
 	class UpdatePlayerExtraData : public BaseServerCommand
@@ -2095,16 +2115,19 @@ namespace ServerCommands
 	public:
 		GivePlayerMedal() :
 			_playerInitialized( false ),
-			_medalInitialized( false ) {}
+			_medalInitialized( false ),
+			_silentInitialized( false ) {}
 		void SetPlayer( player_t * value );
 		void SetMedal( int value );
+		void SetSilent( bool value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
 		bool AllParametersInitialized() const
 		{
 			return _playerInitialized
-				&& _medalInitialized;
+				&& _medalInitialized
+				&& _silentInitialized;
 		}
 		void PrintMissingParameters() const
 		{
@@ -2112,13 +2135,17 @@ namespace ServerCommands
 				Printf( "Missing: player\n" );
 			if ( _medalInitialized == false )
 				Printf( "Missing: medal\n" );
+			if ( _silentInitialized == false )
+				Printf( "Missing: silent\n" );
 		}
 
 	protected:
 		player_t *player;
 		int medal;
+		bool silent;
 		bool _playerInitialized;
 		bool _medalInitialized;
+		bool _silentInitialized;
 	};
 
 	class ResetAllPlayersFragcount : public BaseServerCommand
@@ -7399,6 +7426,50 @@ namespace ServerCommands
 		int currentPosition;
 		bool _entriesInitialized;
 		bool _currentPositionInitialized;
+	};
+
+	class SyncPlayerMedalCounts : public BaseServerCommand
+	{
+	public:
+		SyncPlayerMedalCounts() :
+			_playerInitialized( false ),
+			_medalsInitialized( false ) {}
+		void SetPlayer( int value );
+		void SetMedals( const TArray<struct Medal> & value );
+		void PushToMedals(const struct Medal & value)
+		{
+			medals.Push(value);
+			_medalsInitialized = true;
+		}
+		bool PopFromMedals(struct Medal& value)
+		{
+			return medals.Pop(value);
+		}
+		void ClearMedals()
+		{
+			medals.Clear();
+		}
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _playerInitialized
+				&& _medalsInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _playerInitialized == false )
+				Printf( "Missing: player\n" );
+			if ( _medalsInitialized == false )
+				Printf( "Missing: medals\n" );
+		}
+
+	protected:
+		int player;
+		TArray<struct Medal> medals;
+		bool _playerInitialized;
+		bool _medalsInitialized;
 	};
 
 	class ReplaceTextures : public BaseServerCommand

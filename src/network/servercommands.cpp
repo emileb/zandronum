@@ -1,4 +1,4 @@
-// 83556b6f2cad3d099cb3ffaccdd00310
+// b933d248e84398f81a9534962ed23167
 // This file has been automatically generated. Do not edit by hand.
 #include "cl_main.h"
 #include "servercommands.h"
@@ -89,6 +89,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			ServerCommands::MapExit command;
 			command.position = bytestream->ReadByte();
 			command.nextMap = bytestream->ReadString();
+			command.changeFlags = bytestream->ReadLong();
 			if ( bytestream->pbStream > bytestream->pbStreamEnd )
 			{
 				CLIENT_PrintWarning( "MapExit: Packet contained %td too few bytes\n",
@@ -1052,6 +1053,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			int temp33;
 			command.player = &players[bytestream->ReadByte()];
 			command.ping = bytestream->ReadShort();
+			command.connectionStrength = bytestream->ReadByte();
 			temp33 = command.player - players;
 
 			if ( PLAYER_IsValidPlayer( temp33 ) == false )
@@ -1203,6 +1205,7 @@ bool CLIENT_ParseServerCommand( SVC header, BYTESTREAM_s *bytestream )
 			int temp37;
 			command.player = &players[bytestream->ReadByte()];
 			command.medal = bytestream->ReadByte();
+			command.silent = bytestream->ReadBit();
 			temp37 = command.player - players;
 
 			if ( PLAYER_IsValidPlayer( temp37 ) == false )
@@ -5047,6 +5050,32 @@ bool CLIENT_ParseExtendedServerCommand( SVC2 header, BYTESTREAM_s *bytestream )
 		}
 		return true;
 
+	case SVC2_SYNCPLAYERMEDALCOUNTS:
+		{
+			ServerCommands::SyncPlayerMedalCounts command;
+			unsigned int temp163;
+			command.player = bytestream->ReadByte();
+			temp163 = bytestream->ReadByte();
+			command.medals.Reserve( temp163 );
+			for ( unsigned int i = 0; i < temp163; ++i )
+			{
+				command.medals[i].index = bytestream->ReadByte();
+				command.medals[i].count = bytestream->ReadShort();
+			}
+			for ( unsigned int i = 0; i < command.medals.Size(); ++i )
+			{
+			}
+			if ( bytestream->pbStream > bytestream->pbStreamEnd )
+			{
+				CLIENT_PrintWarning( "SyncPlayerMedalCounts: Packet contained %td too few bytes\n",
+					bytestream->pbStream - bytestream->pbStreamEnd );
+				return true;
+			}
+
+			command.Execute();
+		}
+		return true;
+
 	case SVC2_SETCUSTOMPLAYERVALUE:
 		{
 			ServerCommands::SetCustomPlayerValue command;
@@ -5214,6 +5243,7 @@ NetCommand ServerCommands::MapExit::BuildNetCommand() const
 	NetCommand command ( SVC_MAPEXIT );
 	command.addByte( this->position );
 	command.addString( this->nextMap );
+	command.addLong( this->changeFlags );
 	return command;
 }
 
@@ -5227,6 +5257,12 @@ void ServerCommands::MapExit::SetNextMap( const FString & value )
 {
 	this->nextMap = value;
 	this->_nextMapInitialized = true;
+}
+
+void ServerCommands::MapExit::SetChangeFlags( int value )
+{
+	this->changeFlags = value;
+	this->_changeFlagsInitialized = true;
 }
 
 NetCommand ServerCommands::MapAuthenticate::BuildNetCommand() const
@@ -6597,6 +6633,7 @@ NetCommand ServerCommands::UpdatePlayerPing::BuildNetCommand() const
 	command.setUnreliable( true );
 	command.addByte( this->player - players );
 	command.addShort( this->ping );
+	command.addByte( this->connectionStrength );
 	return command;
 }
 
@@ -6610,6 +6647,12 @@ void ServerCommands::UpdatePlayerPing::SetPing( unsigned int value )
 {
 	this->ping = value;
 	this->_pingInitialized = true;
+}
+
+void ServerCommands::UpdatePlayerPing::SetConnectionStrength( int value )
+{
+	this->connectionStrength = value;
+	this->_connectionStrengthInitialized = true;
 }
 
 NetCommand ServerCommands::UpdatePlayerExtraData::BuildNetCommand() const
@@ -6838,6 +6881,7 @@ NetCommand ServerCommands::GivePlayerMedal::BuildNetCommand() const
 	NetCommand command ( SVC_GIVEPLAYERMEDAL );
 	command.addByte( this->player - players );
 	command.addByte( this->medal );
+	command.addBit( this->silent );
 	return command;
 }
 
@@ -6851,6 +6895,12 @@ void ServerCommands::GivePlayerMedal::SetMedal( int value )
 {
 	this->medal = value;
 	this->_medalInitialized = true;
+}
+
+void ServerCommands::GivePlayerMedal::SetSilent( bool value )
+{
+	this->silent = value;
+	this->_silentInitialized = true;
 }
 
 NetCommand ServerCommands::ResetAllPlayersFragcount::BuildNetCommand() const
@@ -11662,6 +11712,36 @@ void ServerCommands::SyncMapRotation::SetCurrentPosition( int value )
 {
 	this->currentPosition = value;
 	this->_currentPositionInitialized = true;
+}
+
+NetCommand ServerCommands::SyncPlayerMedalCounts::BuildNetCommand() const
+{
+	if ( AllParametersInitialized() == false )
+	{
+		Printf( "WARNING: SyncPlayerMedalCounts::BuildNetCommand: not all parameters were initialized:\n" );
+		PrintMissingParameters();
+	}
+	NetCommand command ( SVC2_SYNCPLAYERMEDALCOUNTS );
+	command.addByte( this->player );
+	command.addByte( medals.Size() );
+	for ( unsigned int i = 0; i < medals.Size(); ++i )
+	{
+		command.addByte( this->medals[i].index );
+		command.addShort( this->medals[i].count );
+	}
+	return command;
+}
+
+void ServerCommands::SyncPlayerMedalCounts::SetPlayer( int value )
+{
+	this->player = value;
+	this->_playerInitialized = true;
+}
+
+void ServerCommands::SyncPlayerMedalCounts::SetMedals( const TArray<struct Medal> & value )
+{
+	this->medals = value;
+	this->_medalsInitialized = true;
 }
 
 NetCommand ServerCommands::ReplaceTextures::BuildNetCommand() const
