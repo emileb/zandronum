@@ -122,6 +122,7 @@ typedef enum
 	GAMEEVENT_DOMINATION_POINT,
 	GAMEEVENT_PLAYERLEAVESSERVER,
 	GAMEEVENT_LEVEL_INIT,
+	GAMEEVENT_JOINQUEUECHANGED,
 } GAMEEVENT_e;
 
 //*****************************************************************************
@@ -219,8 +220,8 @@ bool		GAMEMODE_IsLobbyMap( const char* levelinfo );
 bool		GAMEMODE_IsNextMapCvarLobby( void );
 bool		GAMEMODE_IsTimelimitActive( void );
 void		GAMEMODE_GetTimeLeftString( FString &TimeLeftString );
-void		GAMEMODE_RespawnDeadSpectators( BYTE Playerstate = PST_REBORNNOINVENTORY );
-void		GAMEMODE_RespawnDeadSpectatorsAndPopQueue( BYTE Playerstate = PST_REBORNNOINVENTORY );
+void		GAMEMODE_RespawnDeadPlayers( playerstate_t deadSpectatorState = PST_REBORNNOINVENTORY, playerstate_t deadPlayerState = PST_REBORNNOINVENTORY );
+void		GAMEMODE_RespawnDeadPlayersAndPopQueue( playerstate_t deadSpectatorState = PST_REBORNNOINVENTORY, playerstate_t deadPlayerState = PST_REBORNNOINVENTORY );
 void		GAMEMODE_RespawnAllPlayers( BOTEVENT_e BotEvent = NUM_BOTEVENTS, playerstate_t PlayerState = PST_ENTER );
 void		GAMEMODE_SpawnPlayer( const ULONG ulPlayer, bool bClientUpdate = true );
 void		GAMEMODE_ResetPlayersKillCount( const bool bInformClients );
@@ -228,6 +229,7 @@ bool		GAMEMODE_AreSpectatorsForbiddenToChatToPlayers( const bool doVoice );
 bool		GAMEMODE_IsClientForbiddenToChatToPlayers( const ULONG client, const bool doVoice );
 bool		GAMEMODE_PreventPlayersFromJoining( ULONG ulExcludePlayer = MAXPLAYERS );
 bool		GAMEMODE_AreLivesLimited( void );
+bool		GAMEMODE_ShouldPlayerLoseLife( void );
 bool		GAMEMODE_IsPlayerCarryingGameModeItem( player_t *player );
 unsigned int	GAMEMODE_GetMaxLives( void );
 void		GAMEMODE_AdjustActorSpawnFlags ( AActor *pActor );

@@ -288,7 +288,19 @@ void FBaseCVar::SetGenericRep (UCVarValue value, ECVarType type)
 		}
 	}
 
-	if ((Flags & CVAR_LATCH) && gamestate != GS_FULLCONSOLE && gamestate != GS_STARTUP)
+	// [TP] If we have RCON access, tell the server to set this value.
+	if (NETWORK_GetState() == NETSTATE_CLIENT && (CLIENT_HasRCONAccess() || CLIENT_GainingRCONAccess()) && (Flags & (CVAR_SERVERINFO | CVAR_SENSITIVESERVERSETTING)))
+	{
+		// [TP] Note that we do not set the CVar here. The server will tell us when it's changed.
+		// If we set it by ourselves and this packet gets lost, the CVar value desyncs.
+		// [AK] If we're gaining RCON access, then we must set it because we're resetting it back
+		// to its default value. The server will send the correct value to us later.
+		if ( CLIENT_HasRCONAccess())
+			CLIENTCOMMANDS_RCONSetCVar(Name, ToString(value, type));
+		else
+			ForceSet(value, type);
+	}
+	else if ((Flags & CVAR_LATCH) && gamestate != GS_FULLCONSOLE && gamestate != GS_STARTUP)
 	{
 		FLatchedValue latch;
 
@@ -299,15 +311,6 @@ void FBaseCVar::SetGenericRep (UCVarValue value, ECVarType type)
 		else
 			latch.Value.String = copystring(value.String);
 		LatchedValues.Push (latch);
-	}
-	// [TP] If we have RCON access, tell the server to set this value.
-	else if ( NETWORK_GetState() == NETSTATE_CLIENT
-		&& CLIENT_HasRCONAccess()
-		&& ( Flags & ( CVAR_SERVERINFO | CVAR_SENSITIVESERVERSETTING )))
-	{
-		// [TP] Note that we do not set the CVar here. The server will tell us when it's changed.
-		// If we set it by ourselves and this packet gets lost, the CVar value desyncs.
-		CLIENTCOMMANDS_RCONSetCVar( Name, ToString( value, type ));
 	}
 	// [BC] Support for client-side demos.
 	else if ((Flags & CVAR_SERVERINFO) && gamestate != GS_STARTUP && !demoplayback && ( CLIENTDEMO_IsPlaying( ) == false ))
@@ -1691,6 +1694,26 @@ void UnlatchCVars (void)
 		if (var.Type == CVAR_String)
 			delete[] var.Value.String;
 		var.Variable->Flags = oldflags;
+
+		// [AK] Setting the CVar is supposed to remove the CVAR_ISDEFAULT flag,
+		// but restoring the old flags can re-enable it. Make sure it stays off.
+		var.Variable->Flags &= ~CVAR_ISDEFAULT;
+	}
+}
+
+void DestroyCVarsFlagged (DWORD flags)
+{
+	FBaseCVar *cvar = CVars;
+	FBaseCVar *next = cvar;
+
+	while(cvar)
+	{
+		next = cvar->m_Next;
+
+		if(cvar->Flags & flags)
+			delete cvar;
+
+		cvar = next;
 	}
 }
 
@@ -1836,7 +1859,13 @@ void FBaseCVar::CmdSet (const char *newval)
 	if (GetFlags() & CVAR_NOSET)
 		Printf ("%s is write protected.\n", GetName());
 	else if (GetFlags() & CVAR_LATCH)
-		Printf ("%s will be changed for next game.\n", GetName());
+	{
+		// [AK] Don't print this message on the client's end when they have RCON access
+		// and are trying to change a serverinfo CVar. They will tell the server to set
+		// this CVar and the server will print this message to them.
+		if (!(GetFlags() & (CVAR_SERVERINFO | CVAR_SENSITIVESERVERSETTING)) || (NETWORK_GetState() != NETSTATE_CLIENT) || !CLIENT_HasRCONAccess())
+			Printf ("%s will be changed for next game.\n", GetName());
+	}
 
 	// [AK] If this is a net ServerInfo CVar that was entered as a custom parameter on the
 	// command line, keep a copy of the value. We'll need to restore it once the server

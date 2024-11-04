@@ -698,8 +698,8 @@ public:
 	// The last tick this player got an "Excellent!" medal.
 	ULONG		ulLastExcellentTick;
 
-	// The last tick this player got a frag with a weapon that gives the "Spam" medal.
-	ULONG		ulLastSpamTick;
+	// The last tick this player killed someone with the BFG9000.
+	ULONG		ulLastBFGFragTick;
 
 	// Number of consecutive hits the player has made with his weapon without missing.
 	ULONG		ulConsecutiveHits;
@@ -737,11 +737,8 @@ public:
 	// Number of times the railgun has been fired. Every 4 times, a reload is in order.
 	unsigned int RailgunShots;
 
-	// Number of medals the player currently has of each type.
-	ULONG		ulMedalCount[NUM_MEDALS];
-
 	// Icon currently above this player's head.
-	AFloatyIcon	*pIcon;
+	TObjPtr<AFloatyIcon> pIcon;
 
 	// Bonus to the maximum amount of health the player can have.
 	int			MaxHealthBonus;
@@ -768,6 +765,9 @@ public:
 	// [BB] Over how many measurements has ulPing been averaged?
 	ULONG		ulPingAverages;
 
+	// [AK] The strength of the player's connection, based on how many packets they missed since the last ping update.
+	unsigned int connectionStrength;
+
 	// [AK] The index of which country the player is connecting from (refer to GeoIP.c).
 	ULONG		ulCountryIndex;
 
@@ -787,8 +787,7 @@ public:
 	// [BB] Did the client already select a weapon with CLIENTCOMMANDS_WeaponSelect? (only the server keeps track of this)
 	bool		bClientSelectedWeapon;
 
-	// If this player was telefragged at the beginning of a round, allow him to respawn normally
-	// in LMS games.
+	// If this player was telefragged at the beginning of a round, allow him to respawn normally.
 	bool		bSpawnTelefragged;
 
 	// Amount of time this player has been on the server.
@@ -871,8 +870,7 @@ void	PLAYER_SelectPlayersWithHighestValue ( LONG (*GetValue) ( ULONG ulPlayer ),
 bool	PLAYER_IsValidPlayer( const ULONG ulPlayer );
 bool	PLAYER_IsValidPlayerWithMo( const ULONG ulPlayer );
 bool	PLAYER_IsTrueSpectator( player_t *pPlayer );
-void	PLAYER_CheckStruckPlayer( AActor *pActor );
-void	PLAYER_StruckPlayer( player_t *pPlayer );
+void	PLAYER_CheckStruckPlayer( AActor *actor );
 bool	PLAYER_ShouldSpawnAsSpectator( player_t *pPlayer );
 bool	PLAYER_Taunt( player_t *pPlayer );
 LONG	PLAYER_GetRailgunColor( player_t *pPlayer );
@@ -882,7 +880,7 @@ void	PLAYER_ClearWeapon( player_t *pPlayer );
 int		PLAYER_GetOverrideSkin( player_t *player );
 bool	PLAYER_ShouldForceBaseSkin( player_t *player );
 void	PLAYER_ApplySkinScaleToBody( player_t *player, AActor *body, AWeapon *weapon );
-void	PLAYER_SetLivesLeft( player_t *pPlayer, ULONG ulLivesLeft );
+void	PLAYER_SetLivesLeft( player_t *player, const unsigned int livesLeft, const bool informClients = true );
 bool	PLAYER_IsAliveOrCanRespawn( player_t *pPlayer );
 void	PLAYER_RemoveFriends( const ULONG ulPlayer );
 void	PLAYER_LeavesGame( const ULONG ulPlayer );

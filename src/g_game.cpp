@@ -1104,7 +1104,7 @@ static void ChangeSpy (int changespy)
 			if (( lastmanstanding ) || (( teamlms ) && (( players[consoleplayer].bOnTeam == false ) ||
 				( PLAYER_IsTrueSpectator( &players[consoleplayer] )))))
 			{
-				G_FinishChangeSpy( consoleplayer );
+				G_FinishChangeSpy( consoleplayer, false );
 				return;
 			}
 		}
@@ -1150,30 +1150,44 @@ static void ChangeSpy (int changespy)
 	}
 
 	// [BC] When we're all done, put the camera in the display player's body, etc.
-	G_FinishChangeSpy( pnum );
+	G_FinishChangeSpy( pnum, false );
 }
 
 // [BC] Split this out of ChangeSpy() so it can be called from within that function.
 // [AK] Made this function accessible outside of g_game.cpp for LS_ChangeCamera.
-void G_FinishChangeSpy( ULONG ulPlayer )
+void G_FinishChangeSpy (const int pnum, const bool fromLineSpecial)
 {
-	// [AK] If we're a spectator and want to teleport ourselves to the player we just
-	// spied on, do it when we switch back to our own view.
-	if (( cl_telespy ) && ( static_cast<int>( ulPlayer ) == consoleplayer ) && ( players[consoleplayer].bSpectating ))
-	{
-		if (( players[consoleplayer].camera ) && ( players[consoleplayer].camera != players[consoleplayer].mo ))
-		{
-			P_TeleportMove( players[consoleplayer].mo, players[consoleplayer].camera->x,
-				players[consoleplayer].camera->y, players[consoleplayer].camera->z, false );
+	// [AK] Sanity check to ensure the player is valid.
+	if (( PLAYER_IsValidPlayer( pnum ) == false ) || ( players[pnum].mo == nullptr ))
+		return;
 
-			players[consoleplayer].mo->angle = players[consoleplayer].camera->angle;
-			players[consoleplayer].mo->pitch = players[consoleplayer].camera->pitch;
+	// [AK] Added this pointer to make the code below more readable.
+	player_t *const localPlayer = &players[consoleplayer];
+
+	// [AK] Handling cl_telespy and changing the local player's camera should only
+	// be done when this wasn't triggered by LS_ChangeCamera. The line special already
+	// changes the player's camera.
+	if ( fromLineSpecial == false )
+	{
+		if (( cl_telespy ) && ( pnum == consoleplayer ) && ( localPlayer->bSpectating ))
+		{
+			if (( localPlayer->camera ) && ( localPlayer->camera != localPlayer->mo ))
+			{
+				P_TeleportMove( localPlayer->mo, localPlayer->camera->x, localPlayer->camera->y, localPlayer->camera->z, false );
+
+				localPlayer->mo->angle = localPlayer->camera->angle;
+				localPlayer->mo->pitch = localPlayer->camera->pitch;
+			}
 		}
+
+		localPlayer->camera = players[pnum].mo;
+
+		// [AK] Spying on another player without the line special disables this bit.
+		localPlayer->cheats &= ~CF_REVERTPLEASE;
 	}
 
-	players[consoleplayer].camera = players[ulPlayer].mo;
-	S_UpdateSounds(players[consoleplayer].camera);
-	StatusBar->AttachToPlayer (&players[ulPlayer]);
+	S_UpdateSounds(localPlayer->camera);
+	StatusBar->AttachToPlayer (&players[pnum]);
 
 	// [AK] If we're using the free chasecam, reset the orientation so that it's facing
 	// in the same direction of whoever we're spying.
@@ -1195,7 +1209,7 @@ void G_FinishChangeSpy( ULONG ulPlayer )
 
 	// [BC] If we're a client, tell the server that we're switching our displayplayer.
 	if ( NETWORK_GetState( ) == NETSTATE_CLIENT )
-		CLIENTCOMMANDS_ChangeDisplayPlayer( ulPlayer );
+		CLIENTCOMMANDS_ChangeDisplayPlayer( pnum );
 
 	// [BC] Also, refresh the HUD since the display player is changing.
 	HUD_ShouldRefreshBeforeRendering( );
@@ -1355,8 +1369,6 @@ bool G_Responder (event_t *ev)
 				stricmp (cmd, "spyprev") &&
 				stricmp (cmd, "chase") &&
 				stricmp (cmd, "+showscores") &&
-				// [BC]
-				stricmp (cmd, "+showmedals") &&
 				stricmp (cmd, "bumpgamma") &&
 				stricmp (cmd, "screenshot")))
 			{
@@ -1785,6 +1797,110 @@ void G_Ticker ()
 				GAMEMODE_RespawnAllPlayers ( );
 			}
 
+			// Apply end level delay.
+			if (( NETWORK_InClientMode( ) == false ) && ( g_ulEndLevelDelay ) && ( --g_ulEndLevelDelay == 0 ))
+			{
+				// Tell the clients about the expired end level delay.
+				if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+					SERVERCOMMANDS_SetGameEndLevelDelay( g_ulEndLevelDelay );
+
+				// If we're in a duel, set up the next duel.
+				if ( duel )
+				{
+					// If the player must win all duels, and lost this one, then he's DONE!
+					if (( DUEL_GetLoser( ) == static_cast<unsigned>( consoleplayer )) && ( CAMPAIGN_InCampaign( )) && ( CAMPAIGN_GetCampaignInfo( level.mapname )->bMustWinAllDuels ))
+					{
+						// Tell the player he loses!
+						Printf( "You lose!\n" );
+
+						// End the level.
+						G_ExitLevel( 0, false );
+
+						// When the level loads, start the next duel.
+						DUEL_SetStartNextDuelOnLevelLoad( true );
+					}
+					// If we've reached the duel limit, exit the level.
+					else if (( duellimit > 0 ) && ( static_cast<signed>( DUEL_GetNumDuels( )) >= duellimit ))
+					{
+						NETWORK_Printf( "Duellimit hit.\n" );
+						G_ExitLevel( 0, false );
+
+						// When the level loads, start the next duel.
+						DUEL_SetStartNextDuelOnLevelLoad( true );
+					}
+					else
+					{
+						// Send the loser back to the spectators! Doing so will automatically set up
+						// the next duel.
+						DUEL_SendLoserToSpectators( );
+					}
+				}
+				else if (( lastmanstanding || teamlms ) || ( possession || teampossession ))
+				{
+					const bool isLastManStanding = ( lastmanstanding || teamlms );
+					const FIntCVar &cvar = isLastManStanding ? winlimit : pointlimit;
+					bool limitHit = false;
+
+					if ( cvar > 0 )
+					{
+						if (( lastmanstanding ) || ( possession ))
+						{
+							for ( unsigned int i = 0; i < MAXPLAYERS; i++ )
+							{
+								if (( playeringame[i] == false ) || ( PLAYER_IsTrueSpectator( &players[i] )))
+									continue;
+
+								const LONG playerScore = isLastManStanding ? static_cast<LONG>( players[i].ulWins ) : players[i].lPointCount;
+
+								if ( playerScore >= cvar )
+								{
+									limitHit = true;
+									break;
+								}
+							}
+						}
+						else
+						{
+							const LONG teamScore = isLastManStanding ? TEAM_GetHighestWinCount( ) : TEAM_GetHighestPointCount( );
+
+							if ( teamScore >= cvar )
+								limitHit = true;
+						}
+					}
+
+					if ( limitHit )
+					{
+						if ( isLastManStanding )
+							NETWORK_Printf( "Winlimit hit.\n" );
+
+						G_ExitLevel( 0, false );
+					}
+					else if ( isLastManStanding )
+					{
+						LASTMANSTANDING_SetState( LMSS_PRENEXTROUNDCOUNTDOWN );
+						LASTMANSTANDING_Tick( );
+					}
+					else
+					{
+						POSSESSION_SetState( PSNS_PRENEXTROUNDCOUNTDOWN );
+						POSSESSION_Tick( );
+					}
+				}
+				else if ( survival )
+				{
+					SURVIVAL_RestartMission( );
+					SURVIVAL_Tick( );
+				}
+				else if ( invasion )
+				{
+					INVASION_SetState( IS_WAITINGFORPLAYERS );
+					INVASION_Tick( );
+				}
+				else
+				{
+					G_ExitLevel( 0, false );
+				}
+			}
 		}
 
 		// [BB] Don't call P_Ticker on the server if there are no players.
@@ -1804,154 +1920,6 @@ void G_Ticker ()
 
 			if ( pszWelcomeSound != NULL )
 				ANNOUNCER_PlayEntry( cl_announcer, pszWelcomeSound );
-		}
-
-		// Apply end level delay.
-		if (( g_ulEndLevelDelay ) &&
-			( NETWORK_InClientMode() == false ))
-		{
-			if ( --g_ulEndLevelDelay == 0 )
-			{
-				// Tell the clients about the expired end level delay.
-				if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-					SERVERCOMMANDS_SetGameEndLevelDelay( g_ulEndLevelDelay );
-
-				// If we're in a duel, set up the next duel.
-				if ( duel )
-				{
-					// If the player must win all duels, and lost this one, then he's DONE!
-					if (( DUEL_GetLoser( ) == static_cast<unsigned> (consoleplayer) ) && ( CAMPAIGN_InCampaign( )) && ( CAMPAIGN_GetCampaignInfo( level.mapname )->bMustWinAllDuels ))
-					{
-						// Tell the player he loses!
-						Printf( "You lose!\n" );
-
-						// End the level.
-						G_ExitLevel( 0, false );
-
-						// When the level loads, start the next duel.
-						DUEL_SetStartNextDuelOnLevelLoad( true );
-					}
-					// If we've reached the duel limit, exit the level.
-					else if (( duellimit > 0 ) && ( static_cast<signed> (DUEL_GetNumDuels( )) >= duellimit ))
-					{
-						NETWORK_Printf( "Duellimit hit.\n" );
-						G_ExitLevel( 0, false );
-
-						// When the level loads, start the next duel.
-						DUEL_SetStartNextDuelOnLevelLoad( true );
-					}
-					else
-					{
-						// Send the loser back to the spectators! Doing so will automatically set up
-						// the next duel.
-						DUEL_SendLoserToSpectators( );
-					}
-				}
-				else if ( lastmanstanding || teamlms )
-				{
-					bool	bLimitHit = false;
-
-					if ( winlimit > 0 )
-					{
-						if ( lastmanstanding )
-						{
-							ULONG	ulIdx;
-							
-							for ( ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
-							{
-								if (( playeringame[ulIdx] == false ) || ( PLAYER_IsTrueSpectator( &players[ulIdx] )))
-									continue;
-
-								if ( static_cast<signed> (players[ulIdx].ulWins) >= winlimit )
-								{
-									bLimitHit = true;
-									break;
-								}
-							}
-						}
-						else
-						{
-							if ( TEAM_GetHighestWinCount( ) >= winlimit)
-								bLimitHit = true;
-						}
-
-						if ( bLimitHit )
-						{
-							NETWORK_Printf( "Winlimit hit.\n" );
-							G_ExitLevel( 0, false );
-
-							// When the level loads, start the next match.
-//							LASTMANSTANDING_SetStartNextMatchOnLevelLoad( true );
-						}
-						else
-						{
-							LASTMANSTANDING_SetState( LMSS_WAITINGFORPLAYERS );
-							LASTMANSTANDING_Tick( );
-						}
-					}
-					else
-					{
-						LASTMANSTANDING_SetState( LMSS_WAITINGFORPLAYERS );
-						LASTMANSTANDING_Tick( );
-					}
-				}
-				else if ( possession || teampossession )
-				{
-					bool	bLimitHit = false;
-
-					if ( pointlimit > 0 )
-					{
-						if ( possession )
-						{
-							ULONG	ulIdx;
-							
-							for ( ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
-							{
-								if (( playeringame[ulIdx] == false ) || ( PLAYER_IsTrueSpectator( &players[ulIdx] )))
-									continue;
-
-								if ( players[ulIdx].lPointCount >= pointlimit )
-								{
-									bLimitHit = true;
-									break;
-								}
-							}
-						}
-						else
-						{
-							if ( TEAM_GetHighestPointCount( ) >= pointlimit)
-								bLimitHit = true;
-						}
-
-						if ( bLimitHit )
-						{
-							G_ExitLevel( 0, false );
-						}
-						else
-						{
-							POSSESSION_SetState( PSNS_PRENEXTROUNDCOUNTDOWN );
-							POSSESSION_Tick( );
-						}
-					}
-					else
-					{
-						POSSESSION_SetState( PSNS_PRENEXTROUNDCOUNTDOWN );
-						POSSESSION_Tick( );
-					}
-				}
-				else if ( survival )
-				{
-					SURVIVAL_RestartMission( );
-					SURVIVAL_Tick( );
-				}
-				else if ( invasion )
-				{
-					INVASION_SetState( IS_WAITINGFORPLAYERS );
-					INVASION_Tick( );
-				}
-				else
-					G_ExitLevel( 0, false );
-			}
 		}
 
 		break;
@@ -2165,12 +2133,12 @@ void G_PlayerReborn (int player, bool bGiveInventory)
 	ULONG		ulConsecutiveRailgunHits;
 	ULONG		ulDeathsWithoutFrag;
 	ULONG		ulUnrewardedDamageDealt;
-	ULONG		ulMedalCount[NUM_MEDALS];
 	CSkullBot	*pSkullBot;
 	IgnoreComm	ignoreChat;
 	IgnoreComm	ignoreVoice;
 	ULONG		ulPing;
 	ULONG		ulPingAverages;
+	unsigned int connectionStrength;
 	ULONG		ulCountryIndex;
 	ULONG		ulWins;
 	ULONG		ulTime;
@@ -2204,12 +2172,12 @@ void G_PlayerReborn (int player, bool bGiveInventory)
 	ulConsecutiveRailgunHits = p->ulConsecutiveRailgunHits;
 	ulDeathsWithoutFrag = p->ulDeathsWithoutFrag;
 	ulUnrewardedDamageDealt = p->ulUnrewardedDamageDealt;
-	memcpy( &ulMedalCount, &p->ulMedalCount, sizeof( ulMedalCount ));
 	pSkullBot = p->pSkullBot;
 	ignoreChat = p->ignoreChat;
 	ignoreVoice = p->ignoreVoice;
 	ulPing = p->ulPing;
 	ulPingAverages = p->ulPingAverages;
+	connectionStrength = p->connectionStrength;
 	ulCountryIndex = p->ulCountryIndex;
 	ulWins = p->ulWins;
 	ulTime = p->ulTime;
@@ -2227,6 +2195,9 @@ void G_PlayerReborn (int player, bool bGiveInventory)
 	}
 	else if ( p->bSpectating == false )
 	{
+		// [AK] The client respawned on this gametic, so mark it.
+		SERVER_GetClient( player )->lastRespawnTick = gametic;
+
 		// [AK] Reset the client's tic buffer every time they spawn.
 		SERVER_ResetClientTicBuffer( player );
 	}
@@ -2267,12 +2238,12 @@ void G_PlayerReborn (int player, bool bGiveInventory)
 	p->ulConsecutiveRailgunHits = ulConsecutiveRailgunHits;
 	p->ulDeathsWithoutFrag = ulDeathsWithoutFrag;
 	p->ulUnrewardedDamageDealt = ulUnrewardedDamageDealt;
-	memcpy( &p->ulMedalCount, &ulMedalCount, sizeof( ulMedalCount ));
 	p->pSkullBot = pSkullBot;
 	p->ignoreChat = ignoreChat;
 	p->ignoreVoice = ignoreVoice;
 	p->ulPing = ulPing;
 	p->ulPingAverages = ulPingAverages;
+	p->connectionStrength = connectionStrength;
 	p->ulCountryIndex = ulCountryIndex;
 	p->ulWins = ulWins;
 	p->ulTime = ulTime;
@@ -2392,37 +2363,8 @@ static fixed_t PlayersRangeFromSpot (FPlayerStart *spot)
 	return closest;
 }
 
-// Returns the average distance this spot is from all the enemies of ulPlayer.
-static fixed_t TeamLMSPlayersRangeFromSpot( ULONG ulPlayer, FPlayerStart *spot )
-{
-	ULONG	ulNumSpots;
-	fixed_t	distance = INT_MAX;
-	int i;
-
-	ulNumSpots = 0;
-	for (i = 0; i < MAXPLAYERS; i++)
-	{
-		// [Proteh] Skip spectators too
-		if (!playeringame[i] || players[i].bSpectating || !players[i].mo || players[i].health <= 0)
-			continue;
-
-		// Ignore players on our team.
-		if (( players[ulPlayer].bOnTeam ) && ( players[i].bOnTeam ) && ( players[ulPlayer].Team == players[i].Team ))
-			continue;
-
-		ulNumSpots++;
-		distance += P_AproxDistance (players[i].mo->x - spot->x,
-									players[i].mo->y - spot->y);
-	}
-
-	if ( ulNumSpots )
-		return ( distance / ulNumSpots );
-	else
-		return ( distance );
-}
-
-// [RH] Select the deathmatch spawn spot farthest from everyone.
-static FPlayerStart *SelectFarthestDeathmatchSpot( ULONG ulPlayer, size_t selections )
+// [AK] Added a helper function to reduce duplicated code.
+static FPlayerStart *SelectFarthestSpotHelper (int playernum, size_t selections, TArray<FPlayerStart> &starts)
 {
 	fixed_t bestdistance = 0;
 	FPlayerStart *bestspot = NULL;
@@ -2430,172 +2372,97 @@ static FPlayerStart *SelectFarthestDeathmatchSpot( ULONG ulPlayer, size_t select
 
 	for (i = 0; i < selections; i++)
 	{
-		fixed_t distance = PlayersRangeFromSpot (&deathmatchstarts[i]);
+		fixed_t distance = PlayersRangeFromSpot (&starts[i]);
 
-		// Did not find a spot.
-		if ( distance == INT_MAX )
-			continue;
-
-		if ( G_CheckSpot( ulPlayer, &deathmatchstarts[i] ) == false )
+		// [AK] Did not find a valid spot.
+		if ((distance == INT_MAX) || (G_CheckSpot (playernum, &starts[i]) == false))
 			continue;
 
 		if (distance > bestdistance)
 		{
 			bestdistance = distance;
-			bestspot = &deathmatchstarts[i];
+			bestspot = &starts[i];
 		}
 	}
 
 	return bestspot;
 }
 
-
-// Try to find a deathmatch spawn spot farthest from our enemies.
-static FPlayerStart *SelectBestTeamLMSSpot( ULONG ulPlayer, size_t selections )
+// [RH] Select the deathmatch spawn spot farthest from everyone.
+static FPlayerStart *SelectFarthestDeathmatchSpot (int playernum, size_t selections)
 {
-	ULONG		ulIdx;
-	fixed_t		Distance;
-	fixed_t		BestDistance;
-	FPlayerStart	*pBestSpot;
-
-	pBestSpot = NULL;
-	BestDistance = 0;
-	for ( ulIdx = 0; ulIdx < selections; ulIdx++ )
-	{
-		Distance = TeamLMSPlayersRangeFromSpot( ulPlayer, &deathmatchstarts[ulIdx] );
-
-		// Did not find a spot.
-		if ( Distance == INT_MAX )
-			continue;
-
-		if ( G_CheckSpot( ulPlayer, &deathmatchstarts[ulIdx] ) == false )
-			continue;
-
-		if ( Distance > BestDistance )
-		{
-			BestDistance = Distance;
-			pBestSpot = &deathmatchstarts[ulIdx];
-		}
-	}
-
-	return ( pBestSpot );
+	// [AK] Moved the code into a helper function.
+	return SelectFarthestSpotHelper (playernum, selections, deathmatchstarts);
 }
 
-// [RH] Select a deathmatch spawn spot at random (original mechanism)
-static FPlayerStart *SelectRandomDeathmatchSpot (int playernum, unsigned int selections)
+// [AK] Select the team spawn spot farthest from everyone.
+static FPlayerStart *SelectFarthestTeamSpot (int playernum, int teamnum, size_t selections)
+{
+	return SelectFarthestSpotHelper (playernum, selections, teams[teamnum].TeamStarts);
+}
+
+// [AK] Added a helper function to reduce duplicated code.
+static FPlayerStart *SelectRandomSpotHelper (int playernum, unsigned int selections, TArray<FPlayerStart> &starts)
 {
 	unsigned int i, j;
 
 	for (j = 0; j < 20; j++)
 	{
 		i = pr_dmspawn() % selections;
-		if (G_CheckSpot (playernum, &deathmatchstarts[i]) )
+		if (G_CheckSpot (playernum, &starts[i]) )
 		{
-			return &deathmatchstarts[i];
+			return &starts[i];
 		}
 	}
 
 	// [RH] return a spot anyway, since we allow telefragging when a player spawns
-	return &deathmatchstarts[i];
+	return &starts[i];
 }
 
-// Select a temporary team spawn spot at random.
-static FPlayerStart *SelectTemporaryTeamSpot( USHORT usPlayer, ULONG ulNumSelections )
+// [RH] Select a deathmatch spawn spot at random (original mechanism)
+static FPlayerStart *SelectRandomDeathmatchSpot (int playernum, unsigned int selections)
 {
-	ULONG	ulNumAttempts;
-	ULONG	ulSelection;
-
-	// Try up to 20 times to find a valid spot.
-	for ( ulNumAttempts = 0; ulNumAttempts < 20; ulNumAttempts++ )
-	{
-		ulSelection = ( pr_dmspawn( ) % ulNumSelections );
-		if ( G_CheckSpot( usPlayer, &TemporaryTeamStarts[ulSelection] ))
-			return ( &TemporaryTeamStarts[ulSelection] );
-	}
-
-	// Return a spot anyway, since we allow telefragging when a player spawns.
-	return ( &TemporaryTeamStarts[ulSelection] );
+	// [AK] Moved the code into a helper function.
+	return SelectRandomSpotHelper (playernum, selections, deathmatchstarts);
 }
 
-// Select a team spawn spot at random.
-static FPlayerStart *SelectRandomTeamSpot( USHORT usPlayer, ULONG ulTeam, ULONG ulNumSelections )
+// [AK] Select a temporary team spawn spot at random.
+static FPlayerStart *SelectTemporaryTeamSpot (int playernum, unsigned int selections)
 {
-	ULONG	ulNumAttempts;
-	ULONG	ulSelection;
-
-	// Try up to 20 times to find a valid spot.
-	for ( ulNumAttempts = 0; ulNumAttempts < 20; ulNumAttempts++ )
-	{
-		ulSelection = ( pr_dmspawn( ) % ulNumSelections );
-		if ( G_CheckSpot( usPlayer, &teams[ulTeam].TeamStarts[ulSelection] ))
-			return ( &teams[ulTeam].TeamStarts[ulSelection] );
-	}
-
-	// Return a spot anyway, since we allow telefragging when a player spawns.
-	return ( &teams[ulTeam].TeamStarts[ulSelection] );
+	return SelectRandomSpotHelper (playernum, selections, TemporaryTeamStarts);
 }
 
-// Select a cooperative spawn spot at random.
-FPlayerStart *SelectRandomCooperativeSpot( ULONG ulPlayer )
+// [AK] Select a team spawn spot at random.
+static FPlayerStart *SelectRandomTeamSpot (int playernum, int teamnum, unsigned int selections)
 {
-	ULONG		ulNumAttempts;
-	ULONG		ulSelection;
-	ULONG		ulIdx;
-
-	// [BB] Count the number of available player starts.
-	ULONG ulNumSelections = 0;
-	for ( ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
-	{
-		if ( playerstarts[ulIdx].type != 0 )
-			ulNumSelections++;
-	}
-
-	if ( ulNumSelections < 1 )
-		I_Error( "No cooperative starts!" );
-
-	// Try up to 20 times to find a valid spot.
-	for ( ulNumAttempts = 0; ulNumAttempts < 20; ulNumAttempts++ )
-	{
-		// Find the first valid playerstart.
-		ulIdx = 0;
-		while (( ulIdx < MAXPLAYERS ) && ( playerstarts[ulIdx].type == 0 ))
-			ulIdx++;
-
-		ulSelection = ( pr_dmspawn( ) % ulNumSelections );
-		while ( ulSelection > 0 )
-		{
-			ulSelection--;
-			// [BB] Find the next valid playerstart (assuming that ulNumSelections gives us the number of available starts).
-			ulIdx++;
-			while (( ulIdx < MAXPLAYERS ) && ( playerstarts[ulIdx].type == 0 ))
-				ulIdx++;
-		}
-
-		if ( ( ulIdx < MAXPLAYERS ) && G_CheckSpot( ulPlayer, &playerstarts[ulIdx] ))
-			return ( &playerstarts[ulIdx] );
-	}
-
-	// Return a spot anyway, since we allow telefragging when a player spawns.
-	if ( ulIdx < MAXPLAYERS )
-		return ( &playerstarts[ulIdx] );
-	else
-		return NULL;
+	return SelectRandomSpotHelper (playernum, selections, teams[teamnum].TeamStarts);
 }
 
-void G_DeathMatchSpawnPlayer( int playernum, bool bClientUpdate )
+// [AK] Select a cooperative spawn spot at random.
+FPlayerStart *SelectRandomCooperativeSpot (int playernum)
+{
+	const unsigned int selections = AvailableCooperativeStarts.Size ();
+
+	if (selections < 1)
+		I_Error ("No cooperative starts!");
+
+	return SelectRandomSpotHelper (playernum, selections, AvailableCooperativeStarts);
+}
+
+void G_DeathMatchSpawnPlayer (int playernum, bool clientUpdate)
 {
 	unsigned int selections;
 	FPlayerStart *spot;
 
 	// [BB] If sv_useteamstartsindm is true, we want to use team starts in deathmatch
 	// game modes with teams, e.g. TDM, TLMS.
-	if ( ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSONTEAMS )
-		&& players[playernum].bOnTeam
-		&& TEAM_CheckIfValid ( players[playernum].Team )
-		&& ( teams[players[playernum].Team].TeamStarts.Size( ) >= 1 )
-		&& sv_useteamstartsindm )
+	if ((GAMEMODE_GetCurrentFlags () & GMF_PLAYERSONTEAMS) &&
+		(players[playernum].bOnTeam) &&
+		(TEAM_CheckIfValid (players[playernum].Team)) &&
+		(teams[players[playernum].Team].TeamStarts.Size () >= 1) &&
+		(sv_useteamstartsindm))
 	{
-		G_TeamgameSpawnPlayer( playernum, players[playernum].Team, bClientUpdate );
+		G_TeamgameSpawnPlayer (playernum, players[playernum].Team, clientUpdate);
 		return;
 	}
 
@@ -2605,150 +2472,155 @@ void G_DeathMatchSpawnPlayer( int playernum, bool bClientUpdate )
 	{
 		// [RK] If the mode is something like TDM or TLMS, try to use the team spawns
 		// in the map and without limiting a player to using only their team color.
-		if ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSONTEAMS )
+		if (GAMEMODE_GetCurrentFlags () & GMF_PLAYERSONTEAMS)
 		{
-			G_TemporaryTeamSpawnPlayer( playernum, bClientUpdate );
+			G_TemporaryTeamSpawnPlayer (playernum, clientUpdate);
 			return;
 		}
-		else
-			I_Error("No deathmatch starts!");
+
+		I_Error ("No deathmatch starts!");
 	}
 
-	if ( teamlms && ( players[playernum].bOnTeam ))
-	{
-		// If we didn't find a valid spot, just pick one at random.
-		if (( spot = SelectBestTeamLMSSpot( playernum, selections )) == NULL )
-			spot = SelectRandomDeathmatchSpot( playernum, selections );
-	}
-	else if ( dmflags & DF_SPAWN_FARTHEST )
-	{
-		// If we didn't find a valid spot, just pick one at random.
-		if (( spot = SelectFarthestDeathmatchSpot( playernum, selections )) == NULL )
-			spot = SelectRandomDeathmatchSpot( playernum, selections );
-	}
+	// At level start, none of the players have mobjs attached to them,
+	// so we always use the random deathmatch spawn. During the game,
+	// though, we use whatever dmflags specifies.
+	if ((dmflags & DF_SPAWN_FARTHEST) && players[playernum].mo)
+		spot = SelectFarthestDeathmatchSpot (playernum, selections);
 	else
 		spot = SelectRandomDeathmatchSpot (playernum, selections);
 
-	if ( spot == NULL )
-		I_Error( "Could not find a valid deathmatch spot! (this should not happen)" );
+	if (spot == NULL)
+	{ // No good spot, so the player will probably get stuck.
+	  // We were probably using select farthest above, and all
+	  // the spots were taken.
+	  /* [AK] Zandronum doesn't use this at the moment.
+		spot = G_PickPlayerStart(playernum, PPS_FORCERANDOM);
+		if (!G_CheckSpot(playernum, spot))
+		{ // This map doesn't have enough coop spots for this player
+		  // to use one.
+			spot = SelectRandomDeathmatchSpot(playernum, selections);
+			if (spot == NULL)
+			{ // We have a player 1 start, right?
+				spot = &playerstarts[0];
+				if (spot == NULL)
+				{ // Fine, whatever.
+					spot = &deathmatchstarts[0];
+				}
+			}
+		}
+	  */
 
-	AActor *mo = P_SpawnPlayer( spot, playernum, bClientUpdate ? SPF_CLIENTUPDATE : 0 );
+		// [AK] SelectRandomDeathmatchSpot should always return a valid spot.
+		spot = SelectRandomDeathmatchSpot (playernum, selections);
+
+		// ANOMALOUS HAPPENING!!!
+		if (spot == NULL)
+			I_Error ("Could not find a valid deathmatch spot! (this should not happen)");
+	}
+	AActor *mo = P_SpawnPlayer(spot, playernum, clientUpdate ? SPF_CLIENTUPDATE : 0);
 	if (mo != NULL) P_PlayerStartStomp(mo);
 }
 
-void G_TemporaryTeamSpawnPlayer( ULONG ulPlayer, bool bClientUpdate )
+void G_TemporaryTeamSpawnPlayer (int playernum, bool clientUpdate)
 {
-	ULONG		ulNumSelections;
-	FPlayerStart	*pSpot;
-
-	ulNumSelections = TemporaryTeamStarts.Size( );
+	const unsigned int selections = TemporaryTeamStarts.Size ();
 
 	// If there aren't any temporary starts, just spawn them at a random team location.
-	if ( ulNumSelections < 1 )
+	if (selections < 1)
 	{
-		bool	bCanUseStarts[MAX_TEAMS];
-		LONG	lAllowedTeamCount = 0;
-		ULONG	ulTeam = 0;
-		ULONG	ulOnTeamNum = 0;
+		TArray<unsigned int> availableTeamStarts;
+		bool teamStartFound = false;
+		int teamnum = 0;
 
-		// Set each of these to specific values.
-		for ( ULONG i = 0; i < MAX_TEAMS; i++ )
-			bCanUseStarts[i] = false;
-
-		for ( ULONG i = 0; i < TEAM_GetNumAvailableTeams( ); i++ )
+		for (unsigned int i = 0; i < TEAM_GetNumAvailableTeams (); i++)
 		{
-			if ( teams[i].TeamStarts.Size( ) == 0 )
-				continue;
+			availableTeamStarts.Push (teams[i].TeamStarts.Size ());
 
-			bCanUseStarts[i] = true;
-			lAllowedTeamCount++;
+			if (teams[i].TeamStarts.Size () > 0)
+				teamStartFound = true;
 		}
 
-		if ( lAllowedTeamCount > 0 )
+		if (teamStartFound)
 		{
-			ulTeam = M_Random( ) % lAllowedTeamCount;
+			do
+			{
+				teamnum = M_Random () % availableTeamStarts.Size ();
+			} while (availableTeamStarts[teamnum] < 1);
 		}
 		else
 		{
-			I_Error( "No teamgame starts!" );
+			I_Error ("No teamgame starts!");
 		}
 
-		for ( ULONG i = 0; i < TEAM_GetNumAvailableTeams( ); i++ )
-		{
-			if ( bCanUseStarts[i] == false )
-				continue;
-
-			if ( ulOnTeamNum == ulTeam )
-				ulTeam = i;
-
-			ulOnTeamNum++;
-		}
-
-		G_TeamgameSpawnPlayer( ulPlayer, ulTeam, bClientUpdate );
+		G_TeamgameSpawnPlayer (playernum, teamnum, clientUpdate);
 		return;
 	}
 
 	// SelectTemporaryTeamSpot should always return a valid spot. If not, we have a problem.
-	pSpot = SelectTemporaryTeamSpot( static_cast<USHORT> ( ulPlayer ), ulNumSelections );
+	FPlayerStart *spot = SelectTemporaryTeamSpot (playernum, selections);
 
 	// ANAMOLOUS HAPPENING!!!
-	if ( pSpot == NULL )
-		I_Error( "Could not find a valid temporary spot! (this should not happen)" );
+	if (spot == nullptr)
+		I_Error ("Could not find a valid temporary spot! (this should not happen)");
 
-	AActor *mo = P_SpawnPlayer( pSpot, ulPlayer, bClientUpdate ? SPF_CLIENTUPDATE : 0 );
-	if (mo != NULL)
+	AActor *mo = P_SpawnPlayer(spot, playernum, clientUpdate ? SPF_CLIENTUPDATE : 0);
+	if (mo != nullptr)
 	{
 		P_PlayerStartStomp(mo);
 		// [BL] Say goodbye to selection room pistol-fights! I'm fed up with them!
 		// [BB] Spectators have to be excluded from this (they don't have any inventory anyway).
-		if ( players[ulPlayer].bSpectating == false )
+		if (players[playernum].bSpectating == false)
 		{
-			players[ulPlayer].bUnarmed = true;
-			players[ulPlayer].mo->ClearInventory();
+			players[playernum].bUnarmed = true;
+			players[playernum].mo->ClearInventory ();
 		}
 	}
 }
 
-void G_TeamgameSpawnPlayer( ULONG ulPlayer, ULONG ulTeam, bool bClientUpdate )
+void G_TeamgameSpawnPlayer (int playernum, int teamnum, bool clientUpdate)
 {
-	ULONG		ulNumSelections;
-	FPlayerStart	*pSpot;
+	const unsigned int selections = teams[teamnum].TeamStarts.Size ();
+	FPlayerStart *spot = nullptr;
 
-	ulNumSelections = teams[ulTeam].TeamStarts.Size( );
-	if ( ulNumSelections < 1 )
-		I_Error( "No %s team starts!", TEAM_GetName( ulTeam ));
+	if (selections < 1)
+		I_Error ("No %s team starts!", TEAM_GetName (teamnum));
+
+	// [AK] Spawn the player as far away from everyone else if sv_spawnfarthest is enabled.
+	if (dmflags & DF_SPAWN_FARTHEST)
+		spot = SelectFarthestTeamSpot (playernum, teamnum, selections);
 
 	// SelectRandomTeamSpot should always return a valid spot. If not, we have a problem.
-	pSpot = SelectRandomTeamSpot( static_cast<USHORT> ( ulPlayer ), ulTeam, ulNumSelections );
-
-	// ANAMOLOUS HAPPENING!!!
-	if ( pSpot == NULL )
-		I_Error( "Could not find a valid temporary spot! (this should not happen)" );
-
-	AActor *mo = P_SpawnPlayer( pSpot, ulPlayer, bClientUpdate ? SPF_CLIENTUPDATE : 0 );
-	if (mo != NULL) P_PlayerStartStomp(mo);
-}
-
-void G_CooperativeSpawnPlayer( ULONG ulPlayer, bool bClientUpdate, bool bTempPlayer )
-{
-	// If there's a valid start for this player, spawn him there.
-	// [BB] Don't do this, if we want to randomize starts.
-	if (( sv_randomcoopstarts == false ) && ( playerstarts[ulPlayer].type != 0 ) && ( G_CheckSpot( ulPlayer, &playerstarts[ulPlayer] )))
+	if (spot == nullptr)
 	{
-		AActor *mo = P_SpawnPlayer( &playerstarts[ulPlayer], ulPlayer, ( bTempPlayer ? SPF_TEMPPLAYER : 0 ) | ( bClientUpdate ? SPF_CLIENTUPDATE : 0 ) );
-		if (mo != NULL) P_PlayerStartStomp(mo);
-		return;
+		spot = SelectRandomTeamSpot (playernum, teamnum, selections);
+
+		// ANAMOLOUS HAPPENING!!!
+		if (spot == nullptr)
+			I_Error ("Could not find a valid team spot! (this should not happen)");
 	}
 
-	// Now, try to find a valid cooperative start.
-	FPlayerStart *pSpot = SelectRandomCooperativeSpot( ulPlayer );
+	AActor *mo = P_SpawnPlayer(spot, playernum, clientUpdate ? SPF_CLIENTUPDATE : 0);
+	if (mo != nullptr) P_PlayerStartStomp(mo);
+}
+
+void G_CooperativeSpawnPlayer (int playernum, bool clientUpdate, bool tempPlayer)
+{
+	FPlayerStart *spot = nullptr;
+
+	// If there's a valid start for this player, spawn him there.
+	// [BB] Don't do this, if we want to randomize starts.
+	if ((sv_randomcoopstarts == false) && (playerstarts[playernum].type != 0) && (G_CheckSpot (playernum, &playerstarts[playernum])))
+		spot = &playerstarts[playernum];
+	// Otherwise, try to find a valid cooperative start.
+	else
+		spot = SelectRandomCooperativeSpot (playernum);
 
 	// ANAMOLOUS HAPPENING!!!
-	if ( pSpot == NULL )
-		I_Error( "Could not find a valid deathmatch spot! (this should not happen)" );
+	if (spot == nullptr)
+		I_Error ("Could not find a valid cooperative spot! (this should not happen)");
 
-	AActor *mo = P_SpawnPlayer( pSpot, ulPlayer, ( bTempPlayer ? SPF_TEMPPLAYER : 0 ) | ( bClientUpdate ? SPF_CLIENTUPDATE : 0 ) );
-	if (mo != NULL) P_PlayerStartStomp(mo);
+	AActor *mo = P_SpawnPlayer(spot, playernum, (tempPlayer ? SPF_TEMPPLAYER : 0) | (clientUpdate ? SPF_CLIENTUPDATE : 0));
+	if (mo != nullptr) P_PlayerStartStomp(mo);
 }
 
 //
@@ -3411,6 +3283,51 @@ void GAME_ResetScripts ( )
 	delete ( pMap );
 }
 
+static void GAME_ResetActorUDMFValues(AActor *oldActor, AActor *newActor)
+{
+	// [BOF] Sanity check to make sure the actors exist.
+	if (oldActor == nullptr || newActor == nullptr)
+		return;
+
+	// [BOF] Transfer the saved values from the old actor onto the new actor and then set those values for the new actor.
+	if (newActor != oldActor)
+	{
+		newActor->savedUserVars			= oldActor->savedUserVars;
+		newActor->SavedPitch			= oldActor->SavedPitch;
+		newActor->SavedRoll				= oldActor->SavedRoll;
+		newActor->SavedScaleX			= oldActor->SavedScaleX;
+		newActor->SavedScaleY			= oldActor->SavedScaleY;
+		newActor->SavedRenderStyle		= oldActor->SavedRenderStyle;
+		newActor->SavedAlpha			= oldActor->SavedAlpha;
+		newActor->SavedFillColor		= oldActor->SavedFillColor;
+		newActor->SavedGravity			= oldActor->SavedGravity;
+		newActor->SavedScore			= oldActor->SavedScore;
+		newActor->SavedHealth			= oldActor->SavedHealth;
+		newActor->SavedConversation		= oldActor->SavedConversation;
+		newActor->SavedFloatBobPhase	= oldActor->SavedFloatBobPhase;
+	}
+
+	newActor->ResetUserVars();
+
+	newActor->pitch				= oldActor->SavedPitch;
+	newActor->roll				= oldActor->SavedRoll;
+	newActor->scaleX			= oldActor->SavedScaleX;
+	newActor->scaleY			= oldActor->SavedScaleY;
+	newActor->RenderStyle		= oldActor->SavedRenderStyle;
+	newActor->alpha				= oldActor->SavedAlpha;
+	newActor->fillcolor			= oldActor->SavedFillColor;
+	newActor->gravity			= oldActor->SavedGravity;
+	newActor->Score				= oldActor->SavedScore;
+	newActor->health			= oldActor->SavedHealth;
+	newActor->Conversation		= oldActor->SavedConversation;
+	newActor->FloatBobPhase		= oldActor->SavedFloatBobPhase;
+}
+
+static void GAME_ResetActorUDMFValues(AActor *actor)
+{
+	GAME_ResetActorUDMFValues( actor, actor );
+}
+
 void DECAL_ClearDecals( void );
 FPolyObj *GetPolyobjByIndex( ULONG ulPoly );
 void GAME_ResetMap( bool bRunEnterScripts )
@@ -4009,6 +3926,9 @@ void GAME_ResetMap( bool bRunEnterScripts )
 
 				pNewActor->STFlags |= STFL_LEVELSPAWNED;
 
+				// [BOF] Restore UDMF Variables given on Map Spawn.
+				GAME_ResetActorUDMFValues(pActor, pNewActor);
+
 				// Handle the spawn flags of the item.
 				pNewActor->HandleSpawnFlags( );
 
@@ -4026,6 +3946,10 @@ void GAME_ResetMap( bool bRunEnterScripts )
 					// Check and see if it's important that the client know the angle of the object.
 					if ( pNewActor->angle != 0 )
 						SERVERCOMMANDS_SetThingAngle( pNewActor );
+
+					// [AK] Send the actor's pitch too if it's important for the client to know it.
+					if ( pNewActor->pitch != 0 )
+						SERVERCOMMANDS_MoveThing( pNewActor, CM_PITCH );
 				}
 			}
 
@@ -4064,10 +3988,11 @@ void GAME_ResetMap( bool bRunEnterScripts )
 		pActorInfo = pActor->GetDefault( );
 
 		// This item appears to be untouched; no need to respawn it.
+		// [BOF] Check saved health instead.
 		if ((( pActor->STFlags & STFL_POSITIONCHANGED ) == false ) &&
 			( pActor->state == pActor->InitialState ) &&
 			( GAME_DormantStatusMatchesOriginal( pActor )) &&
-			( pActor->health == pActorInfo->health ))
+			( pActor->health == pActor->SavedHealth ))
 		{
 			if ( pActor->special != pActor->SavedSpecial )
 				pActor->special = pActor->SavedSpecial;
@@ -4077,8 +4002,8 @@ void GAME_ResetMap( bool bRunEnterScripts )
 				if ( pActor->args[i] != pActor->SavedArgs[i] )
 					pActor->args[i] = pActor->SavedArgs[i];
 
-			// [AK] User variables must be reset too.
-			pActor->ResetUserVars();
+			// [BOF] Restore UDMF Variables given on Map Spawn.
+			GAME_ResetActorUDMFValues(pActor);
 
 			// [BB] This is a valid monster on the map, count it.
 			if ( pActor->CountsAsKill( ) && !(pActor->flags & MF_FRIENDLY) )
@@ -4177,6 +4102,13 @@ void GAME_ResetMap( bool bRunEnterScripts )
 			pNewActor->flags &= ~MF_DROPPED;
 			pNewActor->STFlags |= STFL_LEVELSPAWNED;
 
+			// [BOF] If the default Skybox, then transfer to new the actor.
+			if (level.DefaultSkybox == pActor)
+				level.DefaultSkybox = static_cast<ASkyViewpoint *>( pNewActor );
+
+			// [BOF] Restore UDMF Variables given on Map Spawn.
+			GAME_ResetActorUDMFValues(pActor, pNewActor);
+
 			// Handle the spawn flags of the item.
 			pNewActor->HandleSpawnFlags( );
 
@@ -4224,6 +4156,10 @@ void GAME_ResetMap( bool bRunEnterScripts )
 				// Check and see if it's important that the client know the angle of the object.
 				if ( pNewActor->angle != 0 )
 					SERVERCOMMANDS_SetThingAngle( pNewActor );
+
+				// [AK] Send the actor's pitch too if it's important for the client to know it.
+				if ( pNewActor->pitch != 0 )
+					SERVERCOMMANDS_MoveThing( pNewActor, CM_PITCH );
 
 				// [BB] The server reset the args of the old actor, inform the clients about this.
 				if ( ( pNewActor->args[0] != 0 )
@@ -4348,6 +4284,10 @@ bool GAME_IsMapRestRequested( void )
 //
 AActor* GAME_SelectRandomSpotForArtifact ( const PClass *pArtifactType, const TArray<FPlayerStart> &Spots )
 {
+	// [BOF] Don't allow artifact to duplicate if a player is already holding it.
+	if ( GAMEMODE_GetArtifactCarrier() )
+		return NULL;
+
 	if ( Spots.Size() == 0 )
 		return NULL;
 

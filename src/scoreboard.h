@@ -95,6 +95,22 @@ enum MARGINTYPE_e
 	MARGINTYPE_HEADER_OR_FOOTER,
 	MARGINTYPE_TEAM,
 	MARGINTYPE_SPECTATOR,
+
+	// [AK] This is only used to allow special values for certain margin commands
+	// ( e.g. DrawString, DrawColor, or DrawTexture ) to be used in all margins.
+	MARGINTYPE_ALL,
+};
+
+//*****************************************************************************
+//
+// [AK] What kind of stuff on the scoreboard the user wants to customize.
+//
+enum CustomizeScoreboardFlag
+{
+	CUSTOMIZE_TEXT =			1 << 0,
+	CUSTOMIZE_BORDERS =			1 << 1,
+	CUSTOMIZE_BACKGROUND =		1 << 2,
+	CUSTOMIZE_ROWBACKGROUNDS =	1 << 3,
 };
 
 //*****************************************************************************
@@ -239,6 +255,8 @@ protected:
 	ULONG ulFlags;
 	ULONG ulGameAndEarnTypeFlags;
 	std::set<GAMEMODE_e> GameModeList;
+	std::set<GAMEMODE_e> PriorityGameModeList;
+	std::set<GAMEMODE_e> ForbiddenGameModeList;
 	ULONG ulSizing;
 	ULONG ulShortestWidth;
 	ULONG ulShortestHeight;
@@ -409,7 +427,7 @@ public:
 	public:
 		~CommandBlock( void ) { Clear( ); }
 
-		void ParseBlock( FScanner &sc, ScoreMargin *pMargin, BaseCommand *pParentCommand );
+		void ParseBlock( FScanner &sc, ScoreMargin *margin, BaseCommand *parentCommand, const bool clearCommands );
 		void ParseCommand( FScanner &sc, ScoreMargin *pMargin, BaseCommand *pParentCommand, const bool bOnlyFlowControl );
 		void Clear( void );
 		void Refresh( const ULONG ulDisplayPlayer );
@@ -432,6 +450,7 @@ public:
 	void Parse( FScanner &sc );
 	void Refresh( const ULONG displayPlayer, const ULONG newWidth, const int newRelX );
 	void Render( const ULONG ulDisplayPlayer, const ULONG ulTeam, LONG &lYPos, const float fAlpha ) const;
+	void ClearCommands( void ) { Block.Clear( ); }
 
 	// [AK] Indicates that this margin is drawing for no team.
 	const static unsigned int NO_TEAM = UCHAR_MAX;
@@ -456,8 +475,33 @@ private:
 //
 //*****************************************************************************
 
+EXTERN_CVAR( Int, sb_customizeflags )
+
 struct Scoreboard
 {
+	// [AK] Template class for properties that can be customized in-game.
+	template <typename Type, typename CVar> struct CustomizableProperty
+	{
+		CustomizableProperty( const CVar &cvar, const CustomizeScoreboardFlag flag, const Type initial ) :
+			cvar( cvar ), flag( flag ), value( initial ) { }
+
+		void operator= ( const Type other ) { value = other; }
+		operator Type( ) const { return ( sb_customizeflags & flag ) ? static_cast<Type>( cvar ) : value; }
+
+		const CVar &cvar;
+		const CustomizeScoreboardFlag flag;
+		Type value;
+	};
+
+	// [AK] Specialized template class for text color properties.
+	struct CustomizableTextColor : public CustomizableProperty<EColorRange, FIntCVar>
+	{
+		CustomizableTextColor( const FIntCVar &cvar, const CustomizeScoreboardFlag flag, const EColorRange initial ) :
+			CustomizableProperty( cvar, flag, initial ) { }
+
+		operator EColorRange( ) const { return ( sb_customizeflags & flag ) ? static_cast<EColorRange>( cvar.GetGenericRep( CVAR_Int ).Int ) : value; }
+	};
+
 	enum LOCALROW_COLOR_e
 	{
 		LOCALROW_COLOR_INGAME,
@@ -490,17 +534,17 @@ struct Scoreboard
 	ULONG ulFlags;
 	FFont *pHeaderFont;
 	FFont *pRowFont;
-	EColorRange HeaderColor;
-	EColorRange RowColor;
-	EColorRange LocalRowColors[NUM_LOCALROW_COLORS];
+	CustomizableTextColor headerColor;
+	CustomizableTextColor rowColor;
+	CustomizableTextColor localRowColors[NUM_LOCALROW_COLORS];
 	FTexture *pBorderTexture;
-	PalEntry BorderColors[NUM_BORDER_COLORS];
-	PalEntry BackgroundColor;
-	PalEntry RowBackgroundColors[NUM_ROWBACKGROUND_COLORS];
+	CustomizableProperty<PalEntry, FColorCVar> borderColors[NUM_BORDER_COLORS];
+	CustomizableProperty<PalEntry, FColorCVar> backgroundColor;
+	CustomizableProperty<PalEntry, FColorCVar> rowBackgroundColors[NUM_ROWBACKGROUND_COLORS];
 	PalEntry TeamRowBackgroundColors[MAX_TEAMS][NUM_ROWBACKGROUND_COLORS];
-	float fBackgroundAmount;
-	float fRowBackgroundAmount;
-	float fDeadRowBackgroundAmount;
+	CustomizableProperty<float, FFloatCVar> backgroundAmount;
+	CustomizableProperty<float, FFloatCVar> rowBackgroundAmount;
+	CustomizableProperty<float, FFloatCVar> deadRowBackgroundAmount;
 	float fContentAlpha;
 	float fDeadTextAlpha;
 	ULONG ulBackgroundBorderSize;
@@ -519,13 +563,16 @@ struct Scoreboard
 	Scoreboard( void );
 
 	void Parse( FScanner &sc );
-	void Refresh( const ULONG ulDisplayPlayer );
-	void Render( const ULONG ulDisplayPlayer, const float fAlpha );
+	void Refresh( const unsigned int displayPlayer, const int minYPos );
+	void Render( const unsigned int displayPlayer, const int minYPos, const float alpha );
 	void DrawBorder( const EColorRange Color, LONG &lYPos, const float fAlpha, const bool bReverse ) const;
 	void DrawRowBackground( const PalEntry color, int x, int y, int width, int height, const float fAlpha ) const;
 	void DrawRowBackground( const PalEntry color, const int y, const float fAlpha ) const;
+	void UpdateTeamRowBackgroundColors( void );
 	void RemoveInvalidColumnsInRankOrder( void );
+	void ClearColumnsAndMargins( void );
 	bool ShouldSeparateTeams( void ) const;
+	bool CheckFlag( const SCOREBOARDFLAG_e flag, const CustomizeScoreboardFlag customizeFlag, const bool customizeValue ) const;
 
 private:
 	struct PlayerComparator
@@ -550,7 +597,7 @@ private:
 	void AddColumnToList( FScanner &sc, const bool bAddToRankOrder );
 	void RemoveColumnFromList( FScanner &sc, const bool bRemoveFromRankOrder );
 	void UpdateWidth( void );
-	void UpdateHeight( const ULONG ulDisplayPlayer );
+	void UpdateHeight( const unsigned int displayPlayer, const int minYPos );
 	void DrawRow( const ULONG ulPlayer, const ULONG ulDisplayPlayer, LONG &lYPos, const float fAlpha, bool &bUseLightBackground ) const;
 };
 
@@ -558,17 +605,27 @@ private:
 //	PROTOTYPES
 
 void			SCOREBOARD_Construct( void );
+void			SCOREBOARD_Destruct( void );
+void			SCOREBOARD_ParseFont( FScanner &sc, FFont *&font );
+void			SCOREBOARD_ParseTextColor( FScanner &sc, EColorRange &color );
 void			SCOREBOARD_Reset( void );
-void			SCOREBOARD_Render( ULONG ulDisplayPlayer );
+void			SCOREBOARD_Render( const unsigned int displayPlayer, const int minYPos = 0 );
 void STACK_ARGS SCOREBOARD_DrawString( FFont *font, const int color, const int x, const int y, const char *string, ... );
 void			SCOREBOARD_DrawColor( const PalEntry color, const float alpha, int left, int top, int width, int height );
 void STACK_ARGS SCOREBOARD_DrawTexture( FTexture *texture, const int x, const int y, const float scale, ... );
 bool			SCOREBOARD_ShouldDrawBoard( void );
 bool			SCOREBOARD_AdjustVerticalClipRect( int &clipTop, int &clipHeight );
+int				SCOREBOARD_CenterAlign( const int biggerSize, const int smallerSize );
 void			SCOREBOARD_ConvertVirtualCoordsToReal( int &left, int &top, int &width, int &height );
-void			SCOREBOARD_BuildLimitStrings( std::list<FString> &lines, bool bAcceptColors );
+void			SCOREBOARD_BuildLimitStrings( std::list<FString> &lines );
+FString			SCOREBOARD_BuildChampionString( void );
 ScoreColumn		*SCOREBOARD_GetColumn( FName Name, const bool bMustBeUsable );
 LONG			SCOREBOARD_GetLeftToLimit( void );
 void			SCOREBOARD_SetNextLevel( const char *pszMapName );
+
+//*****************************************************************************
+//	EXTERNAL CONSOLE VARIABLES
+
+EXTERN_CVAR( Bool, cl_showscoreleft )
 
 #endif // __SCOREBOARD_H__

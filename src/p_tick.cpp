@@ -80,7 +80,6 @@ bool P_CheckTickerPaused ()
 //
 // P_Ticker
 //
-void SERVERCONSOLE_UpdatePlayerInfo( LONG lPlayer, ULONG ulUpdateFlags );
 void P_Ticker (void)
 {
 	int i;
@@ -116,7 +115,14 @@ void P_Ticker (void)
 
 		// run the tic
 		if (paused || P_CheckTickerPaused())
+		{
+			// [AK] We don't want to disable interpolation in offline games if the
+			// console is being lowered and is supposed to be interpolated.
+			if (C_ShouldInterpolateWhilePaused())
+				r_NoInterpolate = false;
+
 			return;
+		}
 	}
 
 	P_NewPspriteTick();
@@ -151,12 +157,9 @@ void P_Ticker (void)
 		// while the demo is paused.
 		if ( ( ( i == MAXPLAYERS ) || ( S_IsMusicPaused () == false ) ) && ( CLIENTDEMO_IsSkipping() == false ) )
 			S_ResumeSound (false);
+
 		P_ResetSightCounters (false);
-
-		// Since things will be moving, it's okay to interpolate them in the renderer.
-		r_NoInterpolate = false;
-
-		P_ResetSpawnCounters( );
+		P_ResetSpawnCounters (); // [BC]
 
 		// Since things will be moving, it's okay to interpolate them in the renderer.
 		r_NoInterpolate = false;

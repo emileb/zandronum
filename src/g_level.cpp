@@ -131,9 +131,7 @@ EXTERN_CVAR (String, playerclass)
 void G_VerifySkill();
 
 
-// [AK] Changed pr_classchoice into a non-static variable.
-FRandom pr_classchoice ("RandomPlayerClassChoice");
-static	FRandom		g_RandomMapSeed( "MapSeed" );
+static FRandom pr_classchoice ("RandomPlayerClassChoice");
 
 extern level_info_t TheDefaultLevelInfo;
 extern bool timingdemo;
@@ -199,16 +197,26 @@ CCMD (map)
 			}
 			else
 			{
-				if ( sv_maprotation )
-					MAPROTATION_SetPositionToMap( argv[1] );
-
-				// Tell the clients about the mapchange.
+				// Tell the clients about the map change.
 				if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+				{
 					SERVER_ReconnectNewLevel( argv[1] );
-
+				}
 				// Tell the server we're leaving the game.
-				if ( NETWORK_GetState( ) == NETSTATE_CLIENT )
+				else if ( NETWORK_GetState( ) == NETSTATE_CLIENT )
+				{
+					// [AK] Don't let clients with RCON access start a new game.
+					if ( CLIENT_HasRCONAccess( ))
+					{
+						Printf( "You can't start a new game while you have RCON access. Use \"rcon_logout\" to log out first.\n" );
+						return;
+					}
+
 					CLIENT_QuitNetworkGame( NULL );
+				}
+
+				if ( sv_maprotation )
+					MAPROTATION_SetPositionToMap( argv[1], true );
 
 				// Turn campaign mode back on.
 				CAMPAIGN_EnableCampaign( );
@@ -371,6 +379,32 @@ static void InitPlayerClasses ()
 
 //==========================================================================
 //
+// [AK] Updates a player's class in single player games.
+//
+//==========================================================================
+
+void G_UpdateSinglePlayerClass (const unsigned int player)
+{
+	if ((NETWORK_GetState() != NETSTATE_SINGLE) && (NETWORK_GetState() != NETSTATE_SINGLE_MULTIPLAYER))
+		return;
+
+	if (PLAYER_IsValidPlayer(player) == false)
+		return;
+
+	SinglePlayerClass[player] = players[player].userinfo.GetPlayerClassNum();
+
+	// [AK] Assign a random class for the player if necessary.
+	if (SinglePlayerClass[player] < 0)
+	{
+		if (players[player].bOnTeam)
+			SinglePlayerClass[player] = TEAM_SelectRandomValidPlayerClass(players[player].Team);
+		else
+			SinglePlayerClass[player] = (pr_classchoice()) % PlayerClasses.Size();
+	}
+}
+
+//==========================================================================
+//
 //
 //==========================================================================
 
@@ -435,9 +469,17 @@ void G_InitNew (const char *mapname, bool bTitleLevel)
 
 	if ( NETWORK_InClientMode( ) == false )
 	{
-		// [AK] Clear out the saved chat messages from all players and the server.
-		for ( ULONG ulPlayer = 0; ulPlayer <= MAXPLAYERS; ulPlayer++ )
-			CHAT_ClearChatMessages( ulPlayer );
+		for ( unsigned int i = 0; i < MAXPLAYERS; i++ )
+		{
+			// [AK] Clear out any saved chat messages from the player.
+			CHAT_ClearChatMessages( i );
+
+			// [AK] Remove any medals that the player has been awarded.
+			MEDAL_ResetPlayerMedals( i, true );
+		}
+
+		// [AK] Also clear out any saved chat messages from the server.
+		CHAT_ClearChatMessages( MAXPLAYERS );
 
 		// [AK] Reset custom values to their default values for all players.
 		PLAYER_ResetCustomValues( MAXPLAYERS );
@@ -712,16 +754,7 @@ void G_ChangeLevel(const char *levelname, int position, int flags, int nextSkill
 
 	// [BC] If we're the server, tell clients that the map has finished.
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-	{
-		SERVERCOMMANDS_MapExit( position, nextlevel.GetChars() );
-
-		// [BB] It's possible that the selected next map doesn't coincide with the next map
-		// in the rotation, e.g. exiting to a secret map allows to leave the rotation.
-		// In this case, we may not advance to the next map in the rotation.
-		level_info_t *nextmapinrotation = MAPROTATION_GetNextMap( );
-		if (( nextmapinrotation != NULL ) && ( stricmp( nextmapinrotation->mapname, nextlevel.GetChars() ) == 0 ))
-			MAPROTATION_AdvanceMap( false );
-	}
+		SERVERCOMMANDS_MapExit( position, nextlevel.GetChars(), changeflags );
 
 	STAT_ChangeLevel(nextlevel);
 
@@ -740,13 +773,6 @@ void G_ChangeLevel(const char *levelname, int position, int flags, int nextSkill
 
 			// Un-crouch all players here.
 			player->Uncrouch();
-
-			// [BB] sv_maxlives is meant to specify the number of lives per map.
-			// So restore ulLivesLeft after a map change.
-			if ( GAMEMODE_GetCurrentFlags() & GMF_USEMAXLIVES )
-			{
-				PLAYER_SetLivesLeft ( player, GAMEMODE_GetMaxLives() - 1 );
-			}
 
 			// If this is co-op, respawn any dead players now so they can
 			// keep their inventory on the next map.
@@ -777,13 +803,7 @@ void G_ChangeLevel(const char *levelname, int position, int flags, int nextSkill
 const char *G_GetExitMap()
 {
 	if ( level.flags & LEVEL_CHANGEMAPCHEAT )
-	{
-		// [BB] We need to update the maprotation if the changemap cheat is used.
-		if ( sv_maprotation )
-			MAPROTATION_SetPositionToMap( level.nextmap );
-
 		return ( level.nextmap );
-	}
 
 	// If we failed a campaign, just stay on the current map.
 	if (( CAMPAIGN_InCampaign( )) &&
@@ -804,9 +824,7 @@ const char *G_GetExitMap()
 		return lobby;
 	}
 	// Check to see if we're using map rotation.
-	else if (( sv_maprotation ) &&
-			 ( NETWORK_GetState( ) == NETSTATE_SERVER ) &&
-			 ( MAPROTATION_GetNumEntries( ) != 0 ))
+	else if (( sv_maprotation ) && ( MAPROTATION_GetNumEntries( ) != 0 ))
 	{
 		// [BB] It's possible that G_GetExitMap() is called multiple times before a map change.
 		// Therefore we may not advance the map, but just peek at it.
@@ -1075,7 +1093,7 @@ void G_DoLoadLevel (int position, bool autosave)
 
 	// [BB] Make sure that dead spectators are respawned before moving to the next map.
 	if ( GAMEMODE_GetCurrentFlags() & GMF_DEADSPECTATORS )
-		GAMEMODE_RespawnDeadSpectatorsAndPopQueue( );
+		GAMEMODE_RespawnDeadPlayersAndPopQueue( );
 	// [BB] If we don't have dead spectators, still pop the queue. Possibly somone tried to join during intermission or the server admin increased sv_maxplayers during intermission.
 	else if ( NETWORK_InClientMode() == false )
 		JOINQUEUE_PopQueue( -1 );
@@ -1084,6 +1102,27 @@ void G_DoLoadLevel (int position, bool autosave)
 	// [RK] Except if we're in a hub.
 	if ( CALLVOTE_GetVoteState() == VOTESTATE_INVOTE && !( level.clusterflags & CLUSTER_HUB ))
 		CALLVOTE_ClearVote();
+
+	// [AK] Things to do to the map rotation upon entering a new level.
+	if ( sv_maprotation )
+	{
+		// [BB] We need to update the map rotation if the changemap cheat was used.
+		if ( level.flags & LEVEL_CHANGEMAPCHEAT )
+			MAPROTATION_SetPositionToMap( level.mapname, false );
+
+		level_info_t *nextMapInRotation = MAPROTATION_GetNextMap( );
+
+		// [BB] It's possible that the entered map doesn't coincide with the next map
+		// in the rotation, e.g. entering a secret map allows to leave the rotation.
+		// In this case, we may not advance to the next map in the rotation.
+		if (( nextMapInRotation != nullptr ) && ( stricmp( nextMapInRotation->mapname, level.mapname ) == 0 ))
+		{
+			MAPROTATION_SetCurrentPosition( MAPROTATION_GetNextPosition( ));
+			MAPROTATION_SetUsed( MAPROTATION_GetCurrentPosition( ), true );
+
+			MAPROTATION_CalcNextMap( true );
+		}
+	}
 
 	// [BB] Reset the net traffic measurements when a new map starts.
 	NETTRAFFIC_Reset();
@@ -1313,26 +1352,31 @@ void G_DoLoadLevel (int position, bool autosave)
 	if( !( level.clusterflags & CLUSTER_HUB ) || autosave == false ) // Resets with map command
 		g_keysFound.Clear();
 
-	// [BC] In server mode, display the level name slightly differently.
-	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+	// [AK] Don't show the level's name if changed by the SetCurrentGameMode ACS function.
+	if ((changeflags & CHANGELEVEL_HIDENAME) == false)
 	{
-		Printf( "\n*** %s: %s ***\n\n", level.mapname, level.LevelName.GetChars() );
+		// [BC] In server mode, display the level name slightly differently.
+		if (NETWORK_GetState() == NETSTATE_SERVER)
+		{
+			Printf("\n*** %s: %s ***\n\n", level.mapname, level.LevelName.GetChars());
+		}
+		else
+		{
 
-		// [RC] Update clients using the RCON utility.
-		SERVER_RCON_UpdateInfo( SVRCU_MAP );
-	}
-	else
-	{
+			Printf (
+					"\n\35\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36"
+					"\36\36\36\36\36\36\36\36\36\36\36\36\37\n\n"
+					TEXTCOLOR_BOLD "%s - %s\n\n",
+					level.mapname, level.LevelName.GetChars());
 
-		Printf (
-				"\n\35\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36"
-				"\36\36\36\36\36\36\36\36\36\36\36\36\37\n\n"
-				TEXTCOLOR_BOLD "%s - %s\n\n",
-				level.mapname, level.LevelName.GetChars());
-		
-		// [RC] Update the G15 display.
-		G15_NextLevel( level.mapname, level.LevelName.GetChars() );
+			// [RC] Update the G15 display.
+			G15_NextLevel(level.mapname, level.LevelName.GetChars());
+		}
 	}
+
+	// [RC] Update clients using the RCON utility.
+	if (NETWORK_GetState() == NETSTATE_SERVER)
+		SERVER_RCON_UpdateInfo(SVRCU_MAP);
 
 	if (wipegamestate == GS_LEVEL)
 		wipegamestate = GS_FORCEWIPE;
@@ -1369,8 +1413,8 @@ void G_DoLoadLevel (int position, bool autosave)
 			players[i].fragcount = 0;
 
 		// Reset the number of medals each player has.
-		memset( players[i].ulMedalCount, 0, sizeof( players[i].ulMedalCount ));
-		MEDAL_ClearMedalQueue( i );
+		// [AK] Players keep any medals that persist between levels if they're not spectating.
+		MEDAL_ResetPlayerMedals( i, PLAYER_ShouldSpawnAsSpectator( &players[i] ));
 
 		// Reset "ready to go on" flag.
 		PLAYER_SetStatus( &players[i], PLAYERSTATUS_READYTOGOON, false, SETPLAYERSTATUS_SERVERCANTSENDUPDATE );
@@ -1383,6 +1427,11 @@ void G_DoLoadLevel (int position, bool autosave)
 		PLAYER_ResetSpecialCounters ( &players[i] );
 //		players[i].bDeadSpectator = false;
 
+		// [BB] sv_maxlives is meant to specify the number of lives per map.
+		// So restore ulLivesLeft after a map change.
+		if ( GAMEMODE_GetCurrentFlags( ) & GMF_USEMAXLIVES )
+			PLAYER_SetLivesLeft( &players[i], GAMEMODE_GetMaxLives( ) - 1, false );
+
 		// If we're the server, update the console.
 		if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 		{
@@ -1390,6 +1439,11 @@ void G_DoLoadLevel (int position, bool autosave)
 			// [BB] Since the map was changed, the players who are already spawned need to reauthenticate.
 			if ( SERVER_GetClient( i )->State == CLS_SPAWNED )
 				SERVER_GetClient( i )->State = CLS_SPAWNED_BUT_NEEDS_AUTHENTICATION;
+
+			// [AK] Reset the client's last move tick to zero. When the level finishes loading,
+			// the server will most likely not receive their movement commands right away, so
+			// it shouldn't assume they're missing packets.
+			SERVER_GetClient( i )->lLastMoveTick = 0;
 		}
 
 //		if (( NETWORK_GetState( ) != NETSTATE_CLIENT ) && ( PLAYER_ShouldSpawnAsSpectator( &players[i] )))
@@ -1689,29 +1743,21 @@ void G_DoWorldDone (void)
 	else
 	{
 		// [AK] Check if we're using the map rotation for the next level.
-		if (( NETWORK_GetState() == NETSTATE_SERVER ) && ( sv_maprotation ) && (( level.flags & LEVEL_CHANGEMAPCHEAT ) == false ))
+		if (( sv_maprotation ) && (( level.flags & LEVEL_CHANGEMAPCHEAT ) == false ))
 		{
-			ULONG ulMapEntry = MAPROTATION_GetCurrentPosition();
-			level_info_t* map = MAPROTATION_GetMap( ulMapEntry );
-			if ( map && ( stricmp( map->mapname, nextlevel.GetChars()) == 0 ) )
+			const unsigned int nextMapEntry = MAPROTATION_GetNextPosition( );
+			level_info_t* nextMapInfo = MAPROTATION_GetMap( nextMapEntry );
+
+			if (( nextMapInfo ) && ( stricmp( nextMapInfo->mapname, nextlevel.GetChars( )) == 0 ))
 			{
-				ULONG ulPlayerCount = 0;
-
-				// [AK] Get the number of players that are still playing or in the join queue.
-				for ( ULONG ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
-				{
-					if (( playeringame[ulIdx] ) && (( !players[ulIdx].bSpectating ) || ( JOINQUEUE_GetPositionInLine( ulIdx ) != -1 )))
-						ulPlayerCount++;
-				}
-
 				// [AK] It's possible the number of players who are playing changed during the intermission
 				// screen, so we must check again if we can still enter the next level. If not, we'll need
 				// to pick another map that will accept this many players.
-				if ( MAPROTATION_CanEnterMap( ulMapEntry, ulPlayerCount ) == false )
-					nextlevel = MAPROTATION_GetNextMap()->mapname;
-
-				// [AK] We can now mark the map as being used.
-				MAPROTATION_AdvanceMap( true );
+				if ( MAPROTATION_CanEnterMap( nextMapEntry, MAPROTATION_CountEligiblePlayers( )) == false )
+				{
+					MAPROTATION_CalcNextMap( false );
+					nextlevel = MAPROTATION_GetNextMap( )->mapname;
+				}
 			}
 		}
 
@@ -1719,7 +1765,8 @@ void G_DoWorldDone (void)
 	}
 
 	// [Zandronum] Respawn dead spectators now so their inventory can travel.
-	GAMEMODE_RespawnDeadSpectators( zadmflags & ZADF_DEAD_PLAYERS_CAN_KEEP_INVENTORY ? PST_REBORN : PST_REBORNNOINVENTORY );
+	const playerstate_t playerState = ( zadmflags & ZADF_DEAD_PLAYERS_CAN_KEEP_INVENTORY ) ? PST_REBORN : PST_REBORNNOINVENTORY;
+	GAMEMODE_RespawnDeadPlayers( playerState, playerState );
 
 	G_StartTravel ();
 	G_DoLoadLevel (startpos, true);

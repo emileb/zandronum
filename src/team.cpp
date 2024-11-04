@@ -603,7 +603,7 @@ void TEAM_ScoreSkulltagPoint( player_t *pPlayer, ULONG ulNumPoints, AActor *pPil
 	TEAM_SetItemTaken( ulTeamIdx, false );
 
 	// Award the scorer with a "Tag!" medal.
-	MEDAL_GiveMedal( ULONG( pPlayer - players ), MEDAL_TAG );
+	MEDAL_GiveMedal( ULONG( pPlayer - players ), "Tag" );
 
 	// If someone just recently returned the skull, award him with an "Assist!" medal.
 	if ( TEAM_GetAssistPlayer( pPlayer->Team ) != MAXPLAYERS )
@@ -611,7 +611,7 @@ void TEAM_ScoreSkulltagPoint( player_t *pPlayer, ULONG ulNumPoints, AActor *pPil
 		// [AK] Mark the assisting player.
 		playerAssistNumber = TEAM_GetAssistPlayer( pPlayer->Team );
 
-		MEDAL_GiveMedal( playerAssistNumber, MEDAL_ASSIST );
+		MEDAL_GiveMedal( playerAssistNumber, "Assist" );
 		TEAM_SetAssistPlayer( pPlayer->Team, MAXPLAYERS );
 	}
 
@@ -2157,6 +2157,9 @@ CCMD( changeteam )
 
 		// Set the new team.
 		PLAYER_SetTeam( &players[consoleplayer], lDesiredTeam, true );
+
+		// [AK] Allow the local player to switch their class in single player games.
+		G_UpdateSinglePlayerClass( consoleplayer );
 
 		// Player was on a team, so tell everyone that he's changing teams.
 		if ( bOnTeam )

@@ -85,10 +85,12 @@
 #include "maprotation.h"
 #include "voicechat.h"
 #include "d_netinf.h"
+#include <memory>
 
 CVAR (Bool, sv_showwarnings, false, CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
 
 EXTERN_CVAR( Float, sv_aircontrol )
+EXTERN_CVAR( Bool, sv_unlimited_pickup )
 
 //*****************************************************************************
 //	FUNCTIONS
@@ -521,7 +523,8 @@ void SERVERCOMMANDS_SetPlayerHealthAndMaxHealthBonus( ULONG ulPlayer, ULONG ulPl
 		if ( pInventory )
 		{
 			pInventory->Amount = players[ulPlayer].MaxHealthBonus;
-			SERVERCOMMANDS_GiveInventory( ulPlayer, pInventory, ulPlayerExtra, flags );
+			pInventory->MaxAmount = pInventory->Amount + players[ulPlayer].mo->StartHealth; // [RK] Set the current max health.
+			SERVERCOMMANDS_GiveInventory( ulPlayer, pInventory, ulPlayerExtra, flags, true ); // [RK] Send extra value
 			pInventory->Destroy ();
 			pInventory = NULL;
 		}
@@ -545,7 +548,8 @@ void SERVERCOMMANDS_SetPlayerArmorAndMaxArmorBonus( ULONG ulPlayer, ULONG ulPlay
 		if ( pInventory )
 		{
 			pInventory->Amount = pArmor->BonusCount;
-			SERVERCOMMANDS_GiveInventory( ulPlayer, pInventory, ulPlayerExtra, flags );
+			pInventory->MaxAmount = pArmor->MaxAmount; // [RK] Set the current BonusMax ammount.
+			SERVERCOMMANDS_GiveInventory( ulPlayer, pInventory, ulPlayerExtra, flags, true ); // [RK] Send extra value
 			pInventory->Destroy ();
 			pInventory = NULL;
 		}
@@ -631,7 +635,13 @@ void SERVERCOMMANDS_SetPlayerCountry( ULONG ulPlayer, ULONG ulPlayerExtra, Serve
 {
 	ServerCommands::SetPlayerCountry command;
 	command.SetPlayer( &players[ulPlayer] );
-	command.SetCountry( players[ulPlayer].ulCountryIndex );
+
+	// [AK] Set the country to "N/A" if the player so wishes.
+	if ( SERVER_GetClient( ulPlayer )->bWantHideCountry )
+		command.SetCountry( 0 );
+	else
+		command.SetCountry( players[ulPlayer].ulCountryIndex );
+
 	command.sendCommandToClients( ulPlayerExtra, flags );
 }
 
@@ -952,9 +962,43 @@ void SERVERCOMMANDS_UpdatePlayerPing( ULONG ulPlayer, ULONG ulPlayerExtra, Serve
 	if ( PLAYER_IsValidPlayer( ulPlayer ) == false )
 		return;
 
+	CLIENT_s *const client = SERVER_GetClient( ulPlayer );
+	unsigned int connectionStrength = 4;
+
+	// [AK] Update the client's connection strength according to how many packets
+	// they missed since the last ping update. The levels work as follows:
+	//
+	// 10 or more = severe (red, one bar)
+	// 7-9 = high (orange, two bars)
+	// 4-6 = moderate (yellow, three bars)
+	// 0-3 = low (green, four bars)
+	//
+	// If they're lagging, then always set their connection strength to lowest.
+	if ( players[ulPlayer].statuses & PLAYERSTATUS_LAGGING )
+	{
+		connectionStrength = 1;
+	}
+	else if ( client->numMissingPackets > 0 )
+	{
+		const unsigned int packetLossLevels[3] = { 10, 7, 4 };
+
+		for ( unsigned int i = 0; i < 3; i++ )
+		{
+			if ( client->numMissingPackets >= packetLossLevels[i] )
+			{
+				connectionStrength = i + 1;
+				break;
+			}
+		}
+
+		// [AK] Reset the counter.
+		client->numMissingPackets = 0;
+	}
+
 	ServerCommands::UpdatePlayerPing command;
 	command.SetPlayer( &players[ulPlayer] );
 	command.SetPing( players[ulPlayer].ulPing );
+	command.SetConnectionStrength( connectionStrength );
 	command.sendCommandToClients( ulPlayerExtra, flags );
 }
 
@@ -1077,16 +1121,61 @@ void SERVERCOMMANDS_ConsolePlayerKicked( ULONG ulPlayer )
 
 //*****************************************************************************
 //
-void SERVERCOMMANDS_GivePlayerMedal( ULONG ulPlayer, ULONG ulMedal, ULONG ulPlayerExtra, ServerCommandFlags flags )
+void SERVERCOMMANDS_GivePlayerMedal( const unsigned int player, const unsigned int medal, const bool silent, const unsigned int playerExtra, ServerCommandFlags flags )
 {
-	if ( PLAYER_IsValidPlayer( ulPlayer ) == false )
+	if ( PLAYER_IsValidPlayer( player ) == false )
 		return;
 
 	ServerCommands::GivePlayerMedal command;
-	command.SetPlayer( &players[ulPlayer] );
-	command.SetMedal( ulMedal );
-	command.sendCommandToClients( ulPlayerExtra, flags );
+	command.SetPlayer( &players[player] );
+	command.SetMedal( medal );
+	command.SetSilent( silent );
+	command.sendCommandToClients( playerExtra, flags );
 }
+
+//*****************************************************************************
+//
+void SERVERCOMMANDS_SyncPlayerMedalCounts( const unsigned int playerExtra, ServerCommandFlags flags )
+{
+	for ( unsigned int i = 0; i < MAXPLAYERS; i++ )
+	{
+		// [AK] Ignore players that don't exist.
+		if ( PLAYER_IsValidPlayer( i ) == false )
+			continue;
+
+		TArray<MEDAL_t *> medalList;
+		MEDAL_RetrieveAwardedMedals( i, medalList );
+
+		// [AK] Don't send a command if this player hasn't earned any medals yet.
+		if ( medalList.Size( ) == 0 )
+			continue;
+
+		ServerCommands::SyncPlayerMedalCounts command;
+		command.SetPlayer( i );
+
+		for ( unsigned int j = 0; j < medalList.Size( ); j++ )
+		{
+			ServerCommands::Medal medal;
+			medal.index = MEDAL_GetMedalIndex( medalList[j]->name );
+			medal.count = medalList[j]->awardedCount[i];
+
+			command.PushToMedals( medal );
+
+			// [AK] If this entry won't fit into a single packet, send out what we
+			// already have and then send another packet containing this entry and more.
+			if ( static_cast<unsigned>( command.BuildNetCommand( ).calcSize( ) + PACKET_HEADER_SIZE ) >= SERVER_GetMaxPacketSize( ))
+			{
+				command.PopFromMedals( medal );
+				command.sendCommandToClients( playerExtra, flags );
+				command.ClearMedals( );
+				command.PushToMedals( medal );
+			}
+		}
+
+		command.sendCommandToClients( playerExtra, flags );
+	}
+}
+
 
 //*****************************************************************************
 //
@@ -2470,11 +2559,15 @@ void SERVERCOMMANDS_SetGameModeLimits( ULONG ulPlayerExtra, ServerCommandFlags f
 	// [WS] Send in sv_coop_damagefactor.
 	command.addFloat( sv_coop_damagefactor );
 	// [WS] Send in alwaysapplydmflags.
-	command.addByte( alwaysapplydmflags );
+	command.addBit( alwaysapplydmflags );
+	// [AK] Send sv_unlimited_pickup.
+	command.addBit( sv_unlimited_pickup );
+	// [TP] Send sv_limitcommands
+	command.addBit( sv_limitcommands );
+	// [AK] Send sv_respawninsurvivalinvasion.
+	command.addBit( sv_respawninsurvivalinvasion );
 	// [AM] Send lobby map.
 	command.addString( lobby );
-	// [TP] Send sv_limitcommands
-	command.addByte( sv_limitcommands );
 	// [AK] Send sv_allowprivatechat.
 	command.addByte( sv_allowprivatechat );
 	// [AK] Send sv_allowvoicechat.
@@ -3732,15 +3825,16 @@ void SERVERCOMMANDS_MapNew( const char *pszMapName, ULONG ulPlayerExtra, ServerC
 
 //*****************************************************************************
 //
-void SERVERCOMMANDS_MapExit( LONG lPosition, const char *pszNextMap, ULONG ulPlayerExtra, ServerCommandFlags flags )
+void SERVERCOMMANDS_MapExit( const int position, const char *nextMap, const int changeFlags, unsigned int playerExtra, ServerCommandFlags flags )
 {
-	if ( pszNextMap == NULL )
+	if ( nextMap == nullptr )
 		return;
 
 	ServerCommands::MapExit command;
-	command.SetPosition( lPosition );
-	command.SetNextMap( pszNextMap );
-	command.sendCommandToClients ( ulPlayerExtra, flags );
+	command.SetPosition( position );
+	command.SetNextMap( nextMap );
+	command.SetChangeFlags( changeFlags );
+	command.sendCommandToClients( playerExtra, flags );
 
 	// [BB] The clients who are authenticated, but still didn't finish loading
 	// the map are not covered by the code above and need special treatment.
@@ -3875,7 +3969,7 @@ void SERVERCOMMANDS_SetMapSkyScrollSpeed( bool isSky1, ULONG ulPlayerExtra, Serv
 //*****************************************************************************
 //*****************************************************************************
 //
-void SERVERCOMMANDS_GiveInventory( ULONG ulPlayer, AInventory *pInventory, ULONG ulPlayerExtra, ServerCommandFlags flags )
+void SERVERCOMMANDS_GiveInventory( ULONG ulPlayer, AInventory *pInventory, ULONG ulPlayerExtra, ServerCommandFlags flags, bool bExtraValue )
 {
 	if ( PLAYER_IsValidPlayer( ulPlayer ) == false )
 		return;
@@ -3886,11 +3980,17 @@ void SERVERCOMMANDS_GiveInventory( ULONG ulPlayer, AInventory *pInventory, ULONG
 	if ( pInventory->NetworkFlags & NETFL_SERVERSIDEONLY )
 		return;
 
-	NetCommand command ( SVC_GIVEINVENTORY );
-	command.addByte ( ulPlayer );
-	command.addShort (  pInventory->GetClass()->getActorNetworkIndex() );
-	command.addLong ( pInventory->Amount );
-	command.sendCommandToClients ( ulPlayerExtra, flags );
+	// [RK] Determine which command we're going to prepare based on bExtraValue.
+	std::unique_ptr<NetCommand> pCommand ( bExtraValue ? new NetCommand ( SVC2_GIVEINVENTORYEXTRA ) : new NetCommand ( SVC_GIVEINVENTORY ));
+
+	pCommand->addByte ( ulPlayer );
+	pCommand->addShort (  pInventory->GetClass()->getActorNetworkIndex() );
+	pCommand->addLong ( pInventory->Amount );
+
+	if ( bExtraValue )
+		pCommand->addLong(pInventory->MaxAmount);
+
+	pCommand->sendCommandToClients ( ulPlayerExtra, flags );
 
 	// [BB] Clients don't know that a BackpackItem may be depleted. In this case we have to resync the ammo count.
 	if ( pInventory->IsKindOf (RUNTIME_CLASS(ABackpackItem)) && static_cast<ABackpackItem*> ( pInventory )->bDepleted )
@@ -5260,6 +5360,17 @@ void SERVERCOMMANDS_ResetMapRotation( ULONG ulPlayerExtra, ServerCommandFlags fl
 	NetCommand command ( SVC2_UPDATEMAPROTATION );
 	command.addByte( UPDATE_MAPROTATION_RESET );
 	command.sendCommandToClients( ulPlayerExtra, flags );
+}
+
+//*****************************************************************************
+// [AK]
+void SERVERCOMMANDS_SetNextMapPosition( unsigned int playerExtra, ServerCommandFlags flags )
+{
+	NetCommand command( SVC2_UPDATEMAPROTATION );
+	command.addByte( UPDATE_MAPROTATION_SETNEXTPOSITION );
+	command.addShort( MAPROTATION_GetNextPosition( ));
+	command.addBit( MAPROTATION_ShouldNextMapIgnoreLimits( ));
+	command.sendCommandToClients( playerExtra, flags );
 }
 
 //*****************************************************************************

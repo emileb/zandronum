@@ -276,7 +276,17 @@ static void M_StartSkirmishGame()
 
 	// Tell the server we're leaving the game.
 	if ( NETWORK_GetState( ) == NETSTATE_CLIENT )
+	{
+		// [AK] Don't let clients with RCON access start a new skirmish game.
+		if ( CLIENT_HasRCONAccess( ))
+		{
+			Printf( "You can't start a skirmish game while you have RCON access. Use \"rcon_logout\" to log out first.\n" );
+			M_ClearMenus( );
+			return;
+		}
+
 		CLIENT_QuitNetworkGame( NULL );
+	}
 
 	NETWORK_SetState( NETSTATE_SINGLE );
 	CAMPAIGN_DisableCampaign( );
@@ -1067,6 +1077,11 @@ CCMD ( menu_joingamewithclass )
 			playerclass = "Random";
 		else
 			playerclass = GetPrintableDisplayName( PlayerClasses[menu_joinclassidx].Type );
+
+		// [AK] It's not enough to change the playerclass CVar to the new class's name.
+		// The local player's userinfo must be updated too.
+		players[consoleplayer].userinfo.PlayerClassChanged( playerclass );
+
 		M_DoJoinFromMenu();
 	}
 }

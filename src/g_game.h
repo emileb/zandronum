@@ -32,11 +32,14 @@ struct line_t;
 //
 // GAME
 //
-void G_DeathMatchSpawnPlayer( int playernum, bool bClientUpdate );
-void G_TemporaryTeamSpawnPlayer( ULONG ulPlayer, bool bClientUpdate );
-void G_TeamgameSpawnPlayer( ULONG ulPlayer, ULONG ulTeam, bool bClientUpdate );
-FPlayerStart *SelectRandomCooperativeSpot( ULONG ulPlayer );
-void G_CooperativeSpawnPlayer( ULONG ulPlayer, bool bClientUpdate, bool bTempPlayer = false );
+// [AK] The clientUpdate parameter was added specifically for Zandronum.
+void G_DeathMatchSpawnPlayer (int playernum, bool clientUpdate);
+
+// [AK] Zandronum-exclusive player spawn functions.
+void G_TemporaryTeamSpawnPlayer (int playernum, bool clientUpdate);
+void G_TeamgameSpawnPlayer (int playernum, int teamnum, bool clientUpdate);
+FPlayerStart *SelectRandomCooperativeSpot (int playernum);
+void G_CooperativeSpawnPlayer (int playernum, bool clientUpdate, bool tempPlayer = false);
 
 // [BB] Added bGiveInventory and moved the declaration to g_game.h.
 void G_PlayerReborn (int player, bool bGiveInventory = true);
@@ -134,7 +137,7 @@ void G_AddViewPitch (int look, bool mouse = false);
 void G_AddViewAngle (int yaw, bool mouse = false);
 
 // [AK] Finishing changing the consoleplayer's view to another player.
-void G_FinishChangeSpy ( ULONG ulPlayer );
+void G_FinishChangeSpy (const int pnum, const bool fromLineSpecial);
 
 #define BODYQUESIZE 	32
 class AActor;

@@ -106,6 +106,11 @@ static	unsigned int	scoreboard_GetMaxSize( const float percentage, const int ali
 
 static	void	scoreboard_DoAlignAndOffset( LONG &position, const int alignment, const int offset, const int screenSize, const int scoreboardSize );
 
+template <typename Type, typename CVar>
+static	void	scoreboard_ClampCVar( CVar &cvar, const Type minValue, const Type maxValue );
+
+static	void	scoreboard_ClampTextColorCVar( FIntCVar &cvar );
+
 //*****************************************************************************
 //	CONSOLE VARIABLES
 
@@ -124,6 +129,9 @@ CVAR( Bool, cl_useshortcolumnnames, false, CVAR_ARCHIVE );
 // [AK] If true, then the scoreboard will be scaled using its own scale, independent of text scaling.
 CVAR( Bool, cl_usescoreboardscale, false, CVAR_ARCHIVE )
 
+// [AK] Whether to use the screen's ratio to scale the scoreboard, if scaling is enabled.
+CVAR( Bool, cl_usescoreboardscale_screenratio, false, CVAR_ARCHIVE )
+
 // [AK] How much to offset the scoreboard horizontally.
 CVAR( Int, cl_scoreboardx, 0, CVAR_ARCHIVE );
 
@@ -133,67 +141,161 @@ CVAR( Int, cl_scoreboardy, 0, CVAR_ARCHIVE );
 // [AK] Controls the opacity of the entire scoreboard.
 CUSTOM_CVAR( Float, cl_scoreboardalpha, 1.0f, CVAR_ARCHIVE )
 {
-	float fClampedValue = clamp<float>( self, 0.0f, 1.0f );
-
-	if ( self != fClampedValue )
-		self = fClampedValue;
+	scoreboard_ClampCVar<float, FFloatCVar>( self, 0.0f, 1.0f );
 }
 
 // [AK] How fast the scoreboard can scroll up or down when it's too big.
 CUSTOM_CVAR( Int, cl_scoreboardscrollspeed, 32, CVAR_ARCHIVE )
 {
-	if ( self < 1 )
-		self = 1;
+	scoreboard_ClampCVar<int, FIntCVar>( self, 1, INT_MAX );
 }
 
 // [AK] The width of the screen to draw the scoreboard if cl_usescoreboardscale is enabled.
 CUSTOM_CVAR( Int, cl_scoreboardscreenwidth, 640, CVAR_ARCHIVE )
 {
-	if ( self < 320 )
-		self = 320;
+	scoreboard_ClampCVar<int, FIntCVar>( self, 320, INT_MAX );
 }
 
 // [AK] The maximum width of the scoreboard, as a percentage of the screen's width.
 CUSTOM_CVAR( Float, cl_maxscoreboardwidth, 1.0f, CVAR_ARCHIVE )
 {
-	float clampedValue = clamp<float>( self, 0.0f, 1.0f );
-
-	if ( self != clampedValue )
-		self = clampedValue;
+	scoreboard_ClampCVar<float, FFloatCVar>( self, 0.0f, 1.0f );
 }
 
 // [AK] The height of the screen to draw the scoreboard if cl_usescoreboardscale is enabled.
 CUSTOM_CVAR( Int, cl_scoreboardscreenheight, 480, CVAR_ARCHIVE )
 {
-	if ( self < 200 )
-		self = 200;
+	scoreboard_ClampCVar<int, FIntCVar>( self, 200, INT_MAX );
 }
 
 // [AK] The maximum height of the scoreboard, as a percentage of the screen's height.
 CUSTOM_CVAR( Float, cl_maxscoreboardheight, 1.0f, CVAR_ARCHIVE )
 {
-	float clampedValue = clamp<float>( self, 0.0f, 1.0f );
-
-	if ( self != clampedValue )
-		self = clampedValue;
+	scoreboard_ClampCVar<float, FFloatCVar>( self, 0.0f, 1.0f );
 }
 
 // [AK] Controls whether the scoreboard is aligned to the left, center, or right of the screen.
 CUSTOM_CVAR( Int, cl_scoreboardhorizalign, HORIZALIGN_CENTER, CVAR_ARCHIVE )
 {
-	const int clampedValue = clamp<int>( self, HORIZALIGN_LEFT, HORIZALIGN_RIGHT );
-
-	if ( self != clampedValue )
-		self = clampedValue;
+	scoreboard_ClampCVar<int, FIntCVar>( self, HORIZALIGN_LEFT, HORIZALIGN_RIGHT );
 }
 
 // [AK] Controls whether the scoreboard is aligned to the top, center, or bottom of the screen.
 CUSTOM_CVAR( Int, cl_scoreboardvertalign, VERTALIGN_CENTER, CVAR_ARCHIVE )
 {
-	const int clampedValue = clamp<int>( self, VERTALIGN_TOP, VERTALIGN_BOTTOM );
+	scoreboard_ClampCVar<int, FIntCVar>( self, VERTALIGN_TOP, VERTALIGN_BOTTOM );
+}
 
-	if ( self != clampedValue )
-		self = clampedValue;
+//*****************************************************************************
+//	CUSTOMIZABLE PROPERTIES CONSOLE VARIABLES
+
+CUSTOM_CVAR( Int, sb_customizeflags, 0, CVAR_ARCHIVE | CVAR_NOINITCALL | CVAR_NOSETBYACS )
+{
+	// [AK] Update the team row background colors if the row backgrounds change.
+	if (( self ^ self.GetPastValue( )) & CUSTOMIZE_ROWBACKGROUNDS )
+		g_Scoreboard.UpdateTeamRowBackgroundColors( );
+}
+
+// [AK] CVars for the text colors.
+CVAR( Flag, sb_customizetext, sb_customizeflags, CUSTOMIZE_TEXT )
+CVAR( Bool, sb_useteamtextcolors, false, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+
+CUSTOM_CVAR( Int, sb_headertextcolor, CR_GREY, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+{
+	scoreboard_ClampTextColorCVar( self );
+}
+
+CUSTOM_CVAR( Int, sb_rowtextcolor, CR_GREY, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+{
+	scoreboard_ClampTextColorCVar( self );
+}
+
+CUSTOM_CVAR( Int, sb_localrowtextcolor, CR_GREEN, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+{
+	scoreboard_ClampTextColorCVar( self );
+}
+
+CUSTOM_CVAR( Int, sb_localrowdemotextcolor, CR_GOLD, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+{
+	scoreboard_ClampTextColorCVar( self );
+}
+
+// [AK] CVars for the border colors.
+CVAR( Flag, sb_customizeborders, sb_customizeflags, CUSTOMIZE_BORDERS )
+CVAR( Bool, sb_noborders, false, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+CVAR( Bool, sb_useheadertextcolorforborders, true, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+CVAR( Color, sb_lightbordercolor, 0x9B9B9B, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+CVAR( Color, sb_darkbordercolor, 0x282828, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+
+// [AK] CVars for the scoreboard's background.
+CVAR( Flag, sb_customizebackground, sb_customizeflags, CUSTOMIZE_BACKGROUND )
+CVAR( Color, sb_backgroundcolor, 0, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+
+CUSTOM_CVAR( Float, sb_backgroundalpha, 0.5f, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+{
+	scoreboard_ClampCVar<float, FFloatCVar>( self, 0.0f, 1.0f );
+}
+
+// [AK] CVars for the row backgrounds.
+CVAR( Flag, sb_customizerowbackgrounds, sb_customizeflags, CUSTOMIZE_ROWBACKGROUNDS )
+CVAR( Bool, sb_showgapsinrowbackground, false, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+CVAR( Bool, sb_nolocalrowbackgroundcolor, false, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+CVAR( Bool, sb_onlylocalrowbackground, false, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+
+CUSTOM_CVAR( Color, sb_lightrowbackgroundcolor, 0x404040, CVAR_ARCHIVE | CVAR_NOINITCALL | CVAR_NOSETBYACS )
+{
+	g_Scoreboard.UpdateTeamRowBackgroundColors( );
+}
+
+CUSTOM_CVAR( Color, sb_darkrowbackgroundcolor, 0x202020, CVAR_ARCHIVE | CVAR_NOINITCALL | CVAR_NOSETBYACS )
+{
+	g_Scoreboard.UpdateTeamRowBackgroundColors( );
+}
+
+CUSTOM_CVAR( Color, sb_localrowbackgroundcolor, 0x808080, CVAR_ARCHIVE | CVAR_NOINITCALL | CVAR_NOSETBYACS )
+{
+	g_Scoreboard.UpdateTeamRowBackgroundColors( );
+}
+
+CUSTOM_CVAR( Float, sb_rowbackgroundalpha, 0.65f, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+{
+	scoreboard_ClampCVar<float, FFloatCVar>( self, 0.0f, 1.0f );
+}
+
+CUSTOM_CVAR( Float, sb_deadrowbackgroundalpha, 0.0f, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+{
+	scoreboard_ClampCVar<float, FFloatCVar>( self, 0.0f, 1.0f );
+}
+
+//*****************************************************************************
+//	CONSOLE COMMANDS
+
+// [AK] Restores all customizable properties to their default values.
+CCMD( restorescoreboardproperties )
+{
+	sb_customizeflags.ResetToDefault( );
+
+	sb_headertextcolor.ResetToDefault( );
+	sb_useteamtextcolors.ResetToDefault( );
+	sb_rowtextcolor.ResetToDefault( );
+	sb_localrowtextcolor.ResetToDefault( );
+	sb_localrowdemotextcolor.ResetToDefault( );
+
+	sb_useheadertextcolorforborders.ResetToDefault( );
+	sb_lightbordercolor.ResetToDefault( );
+	sb_darkbordercolor.ResetToDefault( );
+
+	sb_backgroundcolor.ResetToDefault( );
+	sb_backgroundalpha.ResetToDefault( );
+
+	sb_showgapsinrowbackground.ResetToDefault( );
+	sb_nolocalrowbackgroundcolor.ResetToDefault( );
+	sb_onlylocalrowbackground.ResetToDefault( );
+	sb_lightrowbackgroundcolor.ResetToDefault( );
+	sb_darkrowbackgroundcolor.ResetToDefault( );
+	sb_localrowbackgroundcolor.ResetToDefault( );
+	sb_rowbackgroundalpha.ResetToDefault( );
+	sb_deadrowbackgroundalpha.ResetToDefault( );
 }
 
 //*****************************************************************************
@@ -705,7 +807,7 @@ LONG ScoreColumn::GetAlignmentPosition( ULONG ulContentWidth ) const
 	if ( Alignment == HORIZALIGN_LEFT )
 		return lRelX;
 	else if ( Alignment == HORIZALIGN_CENTER )
-		return lRelX + ( ulWidth - ulContentWidth ) / 2;
+		return lRelX + SCOREBOARD_CenterAlign( ulWidth, ulContentWidth );
 	else
 		return lRelX + ulWidth - ulContentWidth;
 }
@@ -818,13 +920,19 @@ void ScoreColumn::ParseCommand( FScanner &sc, const COLUMNCMD_e Command, const F
 			break;
 		}
 
-		case COLUMNCMD_GAMEMODE:
+		case COLUMNCMD_GAMEMODES:
+		case COLUMNCMD_PRIORITYGAMEMODES:
+		case COLUMNCMD_FORBIDDENGAMEMODES:
 		case COLUMNCMD_GAMETYPE:
 		case COLUMNCMD_EARNTYPE:
 		{
 			// [AK] Clear all game modes.
-			if ( Command == COLUMNCMD_GAMEMODE )
+			if ( Command == COLUMNCMD_GAMEMODES )
 				GameModeList.clear( );
+			else if ( Command == COLUMNCMD_PRIORITYGAMEMODES )
+				PriorityGameModeList.clear( );
+			else if ( Command == COLUMNCMD_FORBIDDENGAMEMODES )
+				ForbiddenGameModeList.clear( );
 			// ...or reset all game type flags.
 			else if ( Command == COLUMNCMD_GAMETYPE )
 				ulGameAndEarnTypeFlags &= ~GAMETYPE_MASK;
@@ -836,9 +944,16 @@ void ScoreColumn::ParseCommand( FScanner &sc, const COLUMNCMD_e Command, const F
 			{
 				sc.MustGetToken( TK_Identifier );
 
-				if ( Command == COLUMNCMD_GAMEMODE )
+				if (( Command == COLUMNCMD_GAMEMODES ) || ( Command == COLUMNCMD_PRIORITYGAMEMODES ) || ( Command == COLUMNCMD_FORBIDDENGAMEMODES ))
 				{
-					GameModeList.insert( static_cast<GAMEMODE_e>( sc.MustGetEnumName( "game mode", "GAMEMODE_", GetValueGAMEMODE_e, true )));
+					const GAMEMODE_e gameMode = static_cast<GAMEMODE_e>( sc.MustGetEnumName( "game mode", "GAMEMODE_", GetValueGAMEMODE_e, true ));
+
+					if ( Command == COLUMNCMD_GAMEMODES )
+						GameModeList.insert( gameMode );
+					else if ( Command == COLUMNCMD_PRIORITYGAMEMODES )
+						PriorityGameModeList.insert( gameMode );
+					else
+						ForbiddenGameModeList.insert( gameMode );
 				}
 				else if ( Command == COLUMNCMD_GAMETYPE )
 				{
@@ -944,24 +1059,30 @@ void ScoreColumn::CheckIfUsable( void )
 	if ( pScoreboard == NULL )
 		return;
 
+	const GAMEMODE_e gameMode = GAMEMODE_GetCurrentMode( );
+
 	// [AK] If the current game mode isn't allowed for this column, then it can't be active.
-	if ( GameModeList.find( GAMEMODE_GetCurrentMode( )) == GameModeList.end( ))
+	if (( GameModeList.find( gameMode ) == GameModeList.end( )) || ( ForbiddenGameModeList.find( gameMode ) != ForbiddenGameModeList.end( )))
 		return;
 
 	const ULONG ulGameModeFlags = GAMEMODE_GetCurrentFlags( );
 
-	// [AK] Check if the current game type won't allow this column to be active.
-	if ( ulGameAndEarnTypeFlags & GAMETYPE_MASK )
+	// [AK] Check the current game and earn type if the current game mode isn't a priority.
+	if ( PriorityGameModeList.find( gameMode ) == PriorityGameModeList.end( ))
 	{
-		if ((( ulGameModeFlags & ulGameAndEarnTypeFlags ) & GAMETYPE_MASK ) == 0 )
-			return;
-	}
+		// [AK] Check if the current game type won't allow this column to be active.
+		if ( ulGameAndEarnTypeFlags & GAMETYPE_MASK )
+		{
+			if ((( ulGameModeFlags & ulGameAndEarnTypeFlags ) & GAMETYPE_MASK ) == 0 )
+				return;
+		}
 
-	// [AK] Check if the current game mode's earn type won't allow this column to be active.
-	if ( ulGameAndEarnTypeFlags & EARNTYPE_MASK )
-	{
-		if ((( ulGameModeFlags & ulGameAndEarnTypeFlags ) & EARNTYPE_MASK ) == 0 )
-			return;
+		// [AK] Check if the current game mode's earn type won't allow this column to be active.
+		if ( ulGameAndEarnTypeFlags & EARNTYPE_MASK )
+		{
+			if ((( ulGameModeFlags & ulGameAndEarnTypeFlags ) & EARNTYPE_MASK ) == 0 )
+				return;
+		}
 	}
 
 	ULONG ulRequiredFlags = 0;
@@ -1107,7 +1228,7 @@ void ScoreColumn::DrawHeader( const LONG lYPos, const ULONG ulHeight, const floa
 	if (( pScoreboard == NULL ) || ( bDisabled ) || ( ulFlags & COLUMNFLAG_DONTSHOWHEADER ) || ( fAlpha <= 0.0f ))
 		return;
 
-	DrawString( bUseShortName ? ShortName.GetChars( ) : DisplayName.GetChars( ), pScoreboard->pHeaderFont, pScoreboard->HeaderColor, lYPos, ulHeight, fAlpha );
+	DrawString( bUseShortName ? ShortName.GetChars( ) : DisplayName.GetChars( ), pScoreboard->pHeaderFont, pScoreboard->headerColor, lYPos, ulHeight, fAlpha );
 }
 
 //*****************************************************************************
@@ -1130,7 +1251,7 @@ void ScoreColumn::DrawString( const char *pszString, FFont *pFont, const ULONG u
 	int clipTop = lYPos;
 	int clipHeight = ulHeight;
 
-	LONG lNewYPos = lYPos + ( clipHeight - static_cast<LONG>( pFont->StringHeight( pszString ))) / 2;
+	LONG lNewYPos = lYPos + SCOREBOARD_CenterAlign( clipHeight, pFont->StringHeight( pszString ));
 
 	if ( SCOREBOARD_AdjustVerticalClipRect( clipTop, clipHeight ) == false )
 		return;
@@ -1164,7 +1285,7 @@ void ScoreColumn::DrawColor( const PalEntry color, const LONG lYPos, const ULONG
 	FixClipRectSize( clipWidth, clipHeight, ulHeight, clipWidthToUse, clipHeightToUse );
 
 	int clipLeft = GetAlignmentPosition( clipWidthToUse );
-	int clipTop = lYPos + ( static_cast<LONG>( ulHeight ) - clipHeightToUse ) / 2;
+	int clipTop = lYPos + SCOREBOARD_CenterAlign( ulHeight, clipHeightToUse );
 
 	if ( SCOREBOARD_AdjustVerticalClipRect( clipTop, clipHeightToUse ) == false )
 		return;
@@ -1193,9 +1314,9 @@ void ScoreColumn::DrawTexture( FTexture *texture, const LONG yPos, const ULONG h
 	FixClipRectSize( clipWidth, clipHeight, height, clipWidthToUse, clipHeightToUse );
 
 	int clipLeft = GetAlignmentPosition( clipWidthToUse );
-	int clipTop = yPos + ( height - clipHeightToUse ) / 2;
+	int clipTop = yPos + SCOREBOARD_CenterAlign( height, clipHeightToUse );
 
-	LONG lNewYPos = yPos + ( static_cast<LONG>( height ) - static_cast<LONG>( texture->GetScaledHeight( ) * scale )) / 2;
+	LONG lNewYPos = yPos + SCOREBOARD_CenterAlign( height, static_cast<int>( texture->GetScaledHeight( ) * scale ));
 
 	if ( SCOREBOARD_AdjustVerticalClipRect( clipTop, clipHeightToUse ) == false )
 		return;
@@ -1358,6 +1479,7 @@ DATATYPE_e DataScoreColumn::GetDataType( void ) const
 		case COLUMNTYPE_PLAYERICON:
 		case COLUMNTYPE_ARTIFACTICON:
 		case COLUMNTYPE_BOTSKILLICON:
+		case COLUMNTYPE_CONNECTIONSTRENGTH:
 		case COLUMNTYPE_COUNTRYFLAG:
 			return DATATYPE_TEXTURE;
 
@@ -1580,8 +1702,26 @@ PlayerValue DataScoreColumn::GetValue( const ULONG ulPlayer ) const
 				break;
 
 			case COLUMNTYPE_LIVES:
-				Result.SetValue<int>( players[ulPlayer].bSpectating ? 0 : players[ulPlayer].ulLivesLeft + 1 );
+			{
+				int lives = 0;
+
+				if ( players[ulPlayer].bSpectating == false )
+				{
+					lives = players[ulPlayer].ulLivesLeft;
+
+					// [AK] During intermissions, if the game was already in progress,
+					// then treat dead players as though they lost an extra life.
+					if (( GAMEMODE_IsGameInProgressOrResultSequence( ) == false ) ||
+						( gamestate != GS_INTERMISSION ) ||
+						( players[ulPlayer].playerstate != PST_DEAD ))
+					{
+						lives++;
+					}
+				}
+
+				Result.SetValue<int>( lives );
 				break;
+			}
 
 			case COLUMNTYPE_HANDICAP:
 			{
@@ -1634,10 +1774,10 @@ PlayerValue DataScoreColumn::GetValue( const ULONG ulPlayer ) const
 			}
 
 			case COLUMNTYPE_STATUSICON:
-				if (( players[ulPlayer].statuses & PLAYERSTATUS_LAGGING ) && ( gamestate == GS_LEVEL ))
+				if ( players[ulPlayer].statuses & PLAYERSTATUS_LAGGING )
 					Result.SetValue<FTexture *>( TexMan.FindTexture( "LAGMINI" ));
 				else if ( players[ulPlayer].statuses & PLAYERSTATUS_TALKING )
-					Result.SetValue<FTexture *>( TexMan.FindTexture( "SPKRMINI" ));
+					Result.SetValue<FTexture *>( TexMan( TexMan.CheckForTexture( "SPKMINI1", FTexture::TEX_MiscPatch )));
 				else if ( players[ulPlayer].statuses & PLAYERSTATUS_CHATTING )
 					Result.SetValue<FTexture *>( TexMan.FindTexture( "TLKMINI" ));
 				else if ( players[ulPlayer].statuses & PLAYERSTATUS_INCONSOLE )
@@ -1708,14 +1848,32 @@ PlayerValue DataScoreColumn::GetValue( const ULONG ulPlayer ) const
 			}
 
 			case COLUMNTYPE_BOTSKILLICON:
+			case COLUMNTYPE_CONNECTIONSTRENGTH:
 			{
-				if ( players[ulPlayer].bIsBot )
-				{
-					FString IconName;
-					IconName.Format( "BOTSKIL%d", botskill.GetGenericRep( CVAR_Int ).Int );
+				FString iconName;
 
-					Result.SetValue<FTexture *>( TexMan.FindTexture( IconName.GetChars( )));
+				// [AK] Bot skill icons are relevant to bots only.
+				if ( NativeType == COLUMNTYPE_BOTSKILLICON )
+				{
+					if ( players[ulPlayer].bIsBot )
+						iconName.Format( "BOTSKIL%d", botskill.GetGenericRep( CVAR_Int ).Int );
 				}
+				// [AK] Connection strengths are relevant to clients only.
+				else if ( players[ulPlayer].bIsBot == false )
+				{
+					int connectionStrength = players[ulPlayer].connectionStrength;
+
+					// [AK] A strength of zero means that the client's connection
+					// strength hasn't been updated yet (e.g. they just connected).
+					// When this happens, assume that it's good.
+					if (( connectionStrength == 0 ) || ( connectionStrength > 4 ))
+						connectionStrength = 4;
+
+					iconName.Format( "NETSTRN%u", connectionStrength );
+				}
+
+				if ( iconName.IsNotEmpty( ))
+					Result.SetValue<FTexture *>( TexMan.FindTexture( iconName.GetChars( )));
 
 				break;
 			}
@@ -2043,7 +2201,7 @@ void CountryFlagScoreColumn::DrawValue( const ULONG ulPlayer, const ULONG ulColo
 		const int topOffset = ( players[ulPlayer].ulCountryIndex / NUM_FLAGS_PER_SIDE ) * ulFlagHeight;
 
 		LONG lXPos = GetAlignmentPosition( ulFlagWidth );
-		LONG lNewYPos = lYPos + ( ulHeight - ulFlagHeight ) / 2;
+		LONG lNewYPos = lYPos + SCOREBOARD_CenterAlign( ulHeight, ulFlagHeight );
 
 		int clipLeft = lXPos;
 		int clipWidth = ulFlagWidth;
@@ -2416,17 +2574,30 @@ Scoreboard::Scoreboard( void ) :
 	ulFlags( 0 ),
 	pHeaderFont( NULL ),
 	pRowFont( NULL ),
-	HeaderColor( CR_UNTRANSLATED ),
-	RowColor( CR_UNTRANSLATED ),
-	LocalRowColors{ CR_UNTRANSLATED },
+	headerColor( sb_headertextcolor, CUSTOMIZE_TEXT, CR_UNTRANSLATED ),
+	rowColor( sb_rowtextcolor, CUSTOMIZE_TEXT, CR_UNTRANSLATED ),
+	localRowColors
+	{
+		CustomizableTextColor( sb_localrowtextcolor, CUSTOMIZE_TEXT, CR_UNTRANSLATED ),
+		CustomizableTextColor( sb_localrowdemotextcolor, CUSTOMIZE_TEXT, CR_UNTRANSLATED )
+	},
 	pBorderTexture( NULL ),
-	BorderColors{ CR_UNTRANSLATED },
-	BackgroundColor( 0 ),
-	RowBackgroundColors{ 0 },
+	borderColors
+	{
+		CustomizableProperty<PalEntry, FColorCVar>( sb_lightbordercolor, CUSTOMIZE_BORDERS, 0 ),
+		CustomizableProperty<PalEntry, FColorCVar>( sb_darkbordercolor, CUSTOMIZE_BORDERS, 0 ),
+	},
+	backgroundColor( sb_backgroundcolor, CUSTOMIZE_BACKGROUND, 0 ),
+	rowBackgroundColors
+	{
+		CustomizableProperty<PalEntry, FColorCVar>( sb_lightrowbackgroundcolor, CUSTOMIZE_ROWBACKGROUNDS, 0 ),
+		CustomizableProperty<PalEntry, FColorCVar>( sb_darkrowbackgroundcolor, CUSTOMIZE_ROWBACKGROUNDS, 0 ),
+		CustomizableProperty<PalEntry, FColorCVar>( sb_localrowbackgroundcolor, CUSTOMIZE_ROWBACKGROUNDS, 0 )
+	},
 	TeamRowBackgroundColors{ { 0 } },
-	fBackgroundAmount( 0.0f ),
-	fRowBackgroundAmount( 0.0f ),
-	fDeadRowBackgroundAmount( 0.0f ),
+	backgroundAmount( sb_backgroundalpha, CUSTOMIZE_BACKGROUND, 0.0f ),
+	rowBackgroundAmount( sb_rowbackgroundalpha, CUSTOMIZE_ROWBACKGROUNDS, 0.0f ),
+	deadRowBackgroundAmount( sb_deadrowbackgroundalpha, CUSTOMIZE_ROWBACKGROUNDS, 0.0f ),
 	fContentAlpha( 1.0f ),
 	fDeadTextAlpha( 1.0f ),
 	ulBackgroundBorderSize( 0 ),
@@ -2457,20 +2628,6 @@ Scoreboard::Scoreboard( void ) :
 //
 //*****************************************************************************
 
-int scoreboard_GetLuminance( const int r, const int g, const int b )
-{
-	return static_cast<int>( 0.3f * r + 0.59f * g + 0.11f * b );
-}
-
-//*****************************************************************************
-//
-int scoreboard_GetLuminance( const PalEntry color )
-{
-	return scoreboard_GetLuminance( color.r, color.g, color.b );
-}
-
-//*****************************************************************************
-//
 void Scoreboard::Parse( FScanner &sc )
 {
 	sc.MustGetToken( '{' );
@@ -2525,62 +2682,28 @@ void Scoreboard::Parse( FScanner &sc )
 				}
 
 				case SCOREBOARDCMD_HEADERFONT:
+					SCOREBOARD_ParseFont( sc, pHeaderFont );
+					break;
+
 				case SCOREBOARDCMD_ROWFONT:
-				{
-					sc.MustGetToken( TK_StringConst );
-
-					// [AK] Throw a fatal error if an empty string was passed.
-					if ( sc.StringLen == 0 )
-						sc.ScriptError( "Got an empty string for a font name." );
-
-					FFont *pFont = V_GetFont( sc.String );
-
-					// [AK] If the font was invalid, throw a fatal error.
-					if ( pFont == NULL )
-						sc.ScriptError( "Couldn't find font '%s'.", sc.String );
-
-					if ( Command == SCOREBOARDCMD_HEADERFONT )
-						pHeaderFont = pFont;
-					else
-						pRowFont = pFont;
-
+					SCOREBOARD_ParseFont( sc, pRowFont );
 					break;
-				}
 
-				case SCOREBOARDCMD_HEADERCOLOR:
-				case SCOREBOARDCMD_ROWCOLOR:
-				case SCOREBOARDCMD_LOCALROWCOLOR:
-				case SCOREBOARDCMD_LOCALROWDEMOCOLOR:
-				{
-					sc.MustGetToken( TK_StringConst );
-					EColorRange color;
-
-					// [AK] If an empty string was passed, inform the user of the error and switch to untranslated.
-					if ( sc.StringLen == 0 )
-					{
-						sc.ScriptMessage( "Got an empty string for a text color, using untranslated instead." );
-						color = CR_UNTRANSLATED;
-					}
-					else
-					{
-						color = V_FindFontColor( sc.String );
-
-						// [AK] If the text color name was invalid, let the user know about it.
-						if (( color == CR_UNTRANSLATED ) && ( stricmp( sc.String, "untranslated" ) != 0 ))
-							sc.ScriptMessage( "'%s' is an unknown text color, using untranslated instead.", sc.String );
-					}
-
-					if ( Command == SCOREBOARDCMD_HEADERCOLOR )
-						HeaderColor = color;
-					else if ( Command == SCOREBOARDCMD_ROWCOLOR )
-						RowColor = color;
-					else if ( Command == SCOREBOARDCMD_LOCALROWCOLOR )
-						LocalRowColors[LOCALROW_COLOR_INGAME] = color;
-					else
-						LocalRowColors[LOCALROW_COLOR_INDEMO] = color;
-
+				case SCOREBOARDCMD_HEADERTEXTCOLOR:
+					SCOREBOARD_ParseTextColor( sc, headerColor.value );
 					break;
-				}
+
+				case SCOREBOARDCMD_ROWTEXTCOLOR:
+					SCOREBOARD_ParseTextColor( sc, rowColor.value );
+					break;
+
+				case SCOREBOARDCMD_LOCALROWTEXTCOLOR:
+					SCOREBOARD_ParseTextColor( sc, localRowColors[LOCALROW_COLOR_INGAME].value );
+					break;
+
+				case SCOREBOARDCMD_LOCALROWDEMOTEXTCOLOR:
+					SCOREBOARD_ParseTextColor( sc, localRowColors[LOCALROW_COLOR_INDEMO].value );
+					break;
 
 				case SCOREBOARDCMD_CONTENTALPHA:
 				case SCOREBOARDCMD_DEADPLAYERTEXTALPHA:
@@ -2596,11 +2719,11 @@ void Scoreboard::Parse( FScanner &sc )
 					else if ( Command == SCOREBOARDCMD_DEADPLAYERTEXTALPHA )
 						fDeadTextAlpha = fClampedValue;
 					else if ( Command == SCOREBOARDCMD_BACKGROUNDAMOUNT )
-						fBackgroundAmount = fClampedValue;
+						backgroundAmount = fClampedValue;
 					else if ( Command == SCOREBOARDCMD_ROWBACKGROUNDAMOUNT )
-						fRowBackgroundAmount = fClampedValue;
+						rowBackgroundAmount = fClampedValue;
 					else
-						fDeadRowBackgroundAmount = fClampedValue;
+						deadRowBackgroundAmount = fClampedValue;
 
 					break;
 				}
@@ -2623,17 +2746,17 @@ void Scoreboard::Parse( FScanner &sc )
 					PalEntry color = V_GetColorFromString( NULL, ColorString.IsNotEmpty( ) ? ColorString.GetChars( ) : sc.String );
 
 					if ( Command == SCOREBOARDCMD_LIGHTBORDERCOLOR )
-						BorderColors[BORDER_COLOR_LIGHT] = color;
+						borderColors[BORDER_COLOR_LIGHT] = color;
 					else if ( Command == SCOREBOARDCMD_DARKBORDERCOLOR )
-						BorderColors[BORDER_COLOR_DARK] = color;
+						borderColors[BORDER_COLOR_DARK] = color;
 					else if ( Command == SCOREBOARDCMD_BACKGROUNDCOLOR )
-						BackgroundColor = color;
+						backgroundColor = color;
 					else if ( Command == SCOREBOARDCMD_LIGHTROWBACKGROUNDCOLOR )
-						RowBackgroundColors[ROWBACKGROUND_COLOR_LIGHT] = color;
+						rowBackgroundColors[ROWBACKGROUND_COLOR_LIGHT] = color;
 					else if ( Command == SCOREBOARDCMD_DARKROWBACKGROUNDCOLOR )
-						RowBackgroundColors[ROWBACKGROUND_COLOR_DARK] = color;
+						rowBackgroundColors[ROWBACKGROUND_COLOR_DARK] = color;
 					else
-						RowBackgroundColors[ROWBACKGROUND_COLOR_LOCAL] = color;
+						rowBackgroundColors[ROWBACKGROUND_COLOR_LOCAL] = color;
 
 					break;
 				}
@@ -2749,39 +2872,6 @@ void Scoreboard::Parse( FScanner &sc )
 
 	if ( lRowHeight <= 0 )
 		lRowHeight = pRowFont->GetHeight( ) - lRowHeight;
-
-	// [AK] Generate row background colors for each team through color blending.
-	// This uses the color blend mode explained in section 7.2.4, "Blend Mode", in
-	// "PDF Reference" fifth edition, version 1.6.
-	for ( ULONG ulTeam = 0; ulTeam < teams.Size( ); ulTeam++ )
-	{
-		const PalEntry TeamColor = teams[ulTeam].lPlayerColor;
-
-		for ( unsigned int i = 0; i < NUM_ROWBACKGROUND_COLORS; i++ )
-		{
-			const int delta = scoreboard_GetLuminance( RowBackgroundColors[i] ) - scoreboard_GetLuminance( TeamColor );
-
-			int rgb[3] = { TeamColor.r + delta, TeamColor.g + delta, TeamColor.b + delta };
-
-			const int luminosity = scoreboard_GetLuminance( rgb[0], rgb[1], rgb[2] );
-			const int minColor = MIN( MIN( rgb[0], rgb[1] ), rgb[2] );
-			const int maxColor = MAX( MAX( rgb[0], rgb[1] ), rgb[2] );
-
-			if ( minColor < 0 )
-			{
-				for ( unsigned int i = 0; i < 3; i++ )
-					rgb[i] = luminosity + ((( rgb[i] - luminosity ) * luminosity ) / ( luminosity - minColor ));
-			}
-
-			if ( maxColor > UCHAR_MAX )
-			{
-				for ( unsigned int i = 0; i < 3; i++ )
-					rgb[i] = luminosity + ((( rgb[i] - luminosity ) * ( UCHAR_MAX - luminosity )) / ( maxColor - luminosity ));
-			}
-
-			TeamRowBackgroundColors[ulTeam][i] = MAKERGB( rgb[0], rgb[1], rgb[2] );
-		}
-	}
 }
 
 //*****************************************************************************
@@ -2994,8 +3084,9 @@ bool Scoreboard::PlayerComparator::operator( )( const int &arg1, const int &arg2
 //
 //*****************************************************************************
 
-void Scoreboard::Refresh( const ULONG ulDisplayPlayer )
+void Scoreboard::Refresh( const unsigned int displayPlayer, const int minYPos )
 {
+	int scaledMinYPos = minYPos;
 	ulRowHeightToUse = lRowHeight;
 
 	// [AK] Determine the size of the screen to draw the scoreboard.
@@ -3004,10 +3095,10 @@ void Scoreboard::Refresh( const ULONG ulDisplayPlayer )
 		g_ScreenWidth = cl_scoreboardscreenwidth;
 		g_ScreenHeight = cl_scoreboardscreenheight;
 
-		// [AK] Don't use con_scaletext_usescreenratio if the resolution of the
-		// scoreboard matches the screen's actual ratio.
+		// [AK] Don't use cl_usescoreboardscale_screenratio if the resolution of
+		// the scoreboard matches the screen's actual ratio.
 		if (( g_ScreenWidth != SCREENWIDTH ) || ( g_ScreenHeight != SCREENHEIGHT ))
-			g_KeepScreenRatio = con_scaletext_usescreenratio;
+			g_KeepScreenRatio = cl_usescoreboardscale_screenratio;
 		else
 			g_KeepScreenRatio = true;
 	}
@@ -3016,6 +3107,13 @@ void Scoreboard::Refresh( const ULONG ulDisplayPlayer )
 		g_ScreenWidth = HUD_GetWidth( );
 		g_ScreenHeight = HUD_GetHeight( );
 		g_KeepScreenRatio = g_bScale ? con_scaletext_usescreenratio : true;
+	}
+
+	// [AK] The minimum y-position needs to be scaled if the scoreboard is too.
+	if ( g_ScreenHeight != SCREENHEIGHT )
+	{
+		const float scale = static_cast<float>( g_ScreenHeight ) / SCREENHEIGHT;
+		scaledMinYPos = static_cast<int>( minYPos * scale );
 	}
 
 	// [AK] The scoreboard needs the player and spectator counts in "st_hud.cpp".
@@ -3044,7 +3142,7 @@ void Scoreboard::Refresh( const ULONG ulDisplayPlayer )
 	if ( ulWidth == 0 )
 		return;
 
-	UpdateHeight( ulDisplayPlayer );
+	UpdateHeight( displayPlayer, scaledMinYPos );
 
 	// [AK] Clamp the scroll offset (i.e. how far the user has scrolled down on
 	// the scoreboard), depending on how much bigger the total height of the
@@ -3161,7 +3259,7 @@ void Scoreboard::UpdateWidth( void )
 //
 //*****************************************************************************
 
-void Scoreboard::UpdateHeight( const ULONG ulDisplayPlayer )
+void Scoreboard::UpdateHeight( const unsigned int displayPlayer, const int minYPos )
 {
 	const ULONG ulRowYOffset = ulRowHeightToUse + ulGapBetweenRows;
 	const ULONG ulNumActivePlayers = HUD_GetNumPlayers( );
@@ -3172,10 +3270,10 @@ void Scoreboard::UpdateHeight( const ULONG ulDisplayPlayer )
 	ulHeight = 2 * ulBackgroundBorderSize + lHeaderHeight + ulGapBetweenHeaderAndRows;
 	totalScrollHeight = visibleScrollHeight = 0;
 
-	MainHeader.Refresh( ulDisplayPlayer, marginWidth, marginRelX );
+	MainHeader.Refresh( displayPlayer, marginWidth, marginRelX );
 	ulHeight += MainHeader.GetHeight( );
 
-	if (( ulFlags & SCOREBOARDFLAG_DONTDRAWBORDERS ) == false )
+	if ( CheckFlag( SCOREBOARDFLAG_DONTDRAWBORDERS, CUSTOMIZE_BORDERS, sb_noborders ) == false )
 	{
 		// [AK] The borders are drawn in three places: above and below the column headers, and
 		// underneath all player rows. If using textures for the borders, then we must add
@@ -3201,7 +3299,7 @@ void Scoreboard::UpdateHeight( const ULONG ulDisplayPlayer )
 				// [AK] Refresh and add the heights of all team headers too, if allowed.
 				if (( ulFlags & SCOREBOARDFLAG_DONTSHOWTEAMHEADERS ) == false )
 				{
-					TeamHeader.Refresh( ulDisplayPlayer, marginWidth, marginRelX );
+					TeamHeader.Refresh( displayPlayer, marginWidth, marginRelX );
 					totalScrollHeight += TeamHeader.GetHeight( ) * ulNumTeamsWithPlayers;
 				}
 
@@ -3218,14 +3316,14 @@ void Scoreboard::UpdateHeight( const ULONG ulDisplayPlayer )
 		// [AK] Refresh and add the height of the spectator header too, if allowed.
 		if (( ulFlags & SCOREBOARDFLAG_DONTSHOWTEAMHEADERS ) == false )
 		{
-			SpectatorHeader.Refresh( ulDisplayPlayer, marginWidth, marginRelX );
+			SpectatorHeader.Refresh( displayPlayer, marginWidth, marginRelX );
 			totalScrollHeight += SpectatorHeader.GetHeight( );
 		}
 
 		totalScrollHeight += ulNumSpectators * ulRowYOffset;
 	}
 
-	Footer.Refresh( ulDisplayPlayer, marginWidth, marginRelX );
+	Footer.Refresh( displayPlayer, marginWidth, marginRelX );
 	ulHeight += Footer.GetHeight( );
 	visibleScrollHeight = totalScrollHeight;
 
@@ -3238,6 +3336,23 @@ void Scoreboard::UpdateHeight( const ULONG ulDisplayPlayer )
 	ulHeight += visibleScrollHeight;
 
 	scoreboard_DoAlignAndOffset( lRelY, cl_scoreboardvertalign, cl_scoreboardy, g_ScreenHeight, ulHeight );
+
+	// [AK] If the scoreboard is too high up, then it must be lowered.
+	if ( lRelY < minYPos )
+	{
+		lRelY = minYPos;
+		const unsigned int newBottomPosition = lRelY + ulHeight;
+
+		// [AK] Lowering the scoreboard might've made it go past the boundaries
+		// of the screen, so reduce its height if possible.
+		if (( visibleScrollHeight > 0 ) && ( newBottomPosition > g_ScreenHeight ))
+		{
+			const unsigned int amountToReduce = MIN<unsigned>( newBottomPosition - g_ScreenHeight, visibleScrollHeight );
+
+			ulHeight -= amountToReduce;
+			visibleScrollHeight -= amountToReduce;
+		}
+	}
 }
 
 //*****************************************************************************
@@ -3248,17 +3363,17 @@ void Scoreboard::UpdateHeight( const ULONG ulDisplayPlayer )
 //
 //*****************************************************************************
 
-void Scoreboard::Render( const ULONG ulDisplayPlayer, const float fAlpha )
+void Scoreboard::Render( const unsigned int displayPlayer, const int minYPos, const float alpha )
 {
 	// [AK] If we need to update the scoreboard, do so before rendering it.
 	if ( lLastRefreshTick != gametic )
 	{
-		Refresh( ulDisplayPlayer );
+		Refresh( displayPlayer, minYPos );
 		lLastRefreshTick = gametic;
 	}
 
 	// [AK] We can't draw anything if the width, height, or opacity are zero or less.
-	if (( ulWidth == 0 ) || ( ulHeight == 0 ) || ( fAlpha <= 0.0f ))
+	if (( ulWidth == 0 ) || ( ulHeight == 0 ) || ( alpha <= 0.0f ))
 		return;
 
 	int clipLeft = lRelX;
@@ -3269,19 +3384,19 @@ void Scoreboard::Render( const ULONG ulDisplayPlayer, const float fAlpha )
 	minClipRectY = lRelY;
 	maxClipRectY = lRelY + ulHeight;
 
-	SCOREBOARD_DrawColor( BackgroundColor, fBackgroundAmount * fAlpha, clipLeft, clipTop, clipWidth, clipHeight );
+	SCOREBOARD_DrawColor( backgroundColor, backgroundAmount * alpha, clipLeft, clipTop, clipWidth, clipHeight );
 
 	const ULONG ulNumActivePlayers = HUD_GetNumPlayers( );
 	const ULONG ulNumTrueSpectators = HUD_GetNumSpectators( );
-	const float fCombinedAlpha = fContentAlpha * fAlpha;
+	const float fCombinedAlpha = fContentAlpha * alpha;
 	LONG lYPos = lRelY + ulBackgroundBorderSize;
 	bool bUseLightBackground = true;
 
 	// [AK] Draw the main header first.
-	MainHeader.Render( ulDisplayPlayer, ScoreMargin::NO_TEAM, lYPos, fCombinedAlpha );
+	MainHeader.Render( displayPlayer, ScoreMargin::NO_TEAM, lYPos, fCombinedAlpha );
 
 	// [AK] Draw a border above the column headers.
-	DrawBorder( HeaderColor, lYPos, fCombinedAlpha, false );
+	DrawBorder( headerColor, lYPos, fCombinedAlpha, false );
 
 	// [AK] Draw all of the column headers.
 	for ( unsigned int i = 0; i < ColumnOrder.Size( ); i++ )
@@ -3290,7 +3405,7 @@ void Scoreboard::Render( const ULONG ulDisplayPlayer, const float fAlpha )
 	lYPos += lHeaderHeight;
 
 	// [AK] Draw another border below the headers.
-	DrawBorder( HeaderColor, lYPos, fCombinedAlpha, true );
+	DrawBorder( headerColor, lYPos, fCombinedAlpha, true );
 	lYPos += ulGapBetweenHeaderAndRows;
 
 	minClipRectY = lYPos;
@@ -3330,10 +3445,10 @@ void Scoreboard::Render( const ULONG ulDisplayPlayer, const float fAlpha )
 
 			// [AK] Draw the header for this team, if allowed.
 			if (( ulFlags & SCOREBOARDFLAG_DONTSHOWTEAMHEADERS ) == false )
-				TeamHeader.Render( ulDisplayPlayer, ulTeam, lYPos, fCombinedAlpha );
+				TeamHeader.Render( displayPlayer, ulTeam, lYPos, fCombinedAlpha );
 		}
 
-		DrawRow( ulPlayer, ulDisplayPlayer, lYPos, fAlpha, bUseLightBackground );
+		DrawRow( ulPlayer, displayPlayer, lYPos, alpha, bUseLightBackground );
 	}
 
 	// [AK] Draw rows for any true spectators.
@@ -3349,12 +3464,12 @@ void Scoreboard::Render( const ULONG ulDisplayPlayer, const float fAlpha )
 
 		// [AK] Draw the header for spectators, if allowed.
 		if (( ulFlags & SCOREBOARDFLAG_DONTSHOWTEAMHEADERS ) == false )
-			SpectatorHeader.Render( ulDisplayPlayer, ScoreMargin::NO_TEAM, lYPos, fCombinedAlpha );
+			SpectatorHeader.Render( displayPlayer, ScoreMargin::NO_TEAM, lYPos, fCombinedAlpha );
 
 		// [AK] The index of the first true spectator should be the same as the number of active
 		// players. The list is organized such that all active players come before any true spectators.
 		for ( ULONG ulIdx = ulNumActivePlayers; ulIdx < ulTotalPlayers; ulIdx++ )
-			DrawRow( ulPlayerList[ulIdx], ulDisplayPlayer, lYPos, fAlpha, bUseLightBackground );
+			DrawRow( ulPlayerList[ulIdx], displayPlayer, lYPos, alpha, bUseLightBackground );
 	}
 
 	lYPos = maxClipRectY;
@@ -3364,10 +3479,10 @@ void Scoreboard::Render( const ULONG ulDisplayPlayer, const float fAlpha )
 	// [AK] Draw a border at the bottom of the scoreboard. We must subtract ulGapBetweenRows here (a bit hacky)
 	// because SCOREBOARD_s::DrawPlayerRow adds it every time a row is drawn. This isn't necessary for the last row.
 	lYPos += ulGapBetweenHeaderAndRows - ulGapBetweenRows;
-	DrawBorder( HeaderColor, lYPos, fCombinedAlpha, false );
+	DrawBorder( headerColor, lYPos, fCombinedAlpha, false );
 
 	// [AK] Finally, draw the footer.
-	Footer.Render( ulDisplayPlayer, ScoreMargin::NO_TEAM, lYPos, fCombinedAlpha );
+	Footer.Render( displayPlayer, ScoreMargin::NO_TEAM, lYPos, fCombinedAlpha );
 }
 
 //*****************************************************************************
@@ -3382,7 +3497,7 @@ void Scoreboard::DrawRow( const ULONG ulPlayer, const ULONG ulDisplayPlayer, LON
 {
 	const bool bIsDisplayPlayer = ( ulPlayer == ulDisplayPlayer );
 	const bool bPlayerIsDead = (( gamestate == GS_LEVEL ) && (( players[ulPlayer].playerstate == PST_DEAD ) || ( players[ulPlayer].bDeadSpectator )));
-	ULONG ulColor = RowColor;
+	ULONG ulColor = rowColor;
 
 	// [AK] Change the text color to red if we're carrying a terminator sphere.
 	if (( terminator ) && ( players[ulPlayer].cheats2 & CF2_TERMINATORARTIFACT ))
@@ -3390,7 +3505,7 @@ void Scoreboard::DrawRow( const ULONG ulPlayer, const ULONG ulDisplayPlayer, LON
 		ulColor = CR_RED;
 	}
 	// [AK] Change the text color to match the player's team if we should.
-	else if ( ulFlags & SCOREBOARDFLAG_USETEAMTEXTCOLOR )
+	else if (( GAMEMODE_GetCurrentFlags( ) & GMF_PLAYERSONTEAMS ) && ( CheckFlag( SCOREBOARDFLAG_USETEAMTEXTCOLORS, CUSTOMIZE_TEXT, sb_useteamtextcolors )))
 	{
 		if ( PLAYER_IsTrueSpectator( &players[ulPlayer] ))
 			ulColor = CR_GREY;
@@ -3401,30 +3516,37 @@ void Scoreboard::DrawRow( const ULONG ulPlayer, const ULONG ulDisplayPlayer, LON
 	else if ( bIsDisplayPlayer )
 	{
 		if ( CLIENTDEMO_IsPlaying( ))
-			ulColor = LocalRowColors[LOCALROW_COLOR_INDEMO];
+			ulColor = localRowColors[LOCALROW_COLOR_INDEMO];
 		else
-			ulColor = LocalRowColors[LOCALROW_COLOR_INGAME];
+			ulColor = localRowColors[LOCALROW_COLOR_INGAME];
 	}
 
-	const float fBackgroundAlpha = ( bPlayerIsDead ? fDeadRowBackgroundAmount : fRowBackgroundAmount ) * fAlpha;
+	const bool onlyShowLocalBackground = CheckFlag( SCOREBOARDFLAG_ONLYSHOWLOCALROWBACKGROUND, CUSTOMIZE_ROWBACKGROUNDS, sb_onlylocalrowbackground );
 
-	// [AK] Draw the background of the row, but only if the alpha is non-zero. In team-based game modes,
-	// the color of the background is to be the team's own color.
-	if ( fBackgroundAlpha > 0.0f )
+	// [AK] Draw all row backgrounds, or only that of the player we're spying.
+	if (( onlyShowLocalBackground == false ) || ( bIsDisplayPlayer ))
 	{
-		ROWBACKGROUND_COLOR_e RowBackground;
+		const float fBackgroundAlpha = ( bPlayerIsDead ? deadRowBackgroundAmount : rowBackgroundAmount ) * fAlpha;
 
-		if (( ulPlayer == ulDisplayPlayer ) && (( ulFlags & SCOREBOARDFLAG_DONTUSELOCALROWBACKGROUNDCOLOR ) == false ))
-			RowBackground = ROWBACKGROUND_COLOR_LOCAL;
-		else
-			RowBackground = bUseLightBackground ? ROWBACKGROUND_COLOR_LIGHT : ROWBACKGROUND_COLOR_DARK;
+		// [AK] Draw the background of the row, but only if the alpha is non-zero. In team-based game modes,
+		// the color of the background is to be the team's own color.
+		if ( fBackgroundAlpha > 0.0f )
+		{
+			const bool dontUseLocalColor = CheckFlag( SCOREBOARDFLAG_DONTUSELOCALROWBACKGROUNDCOLOR, CUSTOMIZE_ROWBACKGROUNDS, sb_nolocalrowbackgroundcolor );
+			ROWBACKGROUND_COLOR_e RowBackground;
 
-		// [AK] If the player is on a team, blend the team's colour into the row background.
-		if (( GAMEMODE_GetCurrentFlags( ) & GMF_PLAYERSONTEAMS ) && ( players[ulPlayer].bOnTeam ))
-			DrawRowBackground( TeamRowBackgroundColors[players[ulPlayer].Team][RowBackground], lYPos, fBackgroundAlpha );
-		// [AK] If the player isn't on a team, use the two background colors that are defined.
-		else
-			DrawRowBackground( RowBackgroundColors[RowBackground], lYPos, fBackgroundAlpha );
+			if (( ulPlayer == ulDisplayPlayer ) && ( dontUseLocalColor == false ))
+				RowBackground = ROWBACKGROUND_COLOR_LOCAL;
+			else
+				RowBackground = bUseLightBackground ? ROWBACKGROUND_COLOR_LIGHT : ROWBACKGROUND_COLOR_DARK;
+
+			// [AK] If the player is on a team, blend the team's colour into the row background.
+			if (( GAMEMODE_GetCurrentFlags( ) & GMF_PLAYERSONTEAMS ) && ( players[ulPlayer].bOnTeam ))
+				DrawRowBackground( TeamRowBackgroundColors[players[ulPlayer].Team][RowBackground], lYPos, fBackgroundAlpha );
+			// [AK] If the player isn't on a team, use the two background colors that are defined.
+			else
+				DrawRowBackground( rowBackgroundColors[RowBackground], lYPos, fBackgroundAlpha );
+		}
 	}
 
 	const float fTextAlpha = ( bPlayerIsDead ? fDeadTextAlpha : fContentAlpha ) * fAlpha;
@@ -3437,7 +3559,11 @@ void Scoreboard::DrawRow( const ULONG ulPlayer, const ULONG ulDisplayPlayer, LON
 	}
 
 	lYPos += ulRowHeightToUse + ulGapBetweenRows;
-	bUseLightBackground = !bUseLightBackground;
+
+	// [AK] Only switch between the "light" and "dark" row backgrounds if more
+	// than one row's background can be drawn.
+	if ( onlyShowLocalBackground == false )
+		bUseLightBackground = !bUseLightBackground;
 }
 
 //*****************************************************************************
@@ -3450,7 +3576,7 @@ void Scoreboard::DrawRow( const ULONG ulPlayer, const ULONG ulDisplayPlayer, LON
 
 void Scoreboard::DrawBorder( const EColorRange Color, LONG &lYPos, const float fAlpha, const bool bReverse ) const
 {
-	if (( ulFlags & SCOREBOARDFLAG_DONTDRAWBORDERS ) || ( fAlpha <= 0.0f ))
+	if (( CheckFlag( SCOREBOARDFLAG_DONTDRAWBORDERS, CUSTOMIZE_BORDERS, sb_noborders )) || ( fAlpha <= 0.0f ))
 		return;
 
 	int x = lRelX + ulBackgroundBorderSize;
@@ -3486,12 +3612,12 @@ void Scoreboard::DrawBorder( const EColorRange Color, LONG &lYPos, const float f
 	}
 	else
 	{
-		uint32 lightColor, darkColor;
+		PalEntry lightColor, darkColor;
 		height = 1;
 
 		// [AK] Do we want to use the font's translation table and text color to colorize the border,
 		// or the predetermined hexadecimal colors for the border?
-		if ( ulFlags & SCOREBOARDFLAG_USEHEADERCOLORFORBORDERS )
+		if ( CheckFlag( SCOREBOARDFLAG_USEHEADERTEXTCOLORFORBORDERS, CUSTOMIZE_BORDERS, sb_useheadertextcolorforborders ))
 		{
 			// [AK] Get the translation table of the (team) header font with its corresponding color.
 			const FRemapTable *trans = pHeaderFont->GetColorTranslation( Color );
@@ -3504,8 +3630,8 @@ void Scoreboard::DrawBorder( const EColorRange Color, LONG &lYPos, const float f
 		}
 		else
 		{
-			lightColor = BorderColors[BORDER_COLOR_LIGHT];
-			darkColor = BorderColors[BORDER_COLOR_DARK];
+			lightColor = borderColors[BORDER_COLOR_LIGHT];
+			darkColor = borderColors[BORDER_COLOR_DARK];
 		}
 
 		// [AK] The dark color goes above the light one, unless it's reversed.
@@ -3525,17 +3651,17 @@ void Scoreboard::DrawBorder( const EColorRange Color, LONG &lYPos, const float f
 
 void Scoreboard::DrawRowBackground( const PalEntry color, int x, int y, int width, int height, const float fAlpha ) const
 {
-	if (( fAlpha <= 0.0f ) || ( fRowBackgroundAmount <= 0.0f ))
+	if (( fAlpha <= 0.0f ) || ( rowBackgroundAmount <= 0.0f ))
 		return;
 
-	SCOREBOARD_DrawColor( color, fAlpha * fRowBackgroundAmount, x, y, width, height );
+	SCOREBOARD_DrawColor( color, fAlpha * rowBackgroundAmount, x, y, width, height );
 }
 
 //*****************************************************************************
 //
 void Scoreboard::DrawRowBackground( const PalEntry color, const int y, const float fAlpha ) const
 {
-	if (( fAlpha <= 0.0f ) || ( fRowBackgroundAmount <= 0.0f ))
+	if (( fAlpha <= 0.0f ) || ( rowBackgroundAmount <= 0.0f ))
 		return;
 
 	int yToUse = y;
@@ -3546,7 +3672,7 @@ void Scoreboard::DrawRowBackground( const PalEntry color, const int y, const flo
 
 	// [AK] If gaps must be shown in the row's background, then only draw the background where
 	// the active columns are. Otherwise, draw a single background across the scoreboard.
-	if ( ulFlags & SCOREBOARDFLAG_SHOWGAPSINROWBACKGROUND )
+	if ( CheckFlag( SCOREBOARDFLAG_SHOWGAPSINROWBACKGROUND, CUSTOMIZE_ROWBACKGROUNDS, sb_showgapsinrowbackground ))
 	{
 		for ( unsigned int i = 0; i < ColumnOrder.Size( ); i++ )
 		{
@@ -3559,6 +3685,63 @@ void Scoreboard::DrawRowBackground( const PalEntry color, const int y, const flo
 	else
 	{
 		DrawRowBackground( color, lRelX + ulBackgroundBorderSize, yToUse, ulWidth - 2 * ulBackgroundBorderSize, height, fAlpha );
+	}
+}
+
+//*****************************************************************************
+//
+// [AK] Scoreboard::UpdateTeamRowBackgroundColors
+//
+// Generates row background colors for each team through color blending. This
+// uses the color blend mode explained in section 7.2.4, "Blend Mode", in "PDF
+// Reference" fifth edition, version 1.6.
+//
+//*****************************************************************************
+
+int scoreboard_GetLuminance( const int r, const int g, const int b )
+{
+	return static_cast<int>( 0.3f * r + 0.59f * g + 0.11f * b );
+}
+
+//*****************************************************************************
+//
+int scoreboard_GetLuminance( const PalEntry color )
+{
+	return scoreboard_GetLuminance( color.r, color.g, color.b );
+}
+
+//*****************************************************************************
+//
+void Scoreboard::UpdateTeamRowBackgroundColors( void )
+{
+	for ( unsigned int team = 0; team < teams.Size( ); team++ )
+	{
+		const PalEntry teamColor = teams[team].lPlayerColor;
+
+		for ( unsigned int i = 0; i < NUM_ROWBACKGROUND_COLORS; i++ )
+		{
+			const int delta = scoreboard_GetLuminance( rowBackgroundColors[i] ) - scoreboard_GetLuminance( teamColor );
+
+			int rgb[3] = { teamColor.r + delta, teamColor.g + delta, teamColor.b + delta };
+
+			const int luminosity = scoreboard_GetLuminance( rgb[0], rgb[1], rgb[2] );
+			const int minColor = MIN( MIN( rgb[0], rgb[1] ), rgb[2] );
+			const int maxColor = MAX( MAX( rgb[0], rgb[1] ), rgb[2] );
+
+			if ( minColor < 0 )
+			{
+				for ( unsigned int i = 0; i < 3; i++ )
+					rgb[i] = luminosity + ((( rgb[i] - luminosity ) * luminosity ) / ( luminosity - minColor ));
+			}
+
+			if ( maxColor > UCHAR_MAX )
+			{
+				for ( unsigned int i = 0; i < 3; i++ )
+					rgb[i] = luminosity + ((( rgb[i] - luminosity ) * ( UCHAR_MAX - luminosity )) / ( maxColor - luminosity ));
+			}
+
+			TeamRowBackgroundColors[team][i] = MAKERGB( rgb[0], rgb[1], rgb[2] );
+		}
 	}
 }
 
@@ -3582,6 +3765,24 @@ void Scoreboard::RemoveInvalidColumnsInRankOrder( void )
 
 //*****************************************************************************
 //
+// [AK] Scoreboard::ClearColumnsAndMargins
+//
+// Empties the column order and rank order lists, and empties all margins.
+//
+//*****************************************************************************
+
+void Scoreboard::ClearColumnsAndMargins( void )
+{
+	ColumnOrder.Clear( );
+	RankOrder.Clear( );
+	MainHeader.ClearCommands( );
+	TeamHeader.ClearCommands( );
+	SpectatorHeader.ClearCommands( );
+	Footer.ClearCommands( );
+}
+
+//*****************************************************************************
+//
 // [AK] Scoreboard::ShouldSeparateTeams
 //
 // Checks if the scoreboard should separate players into their respective teams.
@@ -3591,6 +3792,20 @@ void Scoreboard::RemoveInvalidColumnsInRankOrder( void )
 bool Scoreboard::ShouldSeparateTeams( void ) const
 {
 	return (( GAMEMODE_GetCurrentFlags( ) & GMF_PLAYERSONTEAMS ) && (( ulFlags & SCOREBOARDFLAG_DONTSEPARATETEAMS ) == false ));
+}
+
+//*****************************************************************************
+//
+// [AK] Scoreboard::CheckFlag
+//
+// Checks if one of the scoreboard's flags set in SCORINFO should be used or
+// the user's own custom settings.
+//
+//*****************************************************************************
+
+bool Scoreboard::CheckFlag( const SCOREBOARDFLAG_e flag, const CustomizeScoreboardFlag customizeFlag, const bool customizeValue ) const
+{
+	return ( sb_customizeflags & customizeFlag ) ? customizeValue : !!( ulFlags & flag );
 }
 
 //*****************************************************************************
@@ -3700,6 +3915,86 @@ void SCOREBOARD_Construct( void )
 			}
 		}
 	}
+
+	// [AK] This will initialize the team row background colors.
+	g_Scoreboard.UpdateTeamRowBackgroundColors( );
+}
+
+//*****************************************************************************
+//
+// [AK] SCOREBOARD_Destruct
+//
+// Deletes all of the columns and the scoreboard's column lists and margins.
+// This is called when using the "restart" CCMD.
+//
+//*****************************************************************************
+
+void SCOREBOARD_Destruct( void )
+{
+	TMapIterator<FName, ScoreColumn *> it( g_Columns );
+	TMap<FName, ScoreColumn *>::Pair *pair;
+
+	g_Scoreboard.ClearColumnsAndMargins( );
+
+	while ( it.NextPair( pair ))
+	{
+		delete pair->Value;
+		pair->Value = nullptr;
+	}
+
+	g_Columns.Clear( );
+}
+
+//*****************************************************************************
+//
+// [AK] SCOREBOARD_ParseFont
+//
+// Parses a font while parsing a SCORINFO lump.
+//
+//*****************************************************************************
+
+void SCOREBOARD_ParseFont( FScanner &sc, FFont *&font )
+{
+	sc.MustGetToken( TK_StringConst );
+
+	// [AK] Throw a fatal error if an empty string was passed.
+	if ( sc.StringLen == 0 )
+		sc.ScriptError( "Got an empty string for a font name." );
+
+	font = V_GetFont( sc.String );
+
+	// [AK] If the font was invalid, throw a fatal error.
+	if ( font == nullptr )
+		sc.ScriptError( "Couldn't find font '%s'.", sc.String );
+}
+
+//*****************************************************************************
+//
+// [AK] SCOREBOARD_ParseTextColor
+//
+// Parses a text color while parsing a SCORINFO lump.
+//
+//*****************************************************************************
+
+void SCOREBOARD_ParseTextColor( FScanner &sc, EColorRange &color )
+{
+	sc.MustGetToken( TK_StringConst );
+
+	// [AK] If an empty string was passed, inform the user of the error and
+	// switch to untranslated.
+	if ( sc.StringLen == 0 )
+	{
+		sc.ScriptMessage( "Got an empty string for a text color, using untranslated instead." );
+		color = CR_UNTRANSLATED;
+	}
+	else
+	{
+		color = V_FindFontColor( sc.String );
+
+		// [AK] If the text color name was invalid, let the user know about it.
+		if (( color == CR_UNTRANSLATED ) && ( stricmp( sc.String, "untranslated" ) != 0 ))
+			sc.ScriptMessage( "'%s' is an unknown text color, using untranslated instead.", sc.String );
+	}
 }
 
 //*****************************************************************************
@@ -3733,17 +4028,20 @@ void SCOREBOARD_Reset( void )
 //
 // SCOREBOARD_Render
 //
-// Draws the scoreboard on the screen.
+// Draws the scoreboard on the screen. Note that minYPos is based on the actual
+// screen height and not the scaled screen height, particularly because it's
+// only used to prevent the scoreboard from overlapping with the "<levelname>
+// finished!" message that appears at the top of the intermission screen.
 //
 //*****************************************************************************
 
-void SCOREBOARD_Render( ULONG ulDisplayPlayer )
+void SCOREBOARD_Render( const unsigned int displayPlayer, const int minYPos )
 {
 	// Make sure the display player is valid.
-	if ( ulDisplayPlayer >= MAXPLAYERS )
+	if ( displayPlayer >= MAXPLAYERS )
 		return;
 
-	g_Scoreboard.Render( ulDisplayPlayer, cl_scoreboardalpha );
+	g_Scoreboard.Render( displayPlayer, minYPos, cl_scoreboardalpha );
 }
 
 //*****************************************************************************
@@ -3854,6 +4152,29 @@ bool SCOREBOARD_AdjustVerticalClipRect( int &clipTop, int &clipHeight )
 		clipHeight = g_Scoreboard.maxClipRectY - clipTop;
 
 	return true;
+}
+
+//*****************************************************************************
+//
+// [AK] SCOREBOARD_CenterAlign
+//
+// This should be used when something needs to be aligned in the center of
+// something else that's bigger. Note that when the bigger size is non-even and
+// the smaller size is even, the position needs to be "flexed" by one pixel.
+//
+// By adding the flex, elements (e.g. multiple lines of text) won't wobble around
+// on the scoreboard when their sizes fluctuate between even and non-even.
+//
+//*****************************************************************************
+
+int SCOREBOARD_CenterAlign( const int biggerSize, const int smallerSize )
+{
+	int position = ( biggerSize - smallerSize ) / 2;
+
+	if (( biggerSize % 2 != 0 ) && ( smallerSize % 2 == 0 ))
+		position += 1;
+
+	return position;
 }
 
 //*****************************************************************************
@@ -4033,7 +4354,7 @@ static unsigned int scoreboard_GetMaxSize( const float percentage, const int ali
 //
 //*****************************************************************************
 
-void scoreboard_DoAlignAndOffset( LONG &position, const int alignment, const int offset, const int screenSize, const int scoreboardSize )
+static void scoreboard_DoAlignAndOffset( LONG &position, const int alignment, const int offset, const int screenSize, const int scoreboardSize )
 {
 	const int sizeDiff = screenSize - scoreboardSize;
 
@@ -4076,4 +4397,36 @@ void scoreboard_DoAlignAndOffset( LONG &position, const int alignment, const int
 				position = MAX<LONG>( position - clampedOffset, 0 );
 		}
 	}
+}
+
+//*****************************************************************************
+//
+// [AK] scoreboard_ClampCVar
+//
+// A helper function to clamp the values of CVars to within a certain range.
+//
+//*****************************************************************************
+
+template <typename Type, typename CVar>
+static void scoreboard_ClampCVar( CVar &cvar, const Type minValue, const Type maxValue )
+{
+	const Type clampedValue = clamp<Type>( cvar, minValue, maxValue );
+
+	if ( cvar != clampedValue )
+		cvar = clampedValue;
+}
+
+//*****************************************************************************
+//
+// [AK] scoreboard_ClampTextColorCVar
+//
+// A helper function to clamp the values of CVars that are supposed to be used
+// for text colors so that they're always using a valid color.
+//
+//*****************************************************************************
+
+static void scoreboard_ClampTextColorCVar( FIntCVar &cvar )
+{
+	if (( cvar <= CR_UNDEFINED ) || ( cvar >= NumTextColors ))
+		cvar = CR_UNTRANSLATED;
 }

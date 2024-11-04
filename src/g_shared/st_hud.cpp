@@ -74,6 +74,7 @@
 #include "p_trace.h"
 #include "win32/g15/g15.h"
 #include "voicechat.h"
+#include "possession.h"
 
 // [AK] Message levels used for cl_identifytarget.
 enum
@@ -151,7 +152,7 @@ static	void	HUD_RenderTeamScores( void );
 static	void	HUD_RenderRankAndSpread( void );
 static	void	HUD_RenderInvasionStats( void );
 static	void	HUD_RenderCountdown( ULONG ulTimeLeft );
-static	void	HUD_DrawFragMessage( void );
+static	void	HUD_DrawFragMessage( const unsigned int displayPlayer );
 
 //*****************************************************************************
 //	CONSOLE VARIABLES
@@ -264,7 +265,7 @@ void HUD_Render( ULONG ulDisplayPlayer )
 	// [AK] If we need to update the HUD, do so before rendering it.
 	if ( g_bRefreshBeforeRendering )
 	{
-		HUD_Refresh( );
+		HUD_Refresh( ulDisplayPlayer );
 		g_bRefreshBeforeRendering = false;
 	}
 
@@ -287,7 +288,7 @@ void HUD_Render( ULONG ulDisplayPlayer )
 	// [AK] Draw the frag message if we have to.
 	if ( g_pFragMessagePlayer != NULL )
 	{
-		HUD_DrawFragMessage( );
+		HUD_DrawFragMessage( ulDisplayPlayer );
 		g_pFragMessagePlayer = NULL;
 		g_bFraggedBy = false;
 	}
@@ -334,9 +335,12 @@ void HUD_Render( ULONG ulDisplayPlayer )
 
 //*****************************************************************************
 //
-void HUD_Refresh( void )
+void HUD_Refresh( const unsigned int displayPlayer )
 {
 	ULONG ulNumDuelers = 0;
+
+	if ( displayPlayer >= MAXPLAYERS )
+		return;
 
 	// [AK] Reset the dueler pointers.
 	g_pDuelers[0] = g_pDuelers[1] = NULL;
@@ -357,12 +361,11 @@ void HUD_Refresh( void )
 	// [AK] Determine which player is carrying the terminator sphere, possession hellstone, or white flag.
 	g_pArtifactCarrier = GAMEMODE_GetArtifactCarrier( );
 
-	player_t *player = &players[HUD_GetViewPlayer( )];
-	ULONG ulPlayer = player - players;
+	player_t *player = &players[displayPlayer];
 
-	g_ulRank = PLAYER_CalcRank( ulPlayer );
-	g_lSpread = PLAYER_CalcSpread( ulPlayer );
-	g_bIsTied = HUD_IsTied( ulPlayer );
+	g_ulRank = PLAYER_CalcRank( displayPlayer );
+	g_lSpread = PLAYER_CalcSpread( displayPlayer );
+	g_bIsTied = HUD_IsTied( displayPlayer );
 
 	// [AK] Count how many players are in the game.
 	HUD_RefreshPlayerCounts( );
@@ -466,7 +469,7 @@ void HUD_DrawTargetName( player_t *pPlayer )
 
 	// Break out if we don't want to identify the target, or
 	// a medal has just been awarded and is being displayed.
-	if (( cl_identifytarget == IDENTIFY_TARGET_OFF ) || ( zadmflags & ZADF_NO_IDENTIFY_TARGET ) || ( MEDAL_GetDisplayedMedal( pPlayer->camera->player - players ) != NUM_MEDALS ))
+	if (( cl_identifytarget == IDENTIFY_TARGET_OFF ) || ( zadmflags & ZADF_NO_IDENTIFY_TARGET ) || ( MEDAL_GetDisplayedMedal( pPlayer->camera->player - players ) != nullptr ))
 		return;
 
 	// Don't do any of this while still receiving a snapshot.
@@ -787,6 +790,7 @@ void HUD_DrawCoopInfo( void )
 //
 static void HUD_DrawBottomString( ULONG ulDisplayPlayer )
 {
+	EColorRange color = CR_RED;
 	FString bottomString;
 
 	// [AK] Show how much time is left before we can respawn if we had to wait for more than one second.
@@ -795,26 +799,24 @@ static void HUD_DrawBottomString( ULONG ulDisplayPlayer )
 		if (( players[consoleplayer].bSpectating == false ) && ( players[consoleplayer].playerstate == PST_DEAD ) && ( g_lRespawnGametic > level.time ))
 		{
 			float fTimeLeft = MIN( g_fRespawnDelay, static_cast<float>( g_lRespawnGametic - level.time ) / TICRATE );
-			bottomString.AppendFormat( TEXTCOLOR_GREEN "Ready to respawn in %.1f seconds\n", fTimeLeft );
+			bottomString.AppendFormat( TEXTCOLOR_GREEN "Ready to respawn in %.1f seconds\n" TEXTCOLOR_NORMAL, fTimeLeft );
 		}
 	}
 
 	// [BB] Draw a message to show that the free spectate mode is active.
 	if ( CLIENTDEMO_IsInFreeSpectateMode( ))
+	{
+		color = CR_WHITE;
 		bottomString.AppendFormat( "Free Spectate Mode" );
+	}
 	// If the console player is looking through someone else's eyes, draw the following message.
 	else if ( ulDisplayPlayer != static_cast<ULONG>( consoleplayer ))
 	{
-		FString color = TEXTCOLOR_RED;
-
 		// [RC] Or draw this in their team's color.
 		if ( GAMEMODE_GetCurrentFlags( ) & GMF_PLAYERSONTEAMS )
-		{
-			color = TEXTCOLOR_ESCAPE;
-			color += TEAM_GetTextColorName( players[ulDisplayPlayer].Team );
-		}
+			color = static_cast<EColorRange>( TEAM_GetTextColor( players[ulDisplayPlayer].Team ));
 
-		bottomString.AppendFormat( "%sFollowing - %s%s", color.GetChars( ), players[ulDisplayPlayer].userinfo.GetName( ), color.GetChars( ));
+		bottomString.AppendFormat( "Following - %s", players[ulDisplayPlayer].userinfo.GetName( ));
 	}
 
 	// [AK] Draw the "waiting for players" or "x allies/opponents left" messages when viewing through a non-spectating player.
@@ -845,7 +847,7 @@ static void HUD_DrawBottomString( ULONG ulDisplayPlayer )
 					else
 					{
 						playersLeftString.Format( TEXTCOLOR_GRAY "%d ", static_cast<int>( g_lNumAlliesLeft ));
-						playersLeftString.AppendFormat( TEXTCOLOR_RED "all%s left", g_lNumAlliesLeft != 1 ? "ies" : "y" );
+						playersLeftString.AppendFormat( TEXTCOLOR_DARKGREEN "all%s left", g_lNumAlliesLeft != 1 ? "ies" : "y" );
 					}
 				}
 			}
@@ -853,19 +855,19 @@ static void HUD_DrawBottomString( ULONG ulDisplayPlayer )
 			else
 			{
 				playersLeftString.Format( TEXTCOLOR_GRAY "%d ", static_cast<int>( g_lNumOpponentsLeft ));
-				playersLeftString.AppendFormat( TEXTCOLOR_RED "opponent%s", g_lNumOpponentsLeft != 1 ? "s" : "" );
+				playersLeftString.AppendFormat( TEXTCOLOR_DARKRED "enem%s", g_lNumOpponentsLeft != 1 ? "ies" : "y" );
 
 				// [AK] Only print how many teammates are left if we actually have any.
 				if (( GAMEMODE_GetCurrentFlags( ) & GMF_PLAYERSONTEAMS ) && ( g_bHasAllies ))
 				{
 					if ( g_lNumAlliesLeft < 1 )
 					{
-						playersLeftString += " left - allies dead";
+						playersLeftString += " left" TEXTCOLOR_NORMAL " - " TEXTCOLOR_DARKGREEN "allies dead";
 					}
 					else
 					{
-						playersLeftString.AppendFormat( ", " TEXTCOLOR_GRAY "%d ", static_cast<int>( g_lNumAlliesLeft ));
-						playersLeftString.AppendFormat( TEXTCOLOR_RED "all%s left", g_lNumAlliesLeft != 1 ? "ies" : "y" );
+						playersLeftString.AppendFormat( TEXTCOLOR_GRAY " %d ", static_cast<int>( g_lNumAlliesLeft ));
+						playersLeftString.AppendFormat( TEXTCOLOR_DARKGREEN "all%s left", g_lNumAlliesLeft != 1 ? "ies" : "y" );
 					}
 				}
 				else
@@ -916,7 +918,7 @@ static void HUD_DrawBottomString( ULONG ulDisplayPlayer )
 	// [RC] Draw the centered bottom message (spectating, following, waiting, etc).
 	if ( bottomString.Len( ) > 0 )
 	{
-		DHUDMessageFadeOut *pMsg = new DHUDMessageFadeOut( SmallFont, bottomString, 1.5f, 1.0f, 0, 0, CR_WHITE, 0.20f, 0.15f );
+		DHUDMessageFadeOut *pMsg = new DHUDMessageFadeOut( SmallFont, bottomString, 1.5f, 1.0f, 0, 0, color, 0.20f, 0.15f );
 		StatusBar->AttachMessage( pMsg, MAKE_ID( 'W', 'A', 'I', 'T' ));
 	}
 }
@@ -979,12 +981,14 @@ static void HUD_RenderHolders( void )
 			// [AK] Get the player carrying this team's flag or skull.
 			player_t *carrier = TEAM_GetCarrier( lTeam );
 			patchName = TEAM_GetSmallHUDIcon( lTeam );
-			color = TEAM_GetTextColor( lTeam );
+
+			// [SB] Use the carrier's team colour instead of the flag's.
+			color = carrier ? TEAM_GetTextColor( carrier->Team ) : static_cast<ULONG>( CR_GRAY );
 
 			if ( carrier )
 				text.Format( "%s", carrier->userinfo.GetName( ));
 			else
-				text.Format( TEXTCOLOR_GRAY "%s", TEAM_GetReturnTicks( lTeam ) ? "?" : "-" );
+				text.Format( "%s", TEAM_GetReturnTicks( lTeam ) ? "?" : "-" );
 
 			text += TEXTCOLOR_NORMAL ": ";
 
@@ -1146,11 +1150,20 @@ static void HUD_RenderCountdown( ULONG ulTimeLeft )
 	}
 	else
 	{
-		// [AK] TLMS and team possession should still keep "team" in the title for consistency.
-		if ( invasion )
+		// [AK] Use the "next round in..." string for (team) LMS or (team) possession.
+		if ((( lastmanstanding || teamlms ) && ( LASTMANSTANDING_GetState( ) == LMSS_NEXTROUNDCOUNTDOWN )) ||
+			(( possession || teampossession ) && ( POSSESSION_GetState( ) == PSNS_NEXTROUNDCOUNTDOWN )))
+		{
+			text = GStrings( "GM_NEXTROUNDIN" );
+		}
+		else if ( invasion )
+		{
 			text = INVASION_GetCurrentWaveString( );
+		}
 		else
+		{
 			text = GAMEMODE_GetCurrentName( );
+		}
 
 		// [AK] Append "co-op" to the end of "survival".
 		if (( survival ) && ( text.CompareNoCase( "Survival" ) == 0 ))
@@ -1160,20 +1173,27 @@ static void HUD_RenderCountdown( ULONG ulTimeLeft )
 		ulYPos += 24;
 	}
 
-	// [AK] Draw the actual countdown message.
-	if ( invasion )
-		text = INVASION_GetState( ) == IS_FIRSTCOUNTDOWN ? "First wave begins" : "Begins";
-	else
-		text = "Match begins";
+	// [AK] Draw the actual countdown message in grey, but use the same color
+	// as the title for the counter itself to make it stand out more.
+	text = TEXTCOLOR_GREY;
 
-	text.AppendFormat( " in: %d", static_cast<unsigned int>( ulTimeLeft / TICRATE ));
-	HUD_DrawTextCleanCentered( SmallFont, CR_UNTRANSLATED, ulYPos, text );
+	if ( invasion )
+		text += INVASION_GetState( ) == IS_FIRSTCOUNTDOWN ? "First wave begins" : "Begins";
+	else
+		text += "Match begins";
+
+	text.AppendFormat( " in: " TEXTCOLOR_NORMAL "%u", static_cast<unsigned int>( ulTimeLeft / TICRATE ));
+	HUD_DrawTextCleanCentered( SmallFont, ulTitleColor, ulYPos, text );
 }
 
 //*****************************************************************************
 //
-static void HUD_DrawFragMessage( void )
+static void HUD_DrawFragMessage( const unsigned int displayPlayer )
 {
+	// [AK] Don't draw large frag messages when the game's no longer in progress.
+	if ( GAMEMODE_IsGameInProgress( ) == false )
+		return;
+
 	FString message = GStrings( g_bFraggedBy ? "GM_YOUWEREFRAGGED" : "GM_YOUFRAGGED" );
 	message.StripLeftRight( );
 
@@ -1184,38 +1204,35 @@ static void HUD_DrawFragMessage( void )
 	// [AK] Substitute the fragged/fragging player's name into the message if we can.
 	message.Substitute( "%s", g_pFragMessagePlayer->userinfo.GetName( ));
 
-	// Print the frag message out in the console.
-	Printf( "%s\n", message.GetChars( ));
-
 	DHUDMessageFadeOut *pMsg = new DHUDMessageFadeOut( BigFont, message.GetChars( ), 1.5f, 0.325f, 0, 0, CR_RED, 2.5f, 0.5f );
 	StatusBar->AttachMessage( pMsg, MAKE_ID( 'F', 'R', 'A', 'G'));
 
 	// [AK] Build the place string.
-	message = HUD_BuildPlaceString( consoleplayer );
+	message = HUD_BuildPlaceString( displayPlayer );
 
 	if ( g_bFraggedBy == false )
 	{
-		ULONG ulMenLeftStanding = 0;
+		unsigned int enemiesLeftStanding = 0;
 
-		// [AK] Count how many opponents are currently left.
+		// [AK] Count how many enemies are currently left.
 		if ( lastmanstanding )
 		{
-			ulMenLeftStanding = GAME_CountLivingAndRespawnablePlayers( ) - 1;
+			enemiesLeftStanding = GAME_CountLivingAndRespawnablePlayers( ) - 1;
 		}
-		else if (( teamlms ) && ( players[consoleplayer].bOnTeam ))
+		else if (( teamlms ) && ( players[displayPlayer].bOnTeam ))
 		{
 			for ( ULONG ulIdx = 0; ulIdx < teams.Size( ); ulIdx++ )
 			{
-				if (( TEAM_ShouldUseTeam( ulIdx ) == false ) || ( ulIdx == players[consoleplayer].Team ))
+				if (( TEAM_ShouldUseTeam( ulIdx ) == false ) || ( ulIdx == players[displayPlayer].Team ))
 					continue;
 
-				ulMenLeftStanding += TEAM_CountLivingAndRespawnablePlayers( ulIdx );
+				enemiesLeftStanding += TEAM_CountLivingAndRespawnablePlayers( ulIdx );
 			}
 		}
 
-		// [AK] If there are any opponents left, display that instead of the place string.
-		if ( ulMenLeftStanding > 0 )
-			message.Format( "%d opponent%s left standing", static_cast<unsigned int>( ulMenLeftStanding ), ulMenLeftStanding != 1 ? "s" : "" );
+		// [AK] If there are any enemies left, display that instead of the place string.
+		if ( enemiesLeftStanding > 0 )
+			message.Format( "%u enem%s left standing", enemiesLeftStanding, enemiesLeftStanding != 1 ? "ies" : "y" );
 	}
 
 	// [AK] Changed the subtext color to grey to make it more neutral.
@@ -1286,8 +1303,10 @@ void HUD_DrawSUBSMessage( const char *pszMessage, EColorRange color, float fHold
 
 //*****************************************************************************
 //
-void HUD_PrepareToDrawFragMessage( player_t *pPlayer, AActor *pSource, int MeansOfDeath )
+void HUD_PrepareToDrawFragMessage( player_t *pPlayer, AActor *pSource, FName MeansOfDeath )
 {
+	player_t *displayPlayer = &players[consoleplayer];
+
 	// [AK] Don't display large frag messages in a cooperative games.
 	if ( GAMEMODE_GetCurrentFlags( ) & GMF_COOPERATIVE )
 		return;
@@ -1301,38 +1320,44 @@ void HUD_PrepareToDrawFragMessage( player_t *pPlayer, AActor *pSource, int Means
 	if ( GAMEMODE_IsGameInProgress( ) == false )
 		return;
 
-	const ULONG ulGameModeFlags = GAMEMODE_GetCurrentFlags( );
-
-	if (((( ulGameModeFlags & GMF_PLAYERSEARNFRAGS ) == false ) || (( fraglimit == 0 ) || ( pSource->player->fragcount < fraglimit ))) &&
-		(((( ulGameModeFlags & GMF_PLAYERSEARNWINS ) && !( ulGameModeFlags & GMF_PLAYERSONTEAMS )) == false ) || (( winlimit == 0 ) || ( pSource->player->ulWins < static_cast<ULONG>( winlimit )))) &&
-		(((( ulGameModeFlags & GMF_PLAYERSEARNWINS ) && ( ulGameModeFlags & GMF_PLAYERSONTEAMS )) == false ) || (( winlimit == 0 ) || ( TEAM_GetWinCount( pSource->player->Team ) < winlimit ))))
+	// [AK] Don't display large frag messages in (T)LMS if fragging a player, or
+	// being fragged by them, will end the game, because the game doesn't necessarily
+	// end in the same tick as the last enemy player dies.
+	if ((( lastmanstanding ) && ( GAME_CountLivingAndRespawnablePlayers( ) < 2 )) ||
+		(( teamlms ) && ( LASTMANSTANDING_TeamsWithAlivePlayersOn( ) < 2 )))
 	{
-		// Prepare a large "You were fragged by <name>." message in the middle of the screen.
-		if ( pPlayer == &players[consoleplayer] )
-		{
-			if ( cl_showlargefragmessages )
-			{
-				g_pFragMessagePlayer = pSource->player;
-				g_bFraggedBy = true;
-			}
+		return;
+	}
 
-			// [RC] Also show the message on the Logitech G15 (if enabled).
-			if ( G15_IsReady( ))
-				G15_ShowLargeFragMessage( pSource->player->userinfo.GetName( ), false );
-		}
-		// Prepare a large "You fragged <name>!" message in the middle of the screen.
-		else if ( static_cast<int>( pSource->player - players ) == consoleplayer )
-		{
-			if ( cl_showlargefragmessages )
-			{
-				g_pFragMessagePlayer = pPlayer;
-				g_bFraggedBy = false;
-			}
+	// [AK] Display large frag messages according to the spied player's perspective.
+	if (( players[consoleplayer].camera != nullptr ) && ( players[consoleplayer].camera->player != nullptr ))
+		displayPlayer = players[consoleplayer].camera->player;
 
-			// [RC] Also show the message on the Logitech G15 (if enabled).
-			if ( G15_IsReady( ))
-				G15_ShowLargeFragMessage( pPlayer->userinfo.GetName( ), true );
+	// Prepare a large "You were fragged by <name>." message in the middle of the screen.
+	if ( pPlayer == displayPlayer )
+	{
+		if ( cl_showlargefragmessages )
+		{
+			g_pFragMessagePlayer = pSource->player;
+			g_bFraggedBy = true;
 		}
+
+		// [RC] Also show the message on the Logitech G15 (if enabled).
+		if ( G15_IsReady( ))
+			G15_ShowLargeFragMessage( pSource->player->userinfo.GetName( ), false );
+	}
+	// Prepare a large "You fragged <name>!" message in the middle of the screen.
+	else if ( pSource->player == displayPlayer )
+	{
+		if ( cl_showlargefragmessages )
+		{
+			g_pFragMessagePlayer = pPlayer;
+			g_bFraggedBy = false;
+		}
+
+		// [RC] Also show the message on the Logitech G15 (if enabled).
+		if ( G15_IsReady( ))
+			G15_ShowLargeFragMessage( pPlayer->userinfo.GetName( ), true );
 	}
 }
 
@@ -1470,15 +1495,15 @@ FString HUD_SpellOrdinal( int ranknum, bool bColored )
 		switch ( ranknum )
 		{
 			case 0:
-				result = TEXTCOLOR_BLUE;
+				result = TEXTCOLOR_YELLOW;
 				break;
 
 			case 1:
-				result = TEXTCOLOR_RED;
+				result = TEXTCOLOR_DARKGRAY;
 				break;
 
 			case 2:
-				result = TEXTCOLOR_GREEN;
+				result = TEXTCOLOR_DARKBROWN;
 				break;
 		}
 	}

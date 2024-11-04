@@ -94,6 +94,7 @@
 #include "scoreboard.h"
 #include "menu/menu.h"
 #include "sv_ban.h"
+#include "joinqueue.h"
 
 #include "g_shared/a_pickups.h"
 
@@ -178,9 +179,6 @@ CCMD ( acstime )
 }
 
 extern FILE *Logfile;
-
-// [AK] We need this for SetPlayerClass.
-extern FRandom pr_classchoice;
 
 FRandom pr_acs ("ACS");
 
@@ -1037,6 +1035,10 @@ void P_ClearACSVars(bool alsoglobal)
 		// [BB] When the global vars are cleared, our query handles surely shouldn't
 		// be needed anymore. So clear them in case mods forgot to do so.
 		g_dbQueries.clear();
+
+		// [AK] Also clear any open lump handles that mods forgot to close when
+		// clearing global variables, as these aren't needed anymore either.
+		ACS_ClearLumpHandles();
 	}
 	else
 	{
@@ -5441,7 +5443,7 @@ enum EACSFunctions
 	ACSF_GetChatMessage,
 	ACSF_GetMapRotationSize,
 	ACSF_GetMapRotationInfo,
-	ACSF_GetCurrentMapPosition,
+	ACSF_GetMapPosition,
 	ACSF_GetEventResult,
 	ACSF_GetActorSectorLocation,
 	ACSF_ChangeTeamScore,
@@ -5468,6 +5470,10 @@ enum EACSFunctions
 	ACSF_SetPlayerSkin,
 	ACSF_GetPlayerSkin,
 	ACSF_GetPlayerCountry,
+	ACSF_SetNextMapPosition,
+	ACSF_GivePlayerMedal,
+	ACSF_GetPlayerJoinQueuePosition,
+	ACSF_SkipJoinQueue,
 
 	// ZDaemon
 	ACSF_GetTeamScore = 19620,	// (int team)
@@ -7472,7 +7478,7 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 
 				// [AK] We should also reset the current level to apply the new game mode safely.
 				// Do this without showing the intermission screen, and reset everyone's health and items.
-				G_ChangeLevel( level.mapname, 0, CHANGELEVEL_NOINTERMISSION | CHANGELEVEL_RESETHEALTH | CHANGELEVEL_RESETINVENTORY );
+				G_ChangeLevel( level.mapname, 0, CHANGELEVEL_NOINTERMISSION | CHANGELEVEL_RESETHEALTH | CHANGELEVEL_RESETINVENTORY | CHANGELEVEL_HIDENAME );
 				return 1;
 			}
 
@@ -7515,10 +7521,6 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 						return 0;
 
 					player->userinfo.PlayerClassNumChanged( -1 );
-
-					// [AK] In a singleplayer game, we must also change the class the player would start as.
-					if ( NETWORK_GetState() != NETSTATE_SERVER )
-						SinglePlayerClass[ulPlayer] = ( pr_classchoice() ) % PlayerClasses.Size();
 				}
 				else
 				{
@@ -7534,11 +7536,11 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 						return 0;
 
 					player->userinfo.PlayerClassChanged( playerclass->Meta.GetMetaString( APMETA_DisplayName ));
-
-					// [AK] In a singleplayer game, we must also change the class the player would start as.
-					if ( NETWORK_GetState() != NETSTATE_SERVER )
-						SinglePlayerClass[ulPlayer] = player->userinfo.GetPlayerClassNum();
 				}
+
+				// [AK] In a singleplayer game, we must also change the class the player would start as.
+				if ( NETWORK_GetState() != NETSTATE_SERVER )
+					G_UpdateSinglePlayerClass( ulPlayer );
 
 				// [AK] If we're the server, tell the clients about the player's new class.
 				if ( NETWORK_GetState() == NETSTATE_SERVER )
@@ -7777,6 +7779,15 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 
 		case ACSF_GetMapRotationInfo:
 			{
+				enum
+				{
+					MAPROTATION_NAME,
+					MAPROTATION_LUMPNAME,
+					MAPROTATION_USED,
+					MAPROTATION_MINPLAYERS,
+					MAPROTATION_MAXPLAYERS,
+				};
+
 				ULONG ulPosition = ( args[0] <= 0 ) ? MAPROTATION_GetCurrentPosition() : ( args[0] - 1 );
 				level_info_t *rotationMap = MAPROTATION_GetMap( ulPosition );
 
@@ -7785,7 +7796,7 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 				// If we're checking the current map position, make sure it's the current level too.
 				if (( rotationMap == NULL ) || (( args[0] <= 0 ) && ( stricmp( level.mapname, rotationMap->mapname ) != 0 )))
 				{
-					if (( args[1] == MAPROTATION_Name ) || ( args[1] == MAPROTATION_LumpName ))
+					if (( args[1] == MAPROTATION_NAME ) || ( args[1] == MAPROTATION_LUMPNAME ))
 						return GlobalACSStrings.AddString( "" );
 
 					return 0;
@@ -7793,35 +7804,53 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 
 				switch ( args[1] )
 				{
-					case MAPROTATION_Used:
+					case MAPROTATION_USED:
 						return MAPROTATION_IsUsed( ulPosition );
 
-					case MAPROTATION_MinPlayers:
-					case MAPROTATION_MaxPlayers:
-						return MAPROTATION_GetPlayerLimits( ulPosition, args[1] == MAPROTATION_MaxPlayers );
+					case MAPROTATION_MINPLAYERS:
+					case MAPROTATION_MAXPLAYERS:
+						return MAPROTATION_GetPlayerLimits( ulPosition, args[1] == MAPROTATION_MAXPLAYERS );
 
-					case MAPROTATION_Name:
-					case MAPROTATION_LumpName:
-						return GlobalACSStrings.AddString( args[1] == MAPROTATION_Name ? rotationMap->LookupLevelName().GetChars() : rotationMap->mapname );
+					case MAPROTATION_NAME:
+					case MAPROTATION_LUMPNAME:
+						return GlobalACSStrings.AddString( args[1] == MAPROTATION_NAME ? rotationMap->LookupLevelName().GetChars() : rotationMap->mapname );
 				}
 
 				return 0;
 			}
 
-		case ACSF_GetCurrentMapPosition:
+		case ACSF_GetMapPosition:
 			{
+				enum
+				{
+					MAPPOSITION_CURRENT,
+					MAPPOSITION_NEXT,
+				};
+
 				// [AK] If there's no maplist, return zero.
 				if ( MAPROTATION_GetNumEntries() == 0 )
 					return 0;
 
-				ULONG ulPosition = MAPROTATION_GetCurrentPosition();
-				level_info_t *rotationMap = MAPROTATION_GetMap( ulPosition );
+				const int positionType = args[0];
+				unsigned int position = 0;
 
-				// [AK] Make sure that the current map position is the current level being played.
-				if (( rotationMap == NULL ) || ( stricmp( level.mapname, rotationMap->mapname ) != 0 ))
+				if ( positionType == MAPPOSITION_CURRENT )
+					position = MAPROTATION_GetCurrentPosition( );
+				else if ( positionType == MAPPOSITION_NEXT )
+					position = MAPROTATION_GetNextPosition( );
+				else
 					return 0;
 
-				return ulPosition + 1;
+				// [AK] Make sure that the current map position is the current level being played.
+				if ( positionType == MAPPOSITION_CURRENT )
+				{
+					level_info_t *rotationMap = MAPROTATION_GetMap( position );
+
+					if (( rotationMap == nullptr ) || ( stricmp( level.mapname, rotationMap->mapname ) != 0 ))
+						return 0;
+				}
+
+				return position + 1;
 			}
 
 		case ACSF_GetEventResult:
@@ -8583,7 +8612,7 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 						skinIndex = R_FindSkin( skinName, player->CurrentPlayerClass );
 
 					// [AK] If the skin doesn't exist, return an empty string.
-					if (( skinIndex == player->CurrentPlayerClass ) && ( stricmp( skinName, "Base" ) != 0 ))
+					if (( skinIndex == player->CurrentPlayerClass ) && (( skinName == nullptr ) || ( stricmp( skinName, "Base" ) != 0 )))
 						return GlobalACSStrings.AddString( "" );
 				}
 				// [AK] ...or if we want to know the skin that's visible using without any
@@ -8619,21 +8648,87 @@ doplaysound:			if (funcIndex == ACSF_PlayActorSound)
 				PLAYERCOUNTRY_NAME,
 			};
 
-			if (( PLAYER_IsValidPlayer( args[0] )) && (( NETWORK_GetState( ) != NETSTATE_SERVER ) || ( SERVER_GetClient( args[0] )->bWantHideCountry == false )))
+			if ( PLAYER_IsValidPlayer( args[0] ))
 			{
 				player_t *const player = &players[args[0]];
-				const int type = args[1];
 
-				// [AK] Return the alpha-2 or alpha-3 code of the player's country.
-				if (( type == PLAYERCOUNTRY_ALPHA2 ) || ( type == PLAYERCOUNTRY_ALPHA3 ))
-					return GlobalACSStrings.AddString( NETWORK_GetCountryCodeFromIndex( player->ulCountryIndex, type == PLAYERCOUNTRY_ALPHA3 ));
-				// [AK] ...or the full name of their country.
-				else if ( type == PLAYERCOUNTRY_NAME )
-					return GlobalACSStrings.AddString( NETWORK_GetCountryNameFromIndex( player->ulCountryIndex ));
+				if (( player->ulCountryIndex > 0 ) && (( NETWORK_GetState( ) != NETSTATE_SERVER ) || ( SERVER_GetClient( args[0] )->bWantHideCountry == false )))
+				{
+					const int type = args[1];
+
+					// [AK] Return the alpha-2 or alpha-3 code of the player's country.
+					if (( type == PLAYERCOUNTRY_ALPHA2 ) || ( type == PLAYERCOUNTRY_ALPHA3 ))
+						return GlobalACSStrings.AddString( NETWORK_GetCountryCodeFromIndex( player->ulCountryIndex, type == PLAYERCOUNTRY_ALPHA3 ));
+					// [AK] ...or the full name of their country.
+					else if ( type == PLAYERCOUNTRY_NAME )
+						return GlobalACSStrings.AddString( NETWORK_GetCountryNameFromIndex( player->ulCountryIndex ));
+				}
 			}
 
 			// [AK] Return "N/A" if the arguments are invalid or they're hiding their country.
 			return GlobalACSStrings.AddString( "N/A" );
+		}
+
+		case ACSF_SetNextMapPosition:
+		{
+			const unsigned int position = args[0] - 1;
+
+			if (( position < MAPROTATION_GetNumEntries( )) && ( position != MAPROTATION_GetNextPosition( )))
+			{
+				MAPROTATION_SetNextPosition( position, !!args[1] );
+
+				if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+					SERVERCOMMANDS_SetNextMapPosition( );
+
+				return 1;
+			}
+
+			return 0;
+		}
+
+		case ACSF_GivePlayerMedal:
+		{
+			// [AK] Don't let the clients give medals to players.
+			if ( NETWORK_InClientMode( ))
+				return 0;
+
+			return MEDAL_GiveMedal( args[0], FBehavior::StaticLookupString( args[1] ), !!args[2] );
+		}
+
+		case ACSF_GetPlayerJoinQueuePosition:
+		{
+			return JOINQUEUE_GetPositionInLine( args[0] );
+		}
+
+		case ACSF_SkipJoinQueue:
+		{
+			// [AK] Don't let the clients change the join queue.
+			if ( NETWORK_InClientMode( ) == false )
+			{
+				const unsigned int playerIndex = args[0];
+
+				// [AK] Make sure the intended player is a true spectator.
+				if (( PLAYER_IsValidPlayer( playerIndex )) && ( PLAYER_IsTrueSpectator( &players[playerIndex] )))
+				{
+					// [AK] Don't let any more players join than what's permitted on the server.
+					if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+					{
+						if ( SERVER_CalcNumNonSpectatingPlayers( MAXPLAYERS ) >= static_cast<unsigned>( sv_maxplayers ))
+							return 0;
+					}
+
+					const int joinQueuePosition = JOINQUEUE_GetPositionInLine( playerIndex );
+
+					// [AK] Make sure they're also in the join queue.
+					if ( joinQueuePosition != -1 )
+					{
+						JOINQUEUE_PlayerJoinsAtPosition( joinQueuePosition );
+						return 1;
+					}
+				}
+			}
+
+			return 0;
 		}
 
 		case ACSF_GetActorFloorTexture:
@@ -12281,7 +12376,9 @@ scriptwait:
 
 		case PCD_CHANGELEVEL:
 			{
-				G_ChangeLevel(FBehavior::StaticLookupString(STACK(4)), STACK(3), STACK(2), STACK(1));
+				// [AK] Always disable the CHANGELEVEL_HIDENAME bit here, in case it's enabled.
+				// This is only used for the SetCurrentGameMode ACS function.
+				G_ChangeLevel(FBehavior::StaticLookupString(STACK(4)), STACK(3), STACK(2) & ~CHANGELEVEL_HIDENAME, STACK(1));
 				sp -= 4;
 			}
 			break;
@@ -13207,6 +13304,12 @@ CCMD(acsprofile)
 	ShowProfileData(FuncProfiles, limit, sorter, true);
 }
 
+//*****************************************************************************
+//
+void ACS_ClearLumpHandles( void )
+{
+	ACSLumpHandles.Clear( );
+}
 
 //*****************************************************************************
 //

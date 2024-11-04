@@ -448,16 +448,6 @@ enum
 	TPROP_LoserTheme,
 };
 
-// [AK] Enumeration for GetMapRotationInfo
-enum
-{
-	MAPROTATION_Name = 0,
-	MAPROTATION_LumpName,
-	MAPROTATION_Used,
-	MAPROTATION_MinPlayers,
-	MAPROTATION_MaxPlayers,
-};
-
 class FBehavior
 {
 public:
@@ -1186,6 +1176,7 @@ FArchive &operator<< (FArchive &arc, acsdefered_t *&defer);
 //*****************************************************************************
 //	PROTOTYPES
 
+void	ACS_ClearLumpHandles( void ); // [AK]
 bool	ACS_IsCalledFromConsoleCommand( void );
 bool	ACS_IsEventScript( int script ); // [AK]
 bool	ACS_IsCalledFromScript( void ); // [AK]

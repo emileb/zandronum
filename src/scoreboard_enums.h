@@ -158,6 +158,8 @@ BEGIN_ENUM( COLUMNTYPE_e )
 	ENUM_ELEMENT( COLUMNTYPE_ARTIFACTICON ),
 	// The skill level of a bot.
 	ENUM_ELEMENT( COLUMNTYPE_BOTSKILLICON ),
+	// The connection strength of a client.
+	ENUM_ELEMENT( COLUMNTYPE_CONNECTIONSTRENGTH ),
 	// The full name of the country that the player is connecting from.
 	ENUM_ELEMENT( COLUMNTYPE_COUNTRYNAME ),
 	// The country code (alpha-2 or alpha-3) that the player is connecting from.
@@ -221,9 +223,9 @@ END_ENUM( COLUMNFLAG_e )
 BEGIN_ENUM( SCOREBOARDFLAG_e )
 {
 	// Row text will be printed in the same color as the player's team.
-	ENUM_ELEMENT2( SCOREBOARDFLAG_USETEAMTEXTCOLOR, 0x01 ),
+	ENUM_ELEMENT2( SCOREBOARDFLAG_USETEAMTEXTCOLORS, 0x01 ),
 	// The text color of the headers is automatically used to color the border lines.
-	ENUM_ELEMENT2( SCOREBOARDFLAG_USEHEADERCOLORFORBORDERS, 0x02 ),
+	ENUM_ELEMENT2( SCOREBOARDFLAG_USEHEADERTEXTCOLORFORBORDERS, 0x02 ),
 	// The borders are drawn using textures instead of lines.
 	ENUM_ELEMENT2( SCOREBOARDFLAG_USETEXTUREFORBORDERS, 0x04 ),
 	// Shows the gaps between columns on the row's background.
@@ -240,6 +242,8 @@ BEGIN_ENUM( SCOREBOARDFLAG_e )
 	ENUM_ELEMENT2( SCOREBOARDFLAG_DONTSTRETCHROWHEIGHT, 0x100 ),
 	// Sorts dead spectators underneath live players.
 	ENUM_ELEMENT2( SCOREBOARDFLAG_SEPARATEDEADSPECTATORS, 0x200 ),
+	// Only the displayed player's row background is visible.
+	ENUM_ELEMENT2( SCOREBOARDFLAG_ONLYSHOWLOCALROWBACKGROUND, 0x400 ),
 }
 END_ENUM( SCOREBOARDFLAG_e )
 
@@ -258,7 +262,11 @@ BEGIN_ENUM( COLUMNCMD_e )
 	// The size of the column (can be either the whole width or padding), in pixels.
 	ENUM_ELEMENT( COLUMNCMD_SIZE ),
 	// A list of game modes where this column is only active, if not empty.
-	ENUM_ELEMENT( COLUMNCMD_GAMEMODE ),
+	ENUM_ELEMENT( COLUMNCMD_GAMEMODES ),
+	// A list of game modes that are excepted from the game and earn type checks.
+	ENUM_ELEMENT( COLUMNCMD_PRIORITYGAMEMODES ),
+	// A list of game modes that this column can't be active in.
+	ENUM_ELEMENT( COLUMNCMD_FORBIDDENGAMEMODES ),
 	// The game types this column is only active in (i.e. cooperative, deathmatch, teamgame).
 	ENUM_ELEMENT( COLUMNCMD_GAMETYPE ),
 	// What players must earn for this column to be active (i.e. kills, frags, points, wins).
@@ -305,13 +313,13 @@ BEGIN_ENUM( SCOREBOARDCMD_e )
 	// The font used to draw the rows for each player.
 	ENUM_ELEMENT( SCOREBOARDCMD_ROWFONT ),
 	// The text color of the column's header.
-	ENUM_ELEMENT( SCOREBOARDCMD_HEADERCOLOR ),
+	ENUM_ELEMENT( SCOREBOARDCMD_HEADERTEXTCOLOR ),
 	// The text color used for the rows of all players.
-	ENUM_ELEMENT( SCOREBOARDCMD_ROWCOLOR ),
+	ENUM_ELEMENT( SCOREBOARDCMD_ROWTEXTCOLOR ),
 	// The text color used for the row of the player being spied on.
-	ENUM_ELEMENT( SCOREBOARDCMD_LOCALROWCOLOR ),
+	ENUM_ELEMENT( SCOREBOARDCMD_LOCALROWTEXTCOLOR ),
 	// Similar to the local row color, but only while watching a demo.
-	ENUM_ELEMENT( SCOREBOARDCMD_LOCALROWDEMOCOLOR ),
+	ENUM_ELEMENT( SCOREBOARDCMD_LOCALROWDEMOTEXTCOLOR ),
 	// The opacity of the contents (e.g. header/row text, borders, and margins) on the scoreboard.
 	ENUM_ELEMENT( SCOREBOARDCMD_CONTENTALPHA ),
 	// The opacity of the row's text for dead players.
@@ -383,6 +391,8 @@ BEGIN_ENUM( MARGINCMD_e )
 	ENUM_ELEMENT( MARGINCMD_DRAWCOLOR ),
 	// Draws a graphic or image somewhere in the margin.
 	ENUM_ELEMENT( MARGINCMD_DRAWTEXTURE ),
+	// Draws all the medals that the player has earned.
+	ENUM_ELEMENT( MARGINCMD_DRAWMEDALS ),
 	// Executes a block if the current game is a network game.
 	ENUM_ELEMENT( MARGINCMD_IFONLINEGAME ),
 	// Executes a block if the intermission screen is being shown.
@@ -399,6 +409,8 @@ BEGIN_ENUM( MARGINCMD_e )
 	ENUM_ELEMENT( MARGINCMD_IFSPECTATOR ),
 	// Executes a block if the local player is specifically a dead spectator.
 	ENUM_ELEMENT( MARGINCMD_IFDEADSPECTATOR ),
+	// Executes a block if the current player has earned any medals.
+	ENUM_ELEMENT( MARGINCMD_IFPLAYERHASMEDALS ),
 	// Executes a block when any of the given game modes are being played.
 	ENUM_ELEMENT( MARGINCMD_IFGAMEMODE ),
 	// Executes a block when any of the given game types are being played.

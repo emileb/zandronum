@@ -84,6 +84,7 @@
 
 static	ULONG		invasion_GetNumThingsThisWave( ULONG ulNumOnFirstWave, ULONG ulWave, bool bMonster );
 static	void		invasion_BuildCurrentWaveString( void ); // [AK]
+static	void		invasion_RespawnSpectatorsAndReplenishLives( const bool respawnDeadPlayers ); // [AK]
 
 //*****************************************************************************
 //	VARIABLES
@@ -97,6 +98,37 @@ static	unsigned int		g_NumBossMonsters = 0;
 static	bool				g_bIncreaseNumMonstersOnSpawn = true;
 static	FString				g_CurrentWaveString; // [AK]
 static	std::vector<AActor*> g_MonsterCorpsesFromPreviousWave;
+
+//*****************************************************************************
+//	CONSOLE VARIABLES
+
+CVAR( Int, sv_invasioncountdowntime, 10, CVAR_ARCHIVE | CVAR_GAMEPLAYSETTING )
+CVAR( Bool, sv_usemapsettingswavelimit, true, CVAR_ARCHIVE | CVAR_GAMEPLAYSETTING )
+
+CUSTOM_CVAR( Int, wavelimit, 0, CVAR_CAMPAIGNLOCK | CVAR_SERVERINFO | CVAR_GAMEPLAYSETTING )
+{
+	if ( self >= 256 )
+		self = 255;
+	if ( self < 0 )
+		self = 0;
+
+	// [AK] Update the clients and update the server console.
+	SERVER_SettingChanged( self, true );
+}
+
+// [AK] Allows (dead) spectators to spawn at the start of a new wave in survival invasion.
+CUSTOM_CVAR( Bool, sv_respawninsurvivalinvasion, false, CVAR_ARCHIVE | CVAR_SERVERINFO | CVAR_GAMEPLAYSETTING )
+{
+	// [AK] Respawn any (dead) spectators if necessary, but not dead players.
+	if (( self ) && ( NETWORK_InClientMode( ) == false ))
+	{
+		if (( invasion ) && ( sv_maxlives > 0 ) && ( INVASION_PreventPlayersFromJoining( ) == false ))
+			invasion_RespawnSpectatorsAndReplenishLives( false );
+	}
+
+	// [AK] Notify the clients about the change.
+	SERVER_SettingChanged( self, false );
+}
 
 //*****************************************************************************
 //	STRUCTURES
@@ -689,8 +721,13 @@ void INVASION_Tick( void )
 					else
 						INVASION_StartCountdown(( 10 * TICRATE ) - 1 );
 
-					// [AK] Respawn any dead players and pop the join queue before starting the next wave.
-					GAMEMODE_RespawnDeadSpectatorsAndPopQueue( );
+					// [AK] Respawn any dead spectators (and dead players)
+					// and pop the join queue before starting the next wave.
+					if (( sv_maxlives > 0 ) && ( sv_respawninsurvivalinvasion ))
+						invasion_RespawnSpectatorsAndReplenishLives( true );
+					// [AK] Respawn only dead players, but not dead spectators.
+					else
+						GAMEMODE_RespawnDeadPlayers( PST_DEAD, PST_REBORN );
 				}
 			}
 		}
@@ -892,6 +929,8 @@ void INVASION_BeginWave( ULONG ulWave )
 	// We're now in the middle of the invasion!
 	if ( NETWORK_InClientMode() == false )
 	{
+		// [AK] Respawn any players that died during the countdown, but don't replenish their lives.
+		GAMEMODE_RespawnDeadPlayers( PST_DEAD, PST_REBORN );
 		INVASION_SetState( IS_INPROGRESS );
 	}
 
@@ -1175,6 +1214,18 @@ void INVASION_DoWaveComplete( void )
 	// Put the invasion state in the win sequence state.
 	if ( NETWORK_InClientMode() == false )
 	{
+		// [AK] In survival invasion, any players that are still dead and haven't
+		// respawned at this point must lose one life. They won't lose a life
+		// if they respawn when a wave is complete.
+		if ( sv_maxlives > 0 )
+		{
+			for ( unsigned int i = 0; i < MAXPLAYERS; i++ )
+			{
+				if (( playeringame[i] ) && ( players[i].playerstate == PST_DEAD ) && ( players[i].ulLivesLeft > 0 ))
+					PLAYER_SetLivesLeft( &players[i], players[i].ulLivesLeft - 1 );
+			}
+		}
+
 		INVASION_SetState( IS_WAVECOMPLETE );
 	}
 
@@ -1244,7 +1295,7 @@ void INVASION_SetState( INVASIONSTATE_e State )
 		// [BB] Respawn any players who were downed during the previous round.
 		// [BB] INVASION_SetState ( IS_WAITINGFORPLAYERS ) may also be called if invasion is false.
 		if ( invasion )
-			GAMEMODE_RespawnDeadSpectatorsAndPopQueue();
+			GAMEMODE_RespawnDeadPlayersAndPopQueue( );
 
 		// Nothing else to do here if we're not in invasion mode.
 		if ( 1 )//( invasion == false )
@@ -1444,8 +1495,18 @@ void INVASION_UpdateMonsterCount( AActor* pActor, bool removeMonster )
 //
 bool INVASION_PreventPlayersFromJoining( void )
 {
+	const INVASIONSTATE_e state = INVASION_GetState( );
+
 	// [BB] Invasion with (sv_maxlives == 0) allows unlimited respawns.
-	return ( invasion && ( sv_maxlives > 0 ) && ( INVASION_GetState() != IS_WAITINGFORPLAYERS ) && ( INVASION_GetState() != IS_FIRSTCOUNTDOWN ) );
+	if (( invasion ) && ( sv_maxlives > 0 ) && ( state != IS_WAITINGFORPLAYERS ) && ( state != IS_FIRSTCOUNTDOWN ))
+	{
+		// [AK] In survival invasion, spectators can join at the start of a new
+		// wave if sv_respawninsurvivalinvasion is enabled.
+		if (( sv_respawninsurvivalinvasion == false ) || (( state != IS_WAVECOMPLETE ) && ( state != IS_COUNTDOWN )))
+			return true;
+	}
+
+	return false;
 }
 
 //*****************************************************************************
@@ -1627,17 +1688,16 @@ static void invasion_BuildCurrentWaveString( void )
 }
 
 //*****************************************************************************
-//	CONSOLE COMMANDS/VARIABLES
-
-CVAR( Int, sv_invasioncountdowntime, 10, CVAR_ARCHIVE | CVAR_GAMEPLAYSETTING );
-CUSTOM_CVAR( Int, wavelimit, 0, CVAR_CAMPAIGNLOCK | CVAR_SERVERINFO | CVAR_GAMEPLAYSETTING )
+//
+static void invasion_RespawnSpectatorsAndReplenishLives( const bool respawnDeadPlayers )
 {
-	if ( self >= 256 )
-		self = 255;
-	if ( self < 0 )
-		self = 0;
+	const unsigned int maxLives = GAMEMODE_GetMaxLives( ) - 1;
+	GAMEMODE_RespawnDeadPlayersAndPopQueue( PST_REBORNNOINVENTORY, respawnDeadPlayers ? PST_REBORN : PST_DEAD );
 
-	// [AK] Update the clients and update the server console.
-	SERVER_SettingChanged( self, true );
+	// [AK] Make sure that everyone's lives are fully replenished.
+	for ( unsigned int i = 0; i < MAXPLAYERS; i++ )
+	{
+		if (( playeringame[i] ) && ( players[i].bSpectating == false ) && ( players[i].ulLivesLeft != maxLives ))
+			PLAYER_SetLivesLeft( &players[i], maxLives );
+	}
 }
-CVAR( Bool, sv_usemapsettingswavelimit, true, CVAR_ARCHIVE | CVAR_GAMEPLAYSETTING );

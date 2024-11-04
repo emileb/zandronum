@@ -52,6 +52,7 @@ Column "Points"
 
 	Alignment = Right
 	EarnType = Points
+	ForbiddenGameModes = Domination
 	GameType = Deathmatch, TeamGame
 	ShortName = "Pts"
 	Size = 16
@@ -64,6 +65,7 @@ Column "Wins"
 
 	Alignment = Right
 	EarnType = Wins
+	PriorityGameModes = Duel
 	GameType = Deathmatch, TeamGame
 	Size = 16
 }
@@ -206,12 +208,23 @@ Column "ArtifactIcon"
 
 	Alignment = Center
 	ClipRectHeight = -2
-	GameMode = Terminator, Possession, TeamPossession, CTF, OneFlagCTF, Skulltag
+	GameModes = Terminator, Possession, TeamPossession, CTF, OneFlagCTF, Skulltag
 	Size = 13
 }
 
 Column "BotSkillIcon"
 {
+	AddFlag DONTSHOWHEADER
+	AddFlag ALWAYSUSESHORTESTWIDTH
+	AddFlag DISABLEIFEMPTY
+
+	Alignment = Center
+	ClipRectHeight = -2
+}
+
+Column "ConnectionStrength"
+{
+	AddFlag ONLINEONLY
 	AddFlag DONTSHOWHEADER
 	AddFlag ALWAYSUSESHORTESTWIDTH
 	AddFlag DISABLEIFEMPTY
@@ -268,24 +281,59 @@ Scoreboard
 			// [AK] Draw the name of the current game mode and level.
 			DrawString( value = gamemode + " - " + levellump + ": " + levelname, textcolor = "Gold", bottompadding = 1 )
 
-			// Draw the time, frags, points, or kills we have left until the level ends.
-			DrawString( value = limitstrings, textcolor = "Grey", bottompadding = 1 )
-
-			// Draw the team scores and their relation (tied, red leads, etc).
-			IfPlayersOnTeams( true ) && IfEarnType( Frags, Points, Wins )
-			{
-				DrawString( value = pointstring, textcolor = "Grey", bottompadding = 1 )
-			}
-			// Draw my rank and my frags, points, etc. Don't draw it if we're in the intermission.
-			Else IfIntermission( false ) && IfShouldShowRank( true )
-			{
-				DrawString( value = placestring, textcolor = "Grey", bottompadding = 1 )
-			}
-
 			// [JS] Intermission countdown display.
-			IfIntermission( true ) && IfOnlineGame( true ) && IfCVar( cl_intermissiontimer == true )
+			IfIntermission( true )
 			{
-				DrawString( value = "Entering " + nextlevellump + ": " + nextlevelname + " in " + intermissiontimeleft + " second(s)", textcolor = "Green" )
+				IfOnlineGame( true ) && IfCVar( cl_intermissiontimer == true )
+				{
+					DrawString( value = "Entering " + nextlevellump + ": " + nextlevelname + pluralize( " in # second{s}", intermissiontimeleft ), textcolor = "Green" )
+				}
+			}
+			Else
+			{
+				// Draw the time, frags, points, or kills we have left until the level ends.
+				DrawString( value = limitstrings, textcolor = "Grey", bottompadding = 1 )
+
+				// [AK] Draw the damage factor in cooperative games when it isn't set to its default value.
+				IfGameType( Cooperative ) && IfCVar( sv_coop_damagefactor != 1.0 )
+				{
+					DrawString( value = "\nDamage factor is " + cvar( sv_coop_damagefactor, 2 ), textcolor = "Grey", bottompadding = 1 )
+				}
+			}
+
+			IfEarnType( Frags, Points, Wins )
+			{
+				// Draw the team scores and their relation (tied, red leads, etc).
+				IfPlayersOnTeams( true )
+				{
+					DrawString( value = "\n" + pointstring, textcolor = "Grey", bottompadding = 1 )
+				}
+				// [AK] Draw whoever's leading during intermissions or when we're a true spectator looking at ourselves.
+				Else IfIntermission( true ) || IfSpectator( true ) && IfDeadSpectator( false ) && IfSpying( false )
+				{
+					// [AK] Include the champion string in duel when there's a duel limit.
+					IfIntermission( false ) && IfGameMode( Duel ) && IfCVar( duellimit > 0 )
+					{
+						DrawString( value = "\n" + championstring + "\n" + playerleadstring, textcolor = "Grey", bottompadding = 1 )
+					}
+					Else
+					{
+						DrawString( value = "\n" + playerleadstring, textcolor = "Grey", bottompadding = 1 )
+					}
+				}
+				// Draw my rank and my frags, points, etc. Don't draw it if we're in the intermission.
+				Else IfShouldShowRank( true )
+				{
+					// [AK] Include the champion string in duel when there's a duel limit.
+					IfIntermission( false ) && IfGameMode( Duel ) && IfCVar( duellimit > 0 )
+					{
+						DrawString( value = "\n" + championstring + "\n" + placestring, textcolor = "Grey", bottompadding = 1 )
+					}
+					Else
+					{
+						DrawString( value = "\n" + placestring, textcolor = "Grey", bottompadding = 1 )
+					}
+				}
 			}
 		}
 	}
@@ -302,7 +350,7 @@ Scoreboard
 				{
 					DrawString( value = teamname, font = "BigFont", textcolor = teamtextcolor, bottompadding = 1 )
 
-					IfPlayersHaveLives( false )
+					IfPlayersHaveLives( false ) || IfIntermission( true )
 					{
 						DrawString( value = "Total Players: " + teamplayercount, textcolor = teamtextcolor, bottompadding = 1 )
 					}
@@ -353,12 +401,60 @@ Scoreboard
 		}
 	}
 
+	Footer
+	{
+		IfEarnType( Medals ) && IfCVar( cl_medals == true ) && IfCVar( sv_nomedals == false )
+		{
+			IfSpectator( false ) || IfSpying( true )
+			{
+				IfPlayerHasMedals( true )
+				{
+					MultiLineBlock( horizontalalign = center, y = 2 )
+					{
+						RowBlock( bottompadding = 1 )
+						{
+							IfSpying( true )
+							{
+								DrawString( value = playername + " has", textcolor = "Grey" )
+							}
+							Else
+							{
+								DrawString( value = "You have", textcolor = "Grey" )
+							}
+
+							DrawString( value = " earned the following medals:", textcolor = "Grey" )
+						}
+
+						// [AK] Use a width of INT_MAX to ensure the medals are drawn across the entire margin.
+						DrawMedals( maxwidth = 2147483648, textcolor = "Grey", columngap = 5, rowgap = 1, textspacing = 1 )
+					}
+				}
+				Else
+				{
+					RowBlock( bottompadding = 1, horizontalalign = center, y = 2 )
+					{
+						IfSpying( true )
+						{
+							DrawString( value = playername + " has", textcolor = "Grey" )
+						}
+						Else
+						{
+							DrawString( value = "You have", textcolor = "Grey" )
+						}
+
+						DrawString( value = " not yet earned any medals.", textcolor = "Grey" )
+					}
+				}
+			}
+		}
+	}
+
 	HeaderFont = "SmallFont"
 	RowFont = "SmallFont"
-	HeaderColor = "Grey"
-	RowColor = "Grey"
-	LocalRowColor = "Green"
-	LocalRowDemoColor = "Gold"
+	HeaderTextColor = "Grey"
+	RowTextColor = "Grey"
+	LocalRowTextColor = "Green"
+	LocalRowDemoTextColor = "Gold"
 	BackgroundColor = "00 00 00"
 	BackgroundAmount = 0.5
 	BackgroundBorderSize = 4
@@ -375,9 +471,9 @@ Scoreboard
 	ColumnPadding = 1
 	HeaderHeight = -2
 	RowHeight = -2
-	ColumnOrder = "BotSkillIcon", "Index", "ReadyToGoAndStatusIcons", "ArtifactIcon", "PlayerIcon", "CountryFlag", "Player", "Vote", "Handicap", "Wins", "Points", "Frags", "Kills", "Damage", "Lives", "Secrets", "Deaths", "Time", "Ping"
+	ColumnOrder = "BotSkillIcon", "Index", "ReadyToGoAndStatusIcons", "ArtifactIcon", "PlayerIcon", "CountryFlag", "Player", "Vote", "Handicap", "Wins", "Points", "Frags", "Kills", "Damage", "Lives", "Secrets", "Deaths", "Time", "Ping", "ConnectionStrength"
 	RankOrder = "Wins", "Points", "Frags", "Kills", "Damage", "Lives", "Secrets", "Deaths"
 
-	AddFlag UseHeaderColorForBorders
+	AddFlag UseHeaderTextColorForBorders
 	AddFlag SeparateDeadSpectators
 }

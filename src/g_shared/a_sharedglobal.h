@@ -182,14 +182,18 @@ class AFloatyIcon : public AActor
 {
 	DECLARE_CLASS( AFloatyIcon, AActor )
 public:
-	void		Serialize( FArchive &arc );
-	void		BeginPlay( );
-	void		Tick( );
+	void Serialize( FArchive &arc );
+	void BeginPlay( );
+	void Tick( );
 
-	void		SetTracer( AActor *pTracer );
+	void SetTracer( AActor *pTracer );
 
-	LONG		lTick;
-	bool		bTeamItemFloatyIcon;
+	LONG lTick;
+	bool bTeamItemFloatyIcon;
+	unsigned int currentSprite;
+
+protected:
+	void CopyTracerTranslucency( );
 };
 
 class DEarthquake : public DThinker

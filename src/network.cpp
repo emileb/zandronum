@@ -249,6 +249,8 @@ static	SOCKET			network_AllocateSocket( void );
 static	bool			network_BindSocketToPort( SOCKET Socket, ULONG ulInAddr, USHORT usPort, bool bReUse );
 static	bool			network_GenerateLumpMD5HashAndWarnIfNeeded( const int LumpNum, const char *LumpName, FString &MD5Hash );
 static	void			network_CheckIfDuplicateLump( const int LumpNum ); // [AK]
+static	void			network_AddSpritesToList( std::set<AUTHENTICATELUMP_s> &list, const char *name, const std::set<char> frames, const LumpAuthenticationMode mode ); // [AK]
+static	void			network_ParseLumpAuthenticationMode( FScanner &sc, LumpAuthenticationMode &mode );
 
 //*****************************************************************************
 //	FUNCTIONS
@@ -396,8 +398,14 @@ void NETWORK_Construct( USHORT usPort, bool bAllocateLANSocket )
 		{ "DEHACKED", ALL_LUMPS, ns_global },
 		{ "GAMEMODE", ALL_LUMPS, ns_global },
 		{ "MAPINFO", ALL_LUMPS, ns_global },
-		{ "AUTHINFO", ALL_LUMPS, ns_global }
+		{ "AUTHINFO", ALL_LUMPS, ns_global },
+		{ "VOTEINFO", ALL_LUMPS, ns_global },
+		{ "MEDALDEF", ALL_LUMPS, ns_global }
 	};
+
+	// [AK] Add all "ALLYA" and "ENEMA" sprites to the authentication list.
+	network_AddSpritesToList( lumpsToAuthenticate, "ALLY", { 'A' }, LAST_LUMP );
+	network_AddSpritesToList( lumpsToAuthenticate, "ENEM", { 'A' }, LAST_LUMP );
 
 	// [AK] Parse any loaded AUTHINFO lumps, which might add new lumps to the authentication list.
 	if ( Wads.CheckNumForName( "AUTHINFO" ) != -1 )
@@ -410,70 +418,106 @@ void NETWORK_Construct( USHORT usPort, bool bAllocateLANSocket )
 		while (( currentLump = Wads.FindLump( "AUTHINFO", &lastLump )) != -1 )
 		{
 			FScanner sc( currentLump );
-			AUTHENTICATELUMP_s authenticatingLump;
 
 			while ( sc.GetString( ) )
 			{
-				if ( stricmp( sc.String, "addlump" ) == 0 )
-				{
-					FString NameSpaceText = authenticatingLump.GetNameSpace( sc );
+				std::set<AUTHENTICATELUMP_s> parsedLumps;
+				FString nameSpaceText;
+				bool adding = false;
 
-					sc.MustGetString( );
-					authenticatingLump.Name = sc.String;
-					sc.MustGetString( );
-
-					if ( stricmp( sc.String, "last" ) == 0 )
-						authenticatingLump.Mode = LAST_LUMP;
-					else if ( stricmp( sc.String, "all" ) == 0 )
-						authenticatingLump.Mode = ALL_LUMPS;
-					else
-						sc.ScriptError( "Unknown authentication mode \"%s\". It must be either \"last\" or \"all\".", sc.String );
-
-					// [AK] Engineside protected lumps like COLORMAP, PLAYPAL, DECORATE, etc. cannot be modified.
-					if ( lumpsToAuthenticate.find( authenticatingLump ) != lumpsToAuthenticate.end( ))
-					{
-						sc.ScriptMessage( "\"%s\" is an engineside protected lump and cannot be modified.", authenticatingLump.Name.c_str( ));
-						continue;
-					}
-
-					auto result = customLumpsToAuthenticate.insert( authenticatingLump );
-
-					// [AK] If this lump is already on the list, just update the authentication mode. Also print
-					// a message to indicate that the lump was defined twice.
-					if ( result.second == false )
-					{
-						customLumpsToAuthenticate.erase( authenticatingLump );
-						customLumpsToAuthenticate.insert( authenticatingLump );
-
-						sc.ScriptMessage( "\"%s\" in the %s namespace is already on the authentication list.", authenticatingLump.Name.c_str( ), NameSpaceText.GetChars( ));
-					}
-				}
-				else if ( stricmp( sc.String, "removelump" ) == 0 )
-				{
-					authenticatingLump.GetNameSpace( sc );
-
-					sc.MustGetToken( TK_StringConst );
-					authenticatingLump.Name = sc.String;
-
-					// [AK] Engineside protected lumps like COLORMAP, PLAYPAL, DECORATE, etc. cannot be removed.
-					// Technically speaking, it shouldn't be possible to remove these lumps anyways because they're
-					// in a separate list, but the user should at least be made aware of this.
-					if ( lumpsToAuthenticate.find( authenticatingLump ) != lumpsToAuthenticate.end( ) )
-					{
-						sc.ScriptMessage( "\"%s\" is an engineside protected lump and cannot be removed.", authenticatingLump.Name.c_str( ));
-						continue;
-					}
-
-					// [AK] Remove this lump from the list.
-					customLumpsToAuthenticate.erase( authenticatingLump );
-				}
-				else if ( stricmp( sc.String, "clearlumps" ) == 0 )
+				if ( stricmp( sc.String, "clearlumps" ) == 0 )
 				{
 					customLumpsToAuthenticate.clear( );
+					continue;
+				}
+				else if (( stricmp( sc.String, "addlump" ) == 0 ) || ( stricmp( sc.String, "removelump" ) == 0 ))
+				{
+					AUTHENTICATELUMP_s authenticatingLump;
+
+					adding = ( stricmp( sc.String, "addlump" ) == 0 );
+					nameSpaceText = authenticatingLump.GetNameSpace( sc );
+
+					sc.MustGetString( );
+					authenticatingLump.Name = sc.String;
+
+					// [AK] Parse the authentication mode if adding a new lump.
+					if ( adding )
+						network_ParseLumpAuthenticationMode( sc, authenticatingLump.Mode );
+
+					parsedLumps.insert( authenticatingLump );
+				}
+				else if (( stricmp( sc.String, "addsprites" ) == 0 ) || ( stricmp( sc.String, "removesprites" ) == 0 ))
+				{
+					std::set<char> frames;
+					LumpAuthenticationMode mode = LAST_LUMP;
+
+					adding = ( stricmp( sc.String, "addsprites" ) == 0 );
+					nameSpaceText = "sprite";
+
+					sc.MustGetString( );
+
+					// [AK] The sprite's name must be four characters long.
+					if ( sc.StringLen != 4 )
+						sc.ScriptError( "Invalid sprite name \"%s\". It must be 4 characters long.", sc.String );
+
+					const FString spriteName = sc.String;
+					sc.MustGetString( );
+
+					// [AK] Parse the listed frames, unless "all" of them should be authenticated.
+					if ( stricmp( sc.String, "all" ) != 0 )
+					{
+						for ( int i = 0; i < sc.StringLen; i++ )
+						{
+							sc.String[i] = toupper( sc.String[i] );
+
+							if ( static_cast<unsigned>( sc.String[i] - 'A' ) >= MAX_SPRITE_FRAMES )
+								sc.ScriptError( "Invalid sprite frame '%c'.", sc.String[i] );
+
+							frames.insert( sc.String[i] );
+						}
+					}
+
+					// [AK] Parse the authentication mode if adding new sprites.
+					if ( adding )
+						network_ParseLumpAuthenticationMode( sc, mode );
+
+					network_AddSpritesToList( parsedLumps, spriteName.GetChars( ), frames, mode );
 				}
 				else
 				{
 					sc.ScriptError( "Unknown option '%s', on line %d in AUTHINFO.", sc.String, sc.Line );
+				}
+
+				for ( std::set<AUTHENTICATELUMP_s>::iterator it = parsedLumps.begin( ); it != parsedLumps.end( ); it++ )
+				{
+					// [AK] Engineside protected lumps like COLORMAP, PLAYPAL, DECORATE, etc. cannot be modified
+					// or removed. Technically speaking, it shouldn't be possible to remove these lumps anyways
+					// because they're in a separate list, but the user should at least be made aware of this.
+					if ( lumpsToAuthenticate.find( *it ) != lumpsToAuthenticate.end( ))
+					{
+						sc.ScriptMessage( "\"%s\" is an engineside protected lump and cannot be %s.", it->Name.c_str( ), adding ? "modified" : "removed" );
+						continue;
+					}
+
+					if ( adding )
+					{
+						auto result = customLumpsToAuthenticate.insert( *it );
+
+						// [AK] If this lump is already on the list, just update the authentication mode (elements
+						// within a set are constant, so the existing entry must be removed first, and the new entry
+						// added in afterward). Also print a message to indicate that the lump was defined twice.
+						if ( result.second == false )
+						{
+							customLumpsToAuthenticate.erase( *it );
+							customLumpsToAuthenticate.insert( *it );
+
+							sc.ScriptMessage( "\"%s\" in the %s namespace is already on the authentication list.", it->Name.c_str( ), nameSpaceText.GetChars( ));
+						}
+					}
+					else
+					{
+						customLumpsToAuthenticate.erase( *it );
+					}
 				}
 			}
 		}
@@ -1136,10 +1180,16 @@ bool NETWORK_IsGeoIPAvailable ( void )
 ULONG NETWORK_GetCountryIndexFromAddress( NETADDRESS_s Address )
 {
 	const char *addressString = Address.ToStringNoPort();
-	if ( ( strnicmp( "10.", addressString, 3 ) == 0 ) ||
-		 ( strnicmp( "192.168.", addressString, 8 ) == 0 ) ||
-		 ( strnicmp( "127.", addressString, 4 ) == 0 ) )
+
+	// [AK] IP addresses ranging between 172.16.0.0 to 172.31.255.255 are also
+	// private and should be treated as LAN.
+	if ((( Address.abIP[0] == 172 ) && ( Address.abIP[1] >= 16 ) && ( Address.abIP[1] <= 31 )) ||
+		( strnicmp( "10.", addressString, 3 ) == 0 ) ||
+		( strnicmp( "192.168.", addressString, 8 ) == 0 ) ||
+		( strnicmp( "127.", addressString, 4 ) == 0 ))
+	{
 		return COUNTRYINDEX_LAN;
+	}
 
 	if ( NETWORK_IsGeoIPAvailable() == false )
 		return 0;
@@ -1243,6 +1293,8 @@ bool network_GenerateLumpMD5HashAndWarnIfNeeded( const int LumpNum, const char *
 
 }
 
+//*****************************************************************************
+//
 void network_CheckIfDuplicateLump( const int LumpNum )
 {
 	const char *lumpName = Wads.GetLumpFullName( LumpNum );
@@ -1268,6 +1320,82 @@ void network_CheckIfDuplicateLump( const int LumpNum )
 			}
 		}
 	}
+}
+
+//*****************************************************************************
+//
+void network_AddSpritesToList( std::set<AUTHENTICATELUMP_s> &list, const char *name, const std::set<char> frames, const LumpAuthenticationMode mode )
+{
+	char lumpName[9];
+
+	if ( name == nullptr )
+		return;
+
+	// [AK] Search all of the loaded sprite lumps. Doing this isn't efficient,
+	// but since this only happens during startup, it shouldn't be a problem.
+	for ( int lump = 0; lump < Wads.GetNumLumps( ); lump++ )
+	{
+		if ( Wads.GetLumpNamespace( lump ) != ns_sprites )
+			continue;
+
+		Wads.GetLumpName( lumpName, lump );
+		lumpName[sizeof( lumpName ) - 1] = 0;
+
+		// [AK] Skip lumps that aren't using the sprite's name.
+		if ( strnicmp( lumpName, name, 4 ) != 0 )
+			continue;
+
+		bool lumpIsValidSprite = false;
+
+		// [AK] Verify that the lump uses the proper naming convention for sprites.
+		// The frame and rotation (e.g. XXXXA1 or XXXXA2A8) must be valid.
+		for ( unsigned int i = 4; i <= 6; i += 2 )
+		{
+			if ( static_cast<unsigned>( lumpName[i] - 'A' ) < MAX_SPRITE_FRAMES )
+			{
+				if ( R_IsCharUsuableAsSpriteRotation( lumpName[i + 1] ))
+				{
+					lumpIsValidSprite = true;
+					break;
+				}
+			}
+		}
+
+		if ( lumpIsValidSprite == false )
+			continue;
+
+		// [AK] If only certain frames of the sprite should be authenticated,
+		// check that the lump's name uses at least one the desired frames.
+		if (( frames.size( ) > 0 ) && ( frames.find( lumpName[4] ) == frames.end( )) && ( frames.find( lumpName[6] ) == frames.end( )))
+			continue;
+
+		AUTHENTICATELUMP_s authenticatingLump = { lumpName, mode, ns_sprites };
+		const auto result = list.insert( authenticatingLump );
+
+		// [AK] If this lump is already on the list, just update the authentication
+		// mode. Note that elements within a set are constant, so the mode can't
+		// be updated directly. The existing entry must be removed first, and
+		// the new entry added in afterward.
+		if (( result.second == false ) && ( result.first->Mode != mode ))
+		{
+			list.erase( authenticatingLump );
+			list.insert( authenticatingLump );
+		}
+	}
+}
+
+//*****************************************************************************
+//
+void network_ParseLumpAuthenticationMode( FScanner &sc, LumpAuthenticationMode &mode )
+{
+	sc.MustGetString( );
+
+	if ( stricmp( sc.String, "last" ) == 0 )
+		mode = LAST_LUMP;
+	else if ( stricmp( sc.String, "all" ) == 0 )
+		mode = ALL_LUMPS;
+	else
+		sc.ScriptError( "Unknown authentication mode \"%s\". It must be either \"last\" or \"all\".", sc.String );
 }
 
 //*****************************************************************************

@@ -1636,10 +1636,7 @@ void A_CustomFireBullets( AActor *self,
 	}
 
 	// [BB] If the player hit a player with his attack, potentially give him a medal.
-	if ( player->bStruckPlayer )
-		PLAYER_StruckPlayer( player );
-	else
-		player->ulConsecutiveHits = 0;
+	PLAYER_CheckStruckPlayer( self );
 
 	// [BB] Tell all the bots that a weapon was fired.
 	// This is more or less a hack, so that the bots are notified when the
@@ -2208,6 +2205,31 @@ DEFINE_ACTION_FUNCTION_PARAMS(AActor, A_GiveToSiblings)
 			if (mo->master == self->master && mo != self) DoGiveInventory(mo, PUSH_PARAMINFO);
 		}
 	}
+}
+
+//===========================================================================
+//
+// [AK] A_GivePlayerMedal
+//
+//===========================================================================
+
+DEFINE_ACTION_FUNCTION_PARAMS( AActor, A_GivePlayerMedal )
+{
+	ACTION_PARAM_START( 3 );
+	ACTION_PARAM_NAME( medal, 0 );
+	ACTION_PARAM_BOOL( silent, 1 );
+	ACTION_PARAM_INT( receiver, 2 );
+
+	bool result = false;
+
+	// [AK] Use one of the actor's pointers to determine who gets the medal.
+	COPY_AAPTR_NOT_NULL( self, self, receiver );
+
+	// [AK] Don't let the clients give medals to players.
+	if (( NETWORK_InClientMode( ) == false ) && ( self->player != nullptr ))
+		result = MEDAL_GiveMedal( self->player - players, medal, silent );
+
+	ACTION_SET_RESULT( result );
 }
 
 //===========================================================================
@@ -5847,8 +5869,10 @@ DEFINE_ACTION_FUNCTION_PARAMS(AActor, A_RadiusGive)
 	FBlockThingsIterator it(FBoundingBox(self->x, self->y, distance));
 	double distsquared = double(distance) * double(distance);
 
+	TThinkerIterator<AActor> it_missiles; // [JM] Iterator for missiles. (Temporary, until Zandronum catches up with later ZDoom revisions.)
+
 	AActor *thing;
-	while ((thing = it.Next()))
+	while ((thing = (flags & RGF_MISSILES) ? it_missiles.Next() : it.Next())) // [JM] Use TThinkerIterator for RGF_MISSILES, like later ZDoom revisions.
 	{
 		// Don't give to inventory items
 		if (thing->flags & MF_SPECIAL)
@@ -6018,4 +6042,28 @@ DEFINE_ACTION_FUNCTION_PARAMS(AActor, A_DropItem)
 	ACTION_PARAM_INT(chance, 2);
 
 	P_DropItem(self, spawntype, amount, chance);
+}
+
+//==========================================================================
+//
+// [JM] A_ClientsideACSExecute
+//
+//==========================================================================
+
+DEFINE_ACTION_FUNCTION_PARAMS(AActor, A_ClientsideACSExecute)
+{
+	ACTION_PARAM_START(5);
+
+	ACTION_PARAM_NAME(scriptname, 0);
+	ACTION_PARAM_INT(arg1, 1);
+	ACTION_PARAM_INT(arg2, 2);
+	ACTION_PARAM_INT(arg3, 3);
+	ACTION_PARAM_INT(arg4, 4);
+
+	if (NETWORK_GetState() > NETSTATE_CLIENT || !ACS_IsScriptClientSide(-scriptname))
+		return;
+
+	bool res = !!P_ExecuteSpecial(ACS_ExecuteWithResult, NULL, self, false, -scriptname, arg1, arg2, arg3, arg4);
+
+	ACTION_SET_RESULT(res);
 }

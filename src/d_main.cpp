@@ -665,6 +665,8 @@ CVAR (Flag, sv_dontkeepjoinqueue, zadmflags, ZADF_DONT_KEEP_JOIN_QUEUE);
 CVAR (Flag, sv_donthidestats, zadmflags, ZADF_DONT_HIDE_STATS);
 CVAR (Flag, sv_dontoverrideplayercolors, zadmflags, ZADF_DONT_OVERRIDE_PLAYER_COLORS);
 CVAR (Flag, sv_nospawntelefog, zadmflags, ZADF_NO_SPAWN_TELEFOG);
+CVAR (Flag, sv_noallyicons, zadmflags, ZADF_NO_ALLY_ICONS);
+CVAR (Flag, sv_noenemyicons, zadmflags, ZADF_NO_ENEMY_ICONS);
 
 // Old name kept for compatibility
 CVAR (Flag, sv_forcegldefaults,		zadmflags, ZADF_FORCE_VIDEO_DEFAULTS);
@@ -1075,16 +1077,6 @@ drawfullconsole:
 
 				// Render any medals the player might have been awarded.
 				MEDAL_Render( );
-
-				// Render all medals the player currently has.
-				// [AK] Only on game modes that players can earn medals in.
-				if (( Button_ShowMedals.bDown ) && ( cooperative == false ))
-				{
-					if (( players[consoleplayer].camera != NULL ) && ( players[consoleplayer].camera->player != NULL ))
-						MEDAL_RenderAllMedalsFullscreen( players[consoleplayer].camera->player ); // [CK] Fixed 'mo' to 'camera' (which was probably intended)
-					else
-						MEDAL_RenderAllMedalsFullscreen( &players[consoleplayer] );
-				}
 			}
 
 			// Render chat prompt.
@@ -1095,26 +1087,6 @@ drawfullconsole:
 			screen->SetBlendingRect(0,0,0,0);
 			hw2d = screen->Begin2D(false);
 			WI_Drawer ();
-
-			// Render all medals the player currently has.
-			// [AK] Only on game modes that players can earn medals in.
-			if (( Button_ShowMedals.bDown ) && ( cooperative == false ))
-			{
-				if (( players[consoleplayer].camera != NULL ) && ( players[consoleplayer].camera->player != NULL ))
-					MEDAL_RenderAllMedalsFullscreen( players[consoleplayer].camera->player );
-				else
-					MEDAL_RenderAllMedalsFullscreen( &players[consoleplayer] );
-			}
-
-			// Allow people to see the full scoreboard in campaign mode.
-			if (( CAMPAIGN_InCampaign( )) && Button_ShowScores.bDown )
-			{
-				// Render the scoreboard.
-				if (( players[consoleplayer].camera != NULL ) && ( players[consoleplayer].camera->player != NULL ))
-					SCOREBOARD_Render( players[consoleplayer].camera->player - players );
-				else
-					SCOREBOARD_Render( consoleplayer );
-			}
 
 			// Render chat prompt.
 			CHAT_Render( );
@@ -2441,6 +2413,10 @@ static void D_DoomInit()
 
 	atterm (C_DeinitConsole);
 
+	// [AK] When Zandronum closes, any open lump handles in ACS that mods
+	// forgot to close must be cleared before any resources are deleted.
+	atterm( ACS_ClearLumpHandles );
+
 	gamestate = GS_STARTUP;
 
 	// Determine if we're going to be a server, client, or local player.
@@ -2892,9 +2868,6 @@ void D_DoomMain (void)
 		// Initialize the join queue module.
 		JOINQUEUE_Construct( );
 
-		// Initialize the medal info.
-		MEDAL_Construct( );
-
 		// Initialize the announcer info.
 		ANNOUNCER_Construct( );
 		ANNOUNCER_ParseAnnouncerInfo( );
@@ -3047,6 +3020,9 @@ void D_DoomMain (void)
 		// [TP] Init preferred weapon order
 		PWO_Init();
 
+		// [AK] Initialize the medal definitions.
+		MEDAL_Construct( );
+
 		/* [BB] Zandronum uses different bot code.
 		//Added by MC:
 		bglobal.getspawned.Clear();
@@ -3196,23 +3172,16 @@ void D_DoomMain (void)
 			}
 			if (gameaction != ga_loadgame && gameaction != ga_loadgamehidecon)
 			{
+				// [AK] Check if the map rotation can be used.
+				const bool useMapRotation = ((sv_maprotation) && (MAPROTATION_GetNumEntries() > 0));
+
 				if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 				{
 					G_NewInit( );
 
 					// Check if we have map rotation setup. If we do, use the first map there.
-					if (( sv_maprotation ) && ( MAPROTATION_GetNumEntries( ) > 0 ))
-					{
-						// [BB] G_InitNew seems to alter the contents of the first argument, which it shouldn't.
-						// This causes the "Frags" bug. The following is just a workaround, the behavior of
-						// G_InitNew should be fixed.
-						char levelname[10];
-						// [K6] Start with a random map if we are using sv_randommaprotation.
-						sprintf( levelname, "%s", MAPROTATION_GetMap( sv_randommaprotation ? M_Random.Random( ) % MAPROTATION_GetNumEntries( ) : 0 )->mapname );
-						MAPROTATION_SetPositionToMap( levelname );
-						G_InitNew( levelname, false );
-						//G_InitNew( MAPROTATION_GetMapName( 0 ), false );
-					}
+					if ( useMapRotation )
+						MAPROTATION_StartNewGame( );
 					else
 						G_InitNew( startmap, false );
 				}
@@ -3228,7 +3197,11 @@ void D_DoomMain (void)
 						CheckWarpTransMap (startmap, true);
 						if (demorecording)
 							G_BeginRecording (startmap);
-						G_InitNew (startmap, false);
+						// [AK] Use a map from the map rotation if it should be used.
+						if ((NETWORK_GetState() != NETSTATE_CLIENT) && (useMapRotation))
+							MAPROTATION_StartNewGame();
+						else
+							G_InitNew (startmap, false);
 					if (StoredWarp.IsNotEmpty())
 					{
 						AddCommandString(StoredWarp.LockBuffer());
@@ -3320,9 +3293,11 @@ void D_DoomMain (void)
 			new (&gameinfo) gameinfo_t;		// Reset gameinfo
 			S_Shutdown();					// free all channels and delete playlist
 			C_ClearAliases();				// CCMDs won't be reinitialized so these need to be deleted here
+			DestroyCVarsFlagged(CVAR_MOD);	// Delete any cvar left by mods
 
 			// [BB]
 			NETWORK_Destruct();
+			SCOREBOARD_Destruct();			// [AK] Clear everything from the scoreboard.
 
 			GC::FullGC();					// perform one final garbage collection before deleting the class data
 			PClass::ClearRuntimeData();		// clear all runtime generated class data

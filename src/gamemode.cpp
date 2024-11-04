@@ -622,7 +622,7 @@ bool GAMEMODE_IsGameInCountdown( void )
 	else if ( duel )
 		return ( DUEL_GetState( ) == DS_COUNTDOWN );
 	else if ( teamlms || lastmanstanding )
-		return ( LASTMANSTANDING_GetState( ) == LMSS_COUNTDOWN );
+		return ( ( LASTMANSTANDING_GetState( ) == LMSS_COUNTDOWN ) || ( LASTMANSTANDING_GetState( ) == LMSS_NEXTROUNDCOUNTDOWN ) );
 	// [BB] What about PSNS_PRENEXTROUNDCOUNTDOWN?
 	else if ( possession || teampossession )
 		return ( ( POSSESSION_GetState( ) == PSNS_COUNTDOWN ) || ( POSSESSION_GetState( ) == PSNS_NEXTROUNDCOUNTDOWN ) );
@@ -761,7 +761,7 @@ void GAMEMODE_GetTimeLeftString( FString &TimeLeftString )
 
 //*****************************************************************************
 //
-void GAMEMODE_RespawnDeadSpectators( BYTE Playerstate )
+void GAMEMODE_RespawnDeadPlayers( playerstate_t deadSpectatorState, playerstate_t deadPlayerState )
 {
 	// [BB] This is server side.
 	if ( NETWORK_InClientMode() )
@@ -794,13 +794,34 @@ void GAMEMODE_RespawnDeadSpectators( BYTE Playerstate )
 			continue;
 		}
 
-		players[ulIdx].bSpectating = false;
-		players[ulIdx].bDeadSpectator = false;
+		// [AK] Using PST_DEAD for the state means to ignore them, in case only
+		// dead players should respawn but not dead spectators, and vice-versa.
+		if ( players[ulIdx].bDeadSpectator )
+		{
+			if ( deadSpectatorState == PST_DEAD )
+				continue;
+		}
+		else if ( deadPlayerState == PST_DEAD )
+		{
+			continue;
+		}
+
+		// [AK] When dead players (i.e. not dead spectators) are respawned with
+		// PST_REBORN, their lives aren't fully replenished like it is for dead
+		// spectators. If the game was already in progress, then they will also
+		// lose a life upon respawning. This is particularly useful for survival
+		// invasion when dead players respawn after the end of a wave.
 		if ( GAMEMODE_GetCurrentFlags() & GMF_USEMAXLIVES )
 		{
-			PLAYER_SetLivesLeft ( &players[ulIdx], GAMEMODE_GetMaxLives() - 1 );
+			if (( players[ulIdx].bDeadSpectator ) || ( deadPlayerState != PST_REBORN ))
+				PLAYER_SetLivesLeft( &players[ulIdx], GAMEMODE_GetMaxLives( ) - 1 );
+			else if (( GAMEMODE_IsGameInProgress( )) && ( players[ulIdx].ulLivesLeft > 0 ))
+				PLAYER_SetLivesLeft( &players[ulIdx], players[ulIdx].ulLivesLeft - 1 );
 		}
-		players[ulIdx].playerstate = Playerstate;
+
+		players[ulIdx].playerstate = players[ulIdx].bDeadSpectator ? deadSpectatorState : deadPlayerState;
+		players[ulIdx].bSpectating = false;
+		players[ulIdx].bDeadSpectator = false;
 
 		APlayerPawn *oldactor = players[ulIdx].mo;
 
@@ -827,9 +848,11 @@ void GAMEMODE_RespawnDeadSpectators( BYTE Playerstate )
 	dmflags2 = dmflags2.GetGenericRep( CVAR_Int ).Int;
 }
 
-void GAMEMODE_RespawnDeadSpectatorsAndPopQueue( BYTE Playerstate )
+//*****************************************************************************
+//
+void GAMEMODE_RespawnDeadPlayersAndPopQueue( playerstate_t deadSpectatorState, playerstate_t deadPlayerState )
 {
-	GAMEMODE_RespawnDeadSpectators( Playerstate );
+	GAMEMODE_RespawnDeadPlayers( deadSpectatorState, deadPlayerState );
 	// Let anyone who's been waiting in line join now.
 	JOINQUEUE_PopQueue( -1 );
 }
@@ -841,6 +864,10 @@ void GAMEMODE_RespawnAllPlayers( BOTEVENT_e BotEvent, playerstate_t PlayerState 
 	// [BB] This is server side.
 	if ( NETWORK_InClientMode() == false )
 	{
+		// [AK] In offline games, remember the old player that was being spied on.
+		player_t *const localPlayer = &players[consoleplayer];
+		player_t *const oldSpiedPlayer = (( NETWORK_GetState( ) != NETSTATE_SERVER ) && ( localPlayer->camera )) ? localPlayer->camera->player : nullptr;
+
 		// Respawn the players.
 		for ( ULONG ulIdx = 0; ulIdx < MAXPLAYERS; ulIdx++ )
 		{
@@ -875,6 +902,15 @@ void GAMEMODE_RespawnAllPlayers( BOTEVENT_e BotEvent, playerstate_t PlayerState 
 
 			if ( players[ulIdx].pSkullBot && ( BotEvent < NUM_BOTEVENTS ) )
 				players[ulIdx].pSkullBot->PostEvent( BotEvent );
+		}
+
+		// [AK] After all players have respawned, return the local player's view
+		// back to the player they were spying on before, if they were spectating.
+		// We must do this here because the old player's body was destroyed.
+		if (( NETWORK_GetState( ) != NETSTATE_SERVER ) && ( localPlayer->bSpectating ))
+		{
+			if (( oldSpiedPlayer != nullptr ) && ( oldSpiedPlayer != localPlayer ) && ( oldSpiedPlayer->mo != nullptr ))
+				localPlayer->camera = oldSpiedPlayer->mo;
 		}
 	}
 }
@@ -976,6 +1012,10 @@ bool GAMEMODE_PreventPlayersFromJoining( ULONG ulExcludePlayer )
 	if ( ( gameaction != ga_worlddone ) && ( gameaction != ga_newgame ) && GAMEMODE_AreLivesLimited() && GAMEMODE_IsGameInProgressOrResultSequence() )
 			return true;
 
+	// [AK] Check if it's survival invasion and the player is allowed to join.
+	if ( INVASION_PreventPlayersFromJoining( ))
+		return true;
+
 	return false;
 }
 
@@ -985,6 +1025,14 @@ bool GAMEMODE_AreLivesLimited( void )
 {
 	// [BB] Invasion is a special case: If sv_maxlives == 0 in invasion, players have infinite lives.
 	return ( ( ( sv_maxlives > 0 ) || ( invasion == false ) ) && ( GAMEMODE_GetCurrentFlags() & GMF_USEMAXLIVES ) );
+}
+
+//*****************************************************************************
+//
+bool GAMEMODE_ShouldPlayerLoseLife( void )
+{
+	// [AK] Players don't lose lives in survival invasion when a wave is complete.
+	return (( GAMEMODE_AreLivesLimited( )) && ( GAMEMODE_IsGameInProgress( )) && (( invasion == false ) || ( INVASION_GetState( ) != IS_WAVECOMPLETE )));
 }
 
 //*****************************************************************************

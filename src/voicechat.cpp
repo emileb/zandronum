@@ -79,14 +79,28 @@ CVAR( Bool, voice_suppressnoise, true, CVAR_ARCHIVE | CVAR_NOSETBYACS | CVAR_GLO
 // [AK] Allows the client to load a custom RNNoise model file.
 CVAR( String, voice_noisemodelfile, "", CVAR_ARCHIVE | CVAR_NOSETBYACS | CVAR_GLOBALCONFIG )
 
-// [AK] If enabled, displays a list of all players talking on the screen.
-CVAR( Bool, voice_showpanel, true, CVAR_ARCHIVE )
+// [AK] If non-zero, displays a list of all players talking on the screen.
+CUSTOM_CVAR( Int, voice_showpanel, VOIPPanel::SHOW_BOTTOMRIGHT, CVAR_ARCHIVE )
+{
+	const int clampedValue = clamp<int>( self, VOIPPanel::SHOW_OFF, VOIPPanel::SHOW_BOTTOMRIGHT );
+
+	if ( self != clampedValue )
+		self = clampedValue;
+}
 
 // [AK] The x-position of the voice panel.
-CVAR( Int, voice_panelx, -7, CVAR_ARCHIVE )
+CUSTOM_CVAR( Int, voice_panelx, 7, CVAR_ARCHIVE )
+{
+	if ( self < 0 )
+		self = 0;
+}
 
 // [AK] The y-position of the voice panel.
-CVAR( Int, voice_panely, -40, CVAR_ARCHIVE )
+CUSTOM_CVAR( Int, voice_panely, 40, CVAR_ARCHIVE )
+{
+	if ( self < 0 )
+		self = 0;
+}
 
 // [AK] The maximum number of rows that can appear on the voice panel.
 CUSTOM_CVAR( Int, voice_panelrows, 10, CVAR_ARCHIVE )
@@ -104,6 +118,26 @@ CUSTOM_CVAR( Int, voice_panelshowteams, VOICEPANEL_TEAMFORMAT_NAME, CVAR_ARCHIVE
 
 	if ( self != clampedValue )
 		self = clampedValue;
+}
+
+// [AK] If enabled, stops recording from the input device.
+CUSTOM_CVAR( Bool, voice_muteself, false, CVAR_ARCHIVE | CVAR_NOSETBYACS | CVAR_GLOBALCONFIG )
+{
+	VOIPController &instance = VOIPController::GetInstance( );
+
+	// [AK] Don't do anything if voice chat isn't allowed or during a microphone test.
+	if (( instance.IsVoiceChatAllowed( ) == false ) || ( instance.IsTestingMicrophone( )))
+		return;
+
+	if ( self )
+	{
+		if ( instance.IsRecording( ))
+			instance.StopRecording( );
+	}
+	else if ( instance.IsRecording( ) == false )
+	{
+		instance.StartRecording( );
+	}
 }
 
 // [AK] Which input device to use when recording audio.
@@ -140,7 +174,7 @@ CUSTOM_CVAR( Float, voice_recordvolume, 1.0f, CVAR_ARCHIVE | CVAR_NOSETBYACS | C
 // [AK] Controls the volume of everyone's voices on the client's end.
 CUSTOM_CVAR( Float, voice_outputvolume, 1.0f, CVAR_ARCHIVE | CVAR_NOSETBYACS | CVAR_GLOBALCONFIG )
 {
-	const float clampedValue = clamp<float>( self, 0.0f, 2.0f );
+	const float clampedValue = clamp<float>( self, 0.0f, 1.0f );
 
 	if ( self != clampedValue )
 	{
@@ -359,15 +393,6 @@ void VOIPController::Init( FMOD::System *mainSystem )
 		return;
 	}
 
-	FMOD_CREATESOUNDEXINFO exinfo = CreateSoundExInfo( RECORD_SAMPLE_RATE, RECORD_SOUND_LENGTH );
-
-	// [AK] Abort if creating the sound to record into failed.
-	if ( system->createSound( nullptr, FMOD_LOOP_NORMAL | FMOD_2D | FMOD_OPENUSER, &exinfo, &recordSound ) != FMOD_OK )
-	{
-		Printf( TEXTCOLOR_ORANGE "Failed to create sound for recording.\n" );
-		return;
-	}
-
 	// [AK] Create the player VoIP channel group.
 	if ( system->createChannelGroup( "VoIP", &VoIPChannelGroup ) != FMOD_OK )
 	{
@@ -450,12 +475,6 @@ void VOIPController::Shutdown( void )
 		repacketizer = nullptr;
 	}
 
-	if ( recordSound != nullptr )
-	{
-		recordSound->release( );
-		recordSound = nullptr;
-	}
-
 	if ( VoIPChannelGroup != nullptr )
 	{
 		VoIPChannelGroup->release( );
@@ -493,7 +512,9 @@ void VOIPController::Activate( void )
 	if (( isInitialized == false ) || ( isActive ) || ( CLIENTDEMO_IsPlaying( )))
 		return;
 
-	StartRecording( );
+	if ( voice_muteself == false )
+		StartRecording( );
+
 	isActive = true;
 }
 
@@ -513,6 +534,10 @@ void VOIPController::Deactivate( void )
 	// [AK] Clear all of the VoIP channels.
 	for ( unsigned int i = 0; i < MAXPLAYERS; i++ )
 		RemoveVoIPChannel( i );
+
+	// [AK] Disable the local player's "talking" status.
+	if ( players[consoleplayer].statuses & PLAYERSTATUS_TALKING )
+		PLAYER_SetStatus( &players[consoleplayer], PLAYERSTATUS_TALKING, false );
 
 	StopRecording( );
 
@@ -633,7 +658,7 @@ void VOIPController::Tick( void )
 
 		if ( players[consoleplayer].userinfo.GetVoiceEnable( ) == VOICEMODE_PUSHTOTALK )
 		{
-			if ( IsVoiceChatAllowed( ))
+			if (( IsVoiceChatAllowed( )) || ( voice_muteself ))
 			{
 				if ( isNotIgnored )
 					StartTransmission( TRANSMISSIONTYPE_BUTTON, true );
@@ -661,11 +686,13 @@ void VOIPController::Tick( void )
 	if (( isActive == false ) && ( isTesting == false ))
 		return;
 
+	const bool isUsingVoiceActivity = ( players[consoleplayer].userinfo.GetVoiceEnable( ) == VOICEMODE_VOICEACTIVITY );
+
 	// [AK] Are we're transmitting audio by pressing the "voicerecord" button right
 	// now, or using voice activity detection? We'll check if we have enough new
 	// samples recorded to fill an audio frame that can be encoded and sent out.
 	// This also applies while testing the microphone.
-	if ((( isNotIgnored ) && (( transmissionType != TRANSMISSIONTYPE_OFF ) || ( players[consoleplayer].userinfo.GetVoiceEnable( ) == VOICEMODE_VOICEACTIVITY ))) || ( isTesting ))
+	if (( isNotIgnored && !voice_muteself && ( transmissionType != TRANSMISSIONTYPE_OFF || isUsingVoiceActivity )) || ( isTesting ))
 	{
 		unsigned int recordPosition = 0;
 
@@ -777,7 +804,7 @@ void VOIPController::ReadRecordSamples( unsigned char *soundBuffer, unsigned int
 	float rms = 0.0f;
 
 	for ( unsigned int i = 0; i < RECORD_SAMPLES_PER_FRAME; i++ )
-		uncompressedBuffer[i] = clamp<float>( voicechat_ByteArrayToFloat( soundBuffer + i * SAMPLE_SIZE ) * voice_recordvolume, -1.0f, 1.0f );
+		uncompressedBuffer[i] = clamp<float>( voicechat_ByteArrayToFloat( soundBuffer + i * SAMPLE_SIZE ) * voice_recordvolume * 2.5f, -2.5f, 2.5f );
 
 	// [AK] Denoise the audio frame.
 	if (( voice_suppressnoise ) && ( denoiseState != nullptr ))
@@ -926,6 +953,15 @@ void VOIPController::StartRecording( void )
 	{
 		if ( numRecordDrivers > 0 )
 		{
+			FMOD_CREATESOUNDEXINFO exinfo = CreateSoundExInfo( RECORD_SAMPLE_RATE, RECORD_SOUND_LENGTH );
+
+			// [AK] Abort if creating the sound to record into failed.
+			if ( system->createSound( nullptr, FMOD_LOOP_NORMAL | FMOD_2D | FMOD_OPENUSER, &exinfo, &recordSound ) != FMOD_OK )
+			{
+				Printf( TEXTCOLOR_ORANGE "Failed to create sound for recording.\n" );
+				return;
+			}
+
 			if ( voice_recorddriver >= numRecordDrivers )
 			{
 				Printf( "Record driver %d doesn't exist. Using 0 instead.\n", *voice_recorddriver );
@@ -937,7 +973,16 @@ void VOIPController::StartRecording( void )
 			}
 
 			if ( system->recordStart( recordDriverID, recordSound, true ) != FMOD_OK )
+			{
 				Printf( TEXTCOLOR_ORANGE "Failed to start VoIP recording.\n" );
+
+				// [AK] Delete the recording sound if it was created.
+				if ( recordSound != nullptr )
+				{
+					recordSound->release( );
+					recordSound = nullptr;
+				}
+			}
 		}
 		else
 		{
@@ -968,6 +1013,12 @@ void VOIPController::StopRecording( void )
 
 	if ( system->recordStop( recordDriverID ) != FMOD_OK )
 		Printf( TEXTCOLOR_ORANGE "Failed to stop voice recording.\n" );
+
+	if ( recordSound != nullptr )
+	{
+		recordSound->release( );
+		recordSound = nullptr;
+	}
 }
 
 //*****************************************************************************
@@ -1215,7 +1266,7 @@ void VOIPController::SetMicrophoneTest( const bool enable )
 	{
 		// [AK] Stop recording if we're not allowed to (i.e. we only started
 		// recording for the sake of testing).
-		if (( IsVoiceChatAllowed( ) == false ) && ( isRecording ))
+		if ((( IsVoiceChatAllowed( ) == false ) || ( voice_muteself )) && ( isRecording ))
 			StopRecording( );
 
 		testRMSVolume = MIN_DECIBELS;
@@ -1269,7 +1320,13 @@ FString VOIPController::GrabStats( void ) const
 {
 	FString out;
 
-	out.Format( "VoIP controller status: %s\n", transmissionType != TRANSMISSIONTYPE_OFF ? "transmitting" : ( isActive ? "activated" : "deactivated" ));
+	out.Format( "VoIP controller status: %s", transmissionType != TRANSMISSIONTYPE_OFF ? "transmitting" : ( isActive ? "activated" : "deactivated" ));
+
+	// [AK] Indicate if whether or not the VoIP controller is recording audio.
+	if ( isActive )
+		out.AppendFormat( " (%srecording)", IsRecording( ) ? "" : "not " );
+
+	out += '\n';
 
 	for ( unsigned int i = 0; i < MAXPLAYERS; i++ )
 	{
@@ -1929,9 +1986,9 @@ void VOIPController::VOIPChannel::UpdateEndDelay( const bool resetEpoch )
 //*****************************************************************************
 
 VOIPPanel::VOIPPanel( void ) :
-	speakerIcon( TexMan.FindTexture( "SPKRMINI" )),
+	speakerIcon( nullptr ),
 	speakerXPos( 0 ),
-	speakerXOffset( speakerIcon ? speakerIcon->GetScaledWidth( ) + SmallFont->GetCharWidth( 32 ) : 0 ),
+	speakerXOffset( 0 ),
 	lastRefreshGametic( 0 ) { }
 
 //*****************************************************************************
@@ -2024,18 +2081,23 @@ void VOIPPanel::Refresh( void )
 	// [AK] Determine the position and alignment of the panel on the screen.
 	int xPos = voice_panelx.GetGenericRep( CVAR_Int ).Int;
 	int yPos = voice_panely.GetGenericRep( CVAR_Int ).Int;
-	const bool alignRight = ( xPos < 0 );
-	const bool alignBottom = ( yPos < 0 );
+	const bool alignRight = ( voice_showpanel == SHOW_TOPRIGHT || voice_showpanel == SHOW_BOTTOMRIGHT );
+	const bool alignBottom = ( voice_showpanel == SHOW_BOTTOMLEFT || voice_showpanel == SHOW_BOTTOMRIGHT );
 
 	if ( alignRight )
-		xPos += HUD_GetWidth( );
+		xPos = HUD_GetWidth( ) - xPos;
 
 	if ( alignBottom )
-		yPos += viewheight <= ST_Y ? static_cast<int>( ST_Y * g_rYScale ) : HUD_GetHeight( );
+		yPos = ( viewheight <= ST_Y ? static_cast<int>( ST_Y * g_rYScale ) : HUD_GetHeight( )) - yPos;
+
+	speakerIcon = TexMan( TexMan.CheckForTexture( "SPKMINI1", FTexture::TEX_MiscPatch ));
 
 	// [AK] Set the x-position of the speaker icon.
 	if ( speakerIcon != nullptr )
+	{
 		speakerXPos = xPos - ( alignRight ? speakerIcon->GetScaledWidth( ) : 0 );
+		speakerXOffset = speakerIcon->GetScaledWidth( ) + SmallFont->GetCharWidth( 32 );
+	}
 
 	// [AK] Update the text, and then set the positions of the text and the
 	// y-position of the speaker icon of each row.

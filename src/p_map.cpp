@@ -4445,12 +4445,6 @@ AActor *P_LineAttack(AActor *t1, angle_t angle, fixed_t distance,
 					dmgflags |= DMG_NO_ARMOR;
 				}
 				
-				// [AK] If this is a melee attack from a player that's using a weapon which gives the "fisting"
-				// medal, add DMG_GIVE_FISTING_MEDAL_ON_FRAG. MEDAL_PlayerDied will award the medal upon fragging
-				// another player.
-				if (( flags & LAF_ISMELEEATTACK ) && ( t1->player ) && ( t1->player->ReadyWeapon ) && ( t1->player->ReadyWeapon->STFlags & STFL_GIVEFISTINGMEDAL ))
-					dmgflags |= DMG_GIVE_FISTING_MEDAL_ON_FRAG;
-
 				if (puff == NULL)
 				{
 					// Since the puff is the damage inflictor we need it here 
@@ -4964,7 +4958,7 @@ void P_RailAttack(AActor *source, int damage, int offset_xy, fixed_t offset_z, i
 				// If the player has made 2 straight consecutive hits with the railgun, award a medal.
 				// Award a "Most Impressive" medal if they get 4+ straight hits. Otherwise, award an "Impressive" medal.
 				if (( NETWORK_InClientMode( ) == false ) && (( source->player->ulConsecutiveRailgunHits % 2 ) == 0 ))
-					MEDAL_GiveMedal( static_cast<ULONG>( source->player - players ), source->player->ulConsecutiveRailgunHits >= 4 ? MEDAL_MOSTIMPRESSIVE : MEDAL_IMPRESSIVE );
+					MEDAL_GiveMedal( static_cast<ULONG>( source->player - players ), source->player->ulConsecutiveRailgunHits >= 4 ? "MostImpressive" : "Impressive" );
 			}
 		}
 	}

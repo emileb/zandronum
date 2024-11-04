@@ -133,6 +133,7 @@
 #include "st_hud.h"
 #include "voicechat.h"
 #include "gameconfigfile.h"
+#include "wi_stuff.h"
 
 //*****************************************************************************
 //	MISC CRAP THAT SHOULDN'T BE HERE BUT HAS TO BE BECAUSE OF SLOPPY CODING
@@ -163,6 +164,7 @@ EXTERN_CVAR( Bool, cl_hideaccount )
 EXTERN_CVAR( Int, cl_ticsperupdate )
 EXTERN_CVAR( String, name )
 EXTERN_CVAR( Bool, cl_telespy )
+EXTERN_CVAR( Bool, sv_unlimited_pickup )
 
 //*****************************************************************************
 //	CONSOLE COMMANDS/VARIABLES
@@ -177,8 +179,21 @@ CVAR( Bool, cl_showwarnings, false, CVAR_ARCHIVE )
 // [Leo] Show how many packets we missed when we experience packet loss.
 CVAR( Bool, cl_showpacketloss, false, CVAR_ARCHIVE )
 
+// [AK] Prevents the server's settings from being discard when the client disconnects.
+CVAR( Bool, cl_keepserversettings, false, CVAR_ARCHIVE | CVAR_DEBUGONLY )
+
 // [JS] Always makes us ready when we are in intermission.
 CVAR( Bool, cl_autoready, false, CVAR_ARCHIVE )
+
+#ifdef WIN32
+// [AK] Automatically logs us into our default account (i.e. login_default_user).
+CUSTOM_CVAR( Bool, cl_autologin, false, CVAR_ARCHIVE | CVAR_NOINITCALL )
+{
+	// [AK] Log in automatically when enabling this CVar, if not already.
+	if (( self ) && ( NETWORK_GetState( ) == NETSTATE_CLIENT ) && ( CLIENT_IsLoggedIn( ) == false ))
+		CLIENT_RetrieveUserAndLogIn( login_default_user.GetGenericRep( CVAR_String ).String );
+}
+#endif
 
 // [AK] Restores the old mouse behaviour from Skulltag.
 CVAR( Bool, cl_useskulltagmouse, false, CVAR_GLOBALCONFIG | CVAR_ARCHIVE )
@@ -237,7 +252,7 @@ static	void	client_VoteEnded( BYTESTREAM_s *pByteStream );
 static	void	client_ClearVote( BYTESTREAM_s *pByteStream );
 
 // Inventory commands.
-static	void	client_GiveInventory( BYTESTREAM_s *pByteStream );
+static	void	client_GiveInventory( BYTESTREAM_s *pByteStream, bool bUseExtra = false );
 static	void	client_TakeInventory( BYTESTREAM_s *pByteStream );
 static	void	client_GivePowerup( BYTESTREAM_s *pByteStream );
 static	void	client_DoInventoryPickup( BYTESTREAM_s *pByteStream );
@@ -2276,6 +2291,10 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 						// to reset the CVars.
 						for ( FBaseCVar* cvar = CVars; cvar; cvar = cvar->GetNext() )
 						{
+							// [AK] Ignore all flag and mask CVars, reset their respective flagsets instead.
+							if (( cvar->IsFlagCVar() ) || ( cvar->IsMaskCVar() ))
+								continue;
+
 							if ( cvar->IsServerCVar() )
 								cvar->ResetToDefault();
 						}
@@ -2332,6 +2351,14 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 								MAPROTATION_SetUsed( ulIdx, false );
 							break;
 						}
+
+						case UPDATE_MAPROTATION_SETNEXTPOSITION:
+						{
+							const unsigned int position = pByteStream->ReadShort();
+							const bool ignoreLimits = pByteStream->ReadBit();
+							MAPROTATION_SetNextPosition( position, ignoreLimits );
+							break;
+						}
 					}
 				}
 				break;
@@ -2340,6 +2367,11 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 			case SVC2_CLEARVOTE:
 
 				client_ClearVote( pByteStream );
+				break;
+
+			// [RK]
+			case SVC2_GIVEINVENTORYEXTRA:
+				client_GiveInventory( pByteStream, true );
 				break;
 
 			default:
@@ -2503,6 +2535,9 @@ void CLIENT_QuitNetworkGame( const char *pszString )
 	// [AK] Since we disconnected, we don't have RCON access anymore.
 	g_HasRCONAccess = false;
 
+	// [AK] Log the client out of their account now so that they can log in again.
+	CLIENT_LogOut( );
+
 	// [AK] Close the server setup menu if we're still in it.
 	if ( M_InServerSetupMenu( ))
 		M_ClearMenus( );
@@ -2522,7 +2557,8 @@ void CLIENT_QuitNetworkGame( const char *pszString )
 	// [AK] We'll also restore any serverinfo CVars saved in our config and discard
 	// all of the server's settings. This is especially so that the server's settings
 	// don't overwrite ours if they're archived later.
-	CLIENT_RestoreServerInfoCVars( );
+	if ( cl_keepserversettings == false )
+		CLIENT_RestoreServerInfoCVars( );
 
 	// If we're recording a demo, then finish it!
 	if ( CLIENTDEMO_IsRecording( ))
@@ -2784,11 +2820,18 @@ void CLIENT_SpawnMissile( const PClass *pType, fixed_t X, fixed_t Y, fixed_t Z, 
 	pActor->NetID = lNetID;
 	g_ActorNetIDList.useID ( lNetID, pActor );
 
-	// Play the seesound if this missile has one.
-	if ( pActor->SeeSound )
-		S_Sound( pActor, CHAN_VOICE, pActor->SeeSound, 1, ATTN_NORM );
+	// [RK] Moved this up since we need the target before we play the sound.
+	pActor->target = CLIENT_FindThingByNetID(lTargetNetID);
 
-	pActor->target = CLIENT_FindThingByNetID( lTargetNetID );
+	// Play the seesound if this missile has one.
+	// [RK] Play the sound at the target if the missile has MF_SPAWNSOUNDSOURCE.
+	if ( pActor->SeeSound )
+	{
+		if ( pActor->flags & MF_SPAWNSOUNDSOURCE && pActor->target )
+			S_Sound( pActor->target, CHAN_WEAPON, pActor->SeeSound, 1, ATTN_NORM );
+		else
+			S_Sound( pActor, CHAN_VOICE, pActor->SeeSound, 1, ATTN_NORM );
+	}
 }
 
 //*****************************************************************************
@@ -3128,6 +3171,7 @@ void PLAYER_ResetPlayerData( player_t *pPlayer )
 	pPlayer->bIsBot = 0;
 	pPlayer->ulPing = 0;
 	pPlayer->ulPingAverages = 0;
+	pPlayer->connectionStrength = 0;
 	pPlayer->ulCountryIndex = 0;
 	pPlayer->pCorpse = NULL;
 	pPlayer->OldPendingWeapon = 0;
@@ -3144,8 +3188,6 @@ void PLAYER_ResetPlayerData( player_t *pPlayer )
 		CLIENT_PREDICT_Construct();
 	}
 	memset( pPlayer->psprites, 0, sizeof( pPlayer->psprites ));
-
-	memset( &pPlayer->ulMedalCount, 0, sizeof( ULONG ) * NUM_MEDALS );
 }
 
 //*****************************************************************************
@@ -3411,6 +3453,12 @@ void ServerCommands::EndSnapshot::Execute()
 
 	// [AK] Reset the scoreboard.
 	SCOREBOARD_Reset( );
+
+#ifdef WIN32
+	// [AK] Allow the client to log into their default account automatically.
+	if (( CLIENTDEMO_IsPlaying( ) == false ) && ( cl_autologin ))
+		CLIENT_RetrieveUserAndLogIn( login_default_user.GetGenericRep( CVAR_String ).String );
+#endif
 
 	// Display the message of the day.
 	C_MOTDPrint( g_MOTD );
@@ -3785,6 +3833,11 @@ void ServerCommands::SpawnPlayer::Execute()
 		pPlayer->MorphedPlayerClass = morphedClass;
 		// [EP] Set the morph style, too.
 		pPlayer->MorphStyle = morphStyle;
+
+		// [AK] Set the morphed class's score icon to the orignial class's too.
+		// Don't do this if the morphed class has NOMORPHLIMITATIONS enabled.
+		if (( pPlayer->mo->PlayerFlags & PPF_NOMORPHLIMITATIONS ) == false )
+			pPlayer->mo->ScoreIcon = static_cast<APlayerPawn *>( GetDefaultByType( PlayerClasses[oldPlayerClass].Type ))->ScoreIcon;
 	}
 	else
 	{
@@ -4009,7 +4062,7 @@ void ServerCommands::KillPlayer::Execute()
 	if ( player->health <= 0 )
 		player->health = 0;
 
-	// [AK] Try to draw a large frag message if we (the consoleplayer) were fragged (by) another player.
+	// [AK] Try to draw a large frag message if the player (was) fragged (by) another player.
 	HUD_PrepareToDrawFragMessage( player, source, MOD );
 
 	// [BB] Temporarily change the ReadyWeapon of ulSourcePlayer to the one the server told us.
@@ -4319,7 +4372,7 @@ void ServerCommands::SetPlayerCamera::Execute()
 			R_ClearPastViewer (players[consoleplayer].camera);
 
 		// [AK] Change to our HUD if we've switched back to our view.
-		G_FinishChangeSpy( consoleplayer );
+		G_FinishChangeSpy( consoleplayer, true );
 		return;
 	}
 
@@ -4333,9 +4386,11 @@ void ServerCommands::SetPlayerCamera::Execute()
 	if (oldcamera != players[consoleplayer].camera)
 		R_ClearPastViewer (players[consoleplayer].camera);
 
-	// [AK] Change the HUD to match the player that we're looking through.
+	// [AK] Change the HUD to match the player that we should be looking through.
 	if ( players[consoleplayer].camera->player )
-		G_FinishChangeSpy( ULONG( players[consoleplayer].camera->player - players ));
+		G_FinishChangeSpy( static_cast<int>( players[consoleplayer].camera->player - players ), true );
+	else
+		G_FinishChangeSpy( consoleplayer, true );
 }
 
 //*****************************************************************************
@@ -4495,6 +4550,7 @@ void ServerCommands::SetPlayerACSSkin::Execute()
 void ServerCommands::UpdatePlayerPing::Execute()
 {
 	player->ulPing = ping;
+	player->connectionStrength = connectionStrength;
 }
 
 //*****************************************************************************
@@ -4615,28 +4671,28 @@ void ServerCommands::DisconnectPlayer::Execute()
 {
 	const unsigned int playerIndex = static_cast<unsigned>( player - players );
 
-	// If we were a spectator and looking through this player's eyes, revert them.
-	if ( player->mo->CheckLocalView( consoleplayer ))
+	if ( player->mo != nullptr )
 	{
-		CLIENT_ResetConsolePlayerCamera( );
-	}
+		// If we were a spectator and looking through this player's eyes, revert them.
+		if ( player->mo->CheckLocalView( consoleplayer ))
+		{
+			CLIENT_ResetConsolePlayerCamera( );
+		}
 
-	// Create a little disconnect particle effect thingamabobber!
-	// [BB] Only do this if a non-spectator disconnects.
-	if ( player->bSpectating == false )
-	{
-		P_DisconnectEffect( player->mo );
+		// Create a little disconnect particle effect thingamabobber!
+		// [BB] Only do this if a non-spectator disconnects.
+		if ( player->bSpectating == false )
+		{
+			P_DisconnectEffect( player->mo );
 
-		// [BB] Stop all CLIENTSIDE scripts of the player that are still running.
-		if ( !( zacompatflags & ZACOMPATF_DONT_STOP_PLAYER_SCRIPTS_ON_DISCONNECT ) )
-			FBehavior::StaticStopMyScripts ( player->mo );
-	}
+			// [BB] Stop all CLIENTSIDE scripts of the player that are still running.
+			if ( !( zacompatflags & ZACOMPATF_DONT_STOP_PLAYER_SCRIPTS_ON_DISCONNECT ) )
+				FBehavior::StaticStopMyScripts( player->mo );
+		}
 
-	// Destroy the actor associated with the player.
-	if ( player->mo )
-	{
+		// Destroy the actor associated with the player.
 		player->mo->Destroy( );
-		player->mo = NULL;
+		player->mo = nullptr;
 	}
 
 	playeringame[playerIndex] = false;
@@ -4682,6 +4738,11 @@ void ServerCommands::SetConsolePlayer::Execute()
 	if (( playerNumber < 0 ) || ( playerNumber >= MAXPLAYERS ))
 		return;
 
+	// [AK] Save a copy of our old name, in case the server assigned a different
+	// name to us. When we apply our local userinfo to the new player slot via
+	// D_SetupUserInfo, we must restore the overridden name.
+	FString oldName = players[consoleplayer].userinfo.GetName( );
+
 	// In a client demo, don't lose the userinfo we gave to our console player.
 	if ( CLIENTDEMO_IsPlaying() && ( playerNumber != consoleplayer ))
 	{
@@ -4694,6 +4755,9 @@ void ServerCommands::SetConsolePlayer::Execute()
 
 	// Finally, apply our local userinfo to this player slot.
 	D_SetupUserInfo( );
+
+	if ( strcmp( name.GetGenericRep( CVAR_String ).String, oldName.GetChars( )) != 0 )
+		players[consoleplayer].userinfo.NameChanged( oldName.GetChars( ));
 }
 
 //*****************************************************************************
@@ -4712,7 +4776,15 @@ void ServerCommands::ConsolePlayerKicked::Execute()
 //
 void ServerCommands::GivePlayerMedal::Execute()
 {
-	MEDAL_GiveMedal( player - players, medal );
+	MEDAL_GiveMedal( player - players, medal, silent );
+}
+
+//*****************************************************************************
+//
+void ServerCommands::SyncPlayerMedalCounts::Execute()
+{
+	for ( unsigned int i = 0; i < medals.Size( ); i++ )
+		MEDAL_SetMedalAwardedCount( player, medals[i].index, medals[i].count );
 }
 
 //*****************************************************************************
@@ -6041,16 +6113,24 @@ static void client_SetGameModeLimits( BYTESTREAM_s *pByteStream )
 	sv_coop_damagefactor.ForceSet( Value, CVAR_Float );
 
 	// [WS] Read in, and set the value for alwaysapplydmflags.
-	Value.Bool = !!pByteStream->ReadByte();
+	Value.Bool = pByteStream->ReadBit();
 	alwaysapplydmflags.ForceSet( Value, CVAR_Bool );
 
-	// [AM] Read in, and set the value for lobby.
-	Value.String = const_cast<char*>(pByteStream->ReadString());
-	lobby.ForceSet( Value, CVAR_String );
+	// [AK] Read in, and set the value for sv_unlimited_pickup.
+	Value.Bool = pByteStream->ReadBit();
+	sv_unlimited_pickup.ForceSet( Value, CVAR_Bool );
 
 	// [TP] Yea.
-	Value.Bool = !!pByteStream->ReadByte();
+	Value.Bool = pByteStream->ReadBit();
 	sv_limitcommands.ForceSet( Value, CVAR_Bool );
+
+	// [AK] Read in, and set the value for sv_respawninsurvivalinvasion.
+	Value.Bool = pByteStream->ReadBit();
+	sv_respawninsurvivalinvasion.ForceSet( Value, CVAR_Bool );
+
+	// [AM] Read in, and set the value for lobby.
+	Value.String = const_cast<char*>( pByteStream->ReadString());
+	lobby.ForceSet( Value, CVAR_String );
 
 	// [AK] Read in, and set the value for sv_allowprivatechat.
 	Value.Int = pByteStream->ReadByte();
@@ -7177,9 +7257,6 @@ void ServerCommands::MapLoad::Execute()
 		// [BB] viewactive is set in G_InitNew
 		// For right now, the view is not active.
 		//viewactive = false;
-
-		// Kill the console.
-		C_HideConsole( );
 	}
 	else
 		CLIENT_PrintWarning( "client_MapLoad: Unknown map: %s\n", mapName.GetChars() );
@@ -7233,15 +7310,19 @@ void ServerCommands::MapExit::Execute()
 	// and wanted to skip the current map, we are done with it now.
 	CLIENTDEMO_SetSkippingToNextMap ( false );
 
-	if (( gamestate == GS_FULLCONSOLE ) ||
-		( gamestate == GS_INTERMISSION ))
+	// [AK] Display the next level on the scoreboard.
+	SCOREBOARD_SetNextLevel( nextMap );
+
+	if (( gamestate == GS_FULLCONSOLE ) || ( gamestate == GS_INTERMISSION ))
 	{
+		// [AK] Reset the stopwatch, if on the intermission screen.
+		if ( gamestate == GS_INTERMISSION )
+			WI_ResetStopWatch( );
+
 		return;
 	}
 
-	// [AK] Display the next level on the scoreboard.
-	SCOREBOARD_SetNextLevel( nextMap );
-	G_ChangeLevel( nextMap, position, true );
+	G_ChangeLevel( nextMap, position, changeFlags );
 }
 
 //*****************************************************************************
@@ -7344,12 +7425,13 @@ void ServerCommands::SetMapSkyScrollSpeed::Execute()
 
 //*****************************************************************************
 //
-static void client_GiveInventory( BYTESTREAM_s *pByteStream )
+static void client_GiveInventory( BYTESTREAM_s *pByteStream, bool bUseExtra )
 {
 	const PClass	*pType;
 	ULONG			ulPlayer;
 	USHORT			usActorNetworkIndex;
 	LONG			lAmount;
+	LONG			lMaxAmount = 0; // [RK]
 	AInventory		*pInventory;
 
 	// Read in the player ID.
@@ -7360,6 +7442,10 @@ static void client_GiveInventory( BYTESTREAM_s *pByteStream )
 
 	// Read in the amount of this inventory type the player has.
 	lAmount = pByteStream->ReadLong();
+
+	// [RK] Read in the extra info of this item if it's there.
+	if ( bUseExtra )
+		lMaxAmount = pByteStream->ReadLong();
 
 	// Check to make sure everything is valid. If not, break out.
 	if (( PLAYER_IsValidPlayer( ulPlayer ) == false ) || ( players[ulPlayer].mo == NULL ))
@@ -7393,9 +7479,17 @@ static void client_GiveInventory( BYTESTREAM_s *pByteStream )
 			{
 				static_cast<ABasicArmorBonus*>( pInventory )->SaveAmount *= lAmount;
 				static_cast<ABasicArmorBonus*>( pInventory )->BonusCount *= lAmount;
+
+				// [RK] If we read in BonusMax, apply it.
+				if ( lMaxAmount != 0 )
+					static_cast<ABasicArmorBonus*>( pInventory )->BonusMax *= lMaxAmount;
 			}
 			else if ( pType->IsDescendantOf( RUNTIME_CLASS( AHealth ) ) )
 			{
+				// [RK] If we read in MaxAmount, apply it.
+				if ( lMaxAmount != 0 )
+					pInventory->MaxAmount = lMaxAmount;
+
 				if ( pInventory->MaxAmount > 0 )
 					pInventory->Amount = MIN( lAmount, (LONG)pInventory->MaxAmount );
 				else
@@ -9791,15 +9885,22 @@ CVAR( Float, cl_motdtime, 5.0, CVAR_ARCHIVE )
 CVAR( Bool, cl_taunts, true, CVAR_ARCHIVE )
 CVAR( Int, cl_showcommands, 0, CVAR_ARCHIVE|CVAR_DEBUGONLY )
 CVAR( Int, cl_showspawnnames, 0, CVAR_ARCHIVE )
-CVAR( Int, cl_connect_flags, CCF_STARTASSPECTATOR, CVAR_ARCHIVE );
-CVAR( Flag, cl_startasspectator, cl_connect_flags, CCF_STARTASSPECTATOR );
-CVAR( Flag, cl_dontrestorefrags, cl_connect_flags, CCF_DONTRESTOREFRAGS )
-CVAR( Flag, cl_hidecountry, cl_connect_flags, CCF_HIDECOUNTRY )
 // [BB] Don't archive the passwords! Otherwise Skulltag would always send
 // the last used passwords to all servers it connects to.
 CVAR( String, cl_password, "password", 0 )
 CVAR( String, cl_joinpassword, "password", 0 )
 CVAR( Bool, cl_hitscandecalhack, true, CVAR_ARCHIVE )
+
+CUSTOM_CVAR( Int, cl_connect_flags, CCF_STARTASSPECTATOR, CVAR_ARCHIVE )
+{
+	// [AK] If CCF_HIDECOUNTRY changed, tell the server to (un)hide our country.
+	if (( NETWORK_GetState( ) == NETSTATE_CLIENT ) && (( self.GetPastValue( ) ^ self ) & CCF_HIDECOUNTRY ))
+		CLIENTCOMMANDS_SetWantHideInfo( HIDEINFO_COUNTRY, !!( self & CCF_HIDECOUNTRY ));
+}
+
+CVAR( Flag, cl_startasspectator, cl_connect_flags, CCF_STARTASSPECTATOR );
+CVAR( Flag, cl_dontrestorefrags, cl_connect_flags, CCF_DONTRESTOREFRAGS )
+CVAR( Flag, cl_hidecountry, cl_connect_flags, CCF_HIDECOUNTRY )
 
 //*****************************************************************************
 //	STATISTICS

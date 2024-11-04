@@ -5414,8 +5414,8 @@ APlayerPawn *P_SpawnPlayer (FPlayerStart *mthing, int playernum, int flags)
 	if ( !(flags & SPF_TEMPPLAYER) )
 		TEAM_EnsurePlayerHasValidClass ( p );
 
-	// [AK] Remember the actor that this player was spying on before respawning them.
-	AActor *pOldCamera = p->camera;
+	// [AK] Remember the actor that the local player was spying on before respawning them.
+	AActor *oldCamera = (( NETWORK_GetState( ) != NETSTATE_SERVER ) && ( p == &players[consoleplayer] )) ? p->camera : nullptr;
 
 	// [BB] We may not filter coop inventory if the player changed the player class.
 	// Thus we need to keep track of the old class.
@@ -5613,8 +5613,8 @@ APlayerPawn *P_SpawnPlayer (FPlayerStart *mthing, int playernum, int flags)
 	{
 		// [AK] If the local player just turned into a dead spectator and were looking through another
 		// actor's eyes other than their own, let them continue viewing from that actor.
-		if (( p == &players[consoleplayer] ) && ( pOldCamera != NULL ) && ( pOldCamera != oldactor ) && ( p->bDeadSpectator ))
-			p->camera = pOldCamera;
+		if (( p == &players[consoleplayer] ) && ( oldCamera != nullptr ) && ( oldCamera != oldactor ) && ( p->bDeadSpectator ))
+			p->camera = oldCamera;
 
 		// [AK] Only check if the local player is looking at the player being spawned.
 		if (( playeringame[consoleplayer] ) && ( players[consoleplayer].camera == oldactor ))
@@ -6347,7 +6347,21 @@ AActor *P_SpawnMapThing (FMapThing *mthing, int position)
 		mobj->Die(NULL, NULL);
 	else if (mthing->health != 1)
 		mobj->StartHealth = mobj->health;
-  
+
+	// [BOF] Save UDMF variables for map resets.
+	mobj->SavedPitch = mobj->pitch;
+	mobj->SavedRoll = mobj->roll;
+	mobj->SavedScaleX = mobj->scaleX;
+	mobj->SavedScaleY = mobj->scaleY;
+	mobj->SavedRenderStyle = mobj->RenderStyle;
+	mobj->SavedAlpha = mobj->alpha;
+	mobj->SavedFillColor = mobj->fillcolor;
+	mobj->SavedGravity = mobj->gravity;
+	mobj->SavedScore = mobj->Score;
+	mobj->SavedHealth = mobj->health;
+	mobj->SavedConversation = mobj->Conversation;
+	mobj->SavedFloatBobPhase = mobj->FloatBobPhase;
+
 	// [BB] Potentially adjust the default flags of this actor.
 	GAMEMODE_AdjustActorSpawnFlags ( mobj );
 
@@ -6632,9 +6646,10 @@ void P_SpawnBlood (fixed_t x, fixed_t y, fixed_t z, angle_t dir, int damage, AAc
 				cls = cls->ParentClass;
 			}
 		}
-	}
 
-statedone:
+	statedone:
+		if (!(bloodtype <= 1)) th->renderflags |= RF_INVISIBLE;
+	}
 
 	// [BC] If we're the server, tell clients to spawn the blood.
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
@@ -6654,7 +6669,6 @@ statedone:
 			SERVERCOMMANDS_SpawnBlood( x, y, z, dir, damage, originator );
 	}
 
-	if (!(bloodtype <= 1)) th->renderflags |= RF_INVISIBLE;
 	if (bloodtype >= 1)
 		P_DrawSplash2 (40, x, y, z, dir, 2, bloodcolor);
 }

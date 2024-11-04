@@ -337,7 +337,7 @@ player_t::player_t()
   ulDeathCount( 0 ),
   ulLastFragTick( 0 ),
   ulLastExcellentTick( 0 ),
-  ulLastSpamTick( 0 ),
+  ulLastBFGFragTick( 0 ),
   ulConsecutiveHits( 0 ),
   ulConsecutiveRailgunHits( 0 ),
   ulFragsWithoutDeath( 0 ),
@@ -356,6 +356,7 @@ player_t::player_t()
   bIsBot( 0 ),
   ulPing( 0 ),
   ulPingAverages( 0 ),
+  connectionStrength( 0 ),
   ulCountryIndex( 0 ),
   pCorpse( 0 ),
   OldPendingWeapon( 0 ),
@@ -368,9 +369,6 @@ player_t::player_t()
 	// [BB] Check if this is still necessary.
 	userinfo.Reset();
 	memset (psprites, 0, sizeof(psprites));
-
-	// [BC] Initialize additonal ST properties.
-	memset( &ulMedalCount, 0, sizeof( ULONG ) * NUM_MEDALS );
 }
 
 player_t &player_t::operator=(const player_t &p)
@@ -497,7 +495,7 @@ player_t &player_t::operator=(const player_t &p)
 	ulDeathCount = p.ulDeathCount;
 	ulLastFragTick = p.ulLastFragTick;
 	ulLastExcellentTick = p.ulLastExcellentTick;
-	ulLastSpamTick = p.ulLastSpamTick;
+	ulLastBFGFragTick = p.ulLastBFGFragTick;
 	ulConsecutiveHits = p.ulConsecutiveHits;
 	ulConsecutiveRailgunHits = p.ulConsecutiveRailgunHits;
 	ulFragsWithoutDeath = p.ulFragsWithoutDeath;
@@ -509,7 +507,6 @@ player_t &player_t::operator=(const player_t &p)
 	ulLivesLeft = p.ulLivesLeft;
 	bStruckPlayer = p.bStruckPlayer;
 	RailgunShots = p.RailgunShots;
-	memcpy(ulMedalCount, &p.ulMedalCount, sizeof( ULONG ) * NUM_MEDALS);
 	pIcon = p.pIcon;
 	MaxHealthBonus = p.MaxHealthBonus;
 	ulWins = p.ulWins;
@@ -519,6 +516,7 @@ player_t &player_t::operator=(const player_t &p)
 	ignoreVoice = p.ignoreVoice;
 	ulPing = p.ulPing;
 	ulPingAverages = p.ulPingAverages;
+	connectionStrength = p.connectionStrength;
 	ulCountryIndex = p.ulCountryIndex;
 	pCorpse = p.pCorpse;
 	OldPendingWeapon = p.OldPendingWeapon;
@@ -2163,7 +2161,7 @@ void APlayerPawn::DropImportantItems( bool bLeavingGame, AActor *pSource )
 				// Award a "Defense!" medal to the player who fragged this flag carrier.
 				// [BB] but only if the flag belongs to the team of the fragger.
 				if (( pSource ) && ( pSource->player ) && ( pSource->IsTeammate( this ) == false ) && ( pSource->player->Team == i ))
-					MEDAL_GiveMedal( pSource->player - players, MEDAL_DEFENSE );
+					MEDAL_GiveMedal( pSource->player - players, "Defense" );
 			}
 		}
 
@@ -2207,7 +2205,7 @@ void APlayerPawn::DropImportantItems( bool bLeavingGame, AActor *pSource )
 
 			// Award a "Defense!" medal to the player who fragged this flag carrier.
 			if ( pSource && pSource->player && ( pSource->IsTeammate( this ) == false ))
-				MEDAL_GiveMedal( pSource->player - players, MEDAL_DEFENSE );
+				MEDAL_GiveMedal( pSource->player - players, "Defense" );
 		}
 	}
 
@@ -3035,6 +3033,10 @@ void P_MovePlayer (player_t *player)
 		{
 			player->cheats &= ~CF_REVERTPLEASE;
 			player->camera = player->mo;
+
+			// [AK] Revert the HUD back to the local player too.
+			if (( NETWORK_GetState( ) != NETSTATE_SERVER ) && ( player == &players[consoleplayer] ))
+				G_FinishChangeSpy( consoleplayer, true );
 		}
 	}
 
@@ -3317,8 +3319,8 @@ void P_DeathThink (player_t *player)
 		}
 	}
 
-	// [BB] If lives are limited and the game is in progess, possibly put the player in dead spectator mode.
-	if ( GAMEMODE_AreLivesLimited ( ) && GAMEMODE_IsGameInProgress ( ) )
+	// [BB/AK] If lives are limited and the player must lose a life, possibly put the player in dead spectator mode.
+	if ( GAMEMODE_ShouldPlayerLoseLife( ))
 	{
 		if ( level.time >= player->respawn_time )
 		{
@@ -3369,11 +3371,22 @@ void P_DeathThink (player_t *player)
 			{
 				player->mo->special1 = 0;
 			}
-			// [BB] The player will be reborn, so take away one life, but only if the game is already in progress.
-			if ( ( player->ulLivesLeft > 0 ) && GAMEMODE_IsGameInProgress ( ) )
+			// [BB/AK] The player will be reborn, so take away one life, but only if they must lose one.
+			if (( player->ulLivesLeft > 0 ) && ( GAMEMODE_ShouldPlayerLoseLife( )))
 			{
 				PLAYER_SetLivesLeft ( player, player->ulLivesLeft - 1 );
 			}
+
+			// [AK] Destroy the player's icon at this time too.
+			if ( player->pIcon != nullptr )
+			{
+				player->pIcon->Destroy( );
+				player->pIcon = nullptr;
+			}
+
+			// [AK] If the player was marked as being spawn telefragged, disable it now.
+			if ( player->bSpawnTelefragged )
+				player->bSpawnTelefragged = false;
 		}
 //		else if ( player->pSkullBot )
 //		{
@@ -3439,14 +3452,7 @@ void PLAYER_JoinGameFromSpectators( int iChar )
 	}
 
 	// [BB] In single player, allow the player to switch its class when changing from spectator to player.
-	if ( ( NETWORK_GetState( ) == NETSTATE_SINGLE ) || ( NETWORK_GetState( ) == NETSTATE_SINGLE_MULTIPLAYER ) )
-	{
-		SinglePlayerClass[consoleplayer] = players[consoleplayer].userinfo.GetPlayerClassNum();
-
-		// [AK] Assign a random class for the player if necessary.
-		if ( SinglePlayerClass[consoleplayer] < 0 )
-			SinglePlayerClass[consoleplayer] = ( pr_classchoice() ) % PlayerClasses.Size();
-	}
+	G_UpdateSinglePlayerClass( consoleplayer );
 
 	PLAYER_SpectatorJoinsGame( &players[consoleplayer] );
 	players[consoleplayer].camera = players[consoleplayer].mo;
@@ -4410,6 +4416,8 @@ void player_t::Serialize (FArchive &arc)
 		<< bOnTeam
 		<< Team
 		<< statuses
+		<< bSpectating
+		<< bDeadSpectator
 		<< RailgunShots
 		<< MaxHealthBonus
 		<< cheats2

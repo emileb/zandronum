@@ -156,9 +156,6 @@
 
 #define SQF2_ALL					( SQF2_PWAD_HASHES|SQF2_COUNTRY|SQF2_GAMEMODE_NAME|SQF2_GAMEMODE_SHORTNAME|SQF2_VOICECHAT )
 
-// [SB] Set to indicate when the last segment in a response is reached.
-#define LAUNCHER_LAST_SEGMENT		0x80
-
 #define	MAX_STORED_QUERY_IPS		512
 
 //*****************************************************************************
@@ -349,7 +346,7 @@ class ClientMoveCommand : public ClientCommand
 public:
 	ClientMoveCommand ( BYTESTREAM_s *pByteStream );
 
-	bool process ( const ULONG ulClient ) const;
+	virtual bool process ( const ULONG clientIndex ) const;
 
 	virtual bool isMoveCmd ( ) const
 	{
@@ -454,7 +451,7 @@ struct CLIENT_s
 	bool			bIsBacktracing;
 
 	// [BB] A record of the gametics the client called protected commands, e.g. send_password.
-	RingBuffer<LONG, 6> commandInstances;
+	RingBuffer<LONG, 8> commandInstances;
 
 	// [BB] A record of the gametics the client called protected minor commands, e.g. toggleconsole.
 	RingBuffer<LONG, 100> minorCommandInstances;
@@ -517,6 +514,9 @@ struct CLIENT_s
 	// [BB] Amount of the consistency warnings the client caused since connecting to the server.
 	ULONG			ulNumConsistencyWarnings;
 
+	// [AK] The number of times a client's packet (e.g. CLC_CLIENTMOVE) was missing.
+	unsigned int	numMissingPackets;
+
 	// What is the name of the client's skin?
 	char			szSkin[MAX_SKIN_NAME+1];
 
@@ -542,6 +542,10 @@ struct CLIENT_s
 
 	// [AK] A list of specials this player executed while being extrapolated.
 	TArray<CLIENT_SAVED_SPECIAL_s>	ExtrapolatedSpecials;
+
+	// [AK] Last tick that the player respawned. This is particularly used to prevent weapon desyncs
+	// if the client fires too early after respawning.
+	unsigned int	lastRespawnTick;
 
 	// [BB] Variables for the account system
 	FString username;
@@ -716,7 +720,7 @@ void		SERVER_MASTER_Construct( void );
 void		SERVER_MASTER_Destruct( void );
 void		SERVER_MASTER_Tick( void );
 void		SERVER_MASTER_Broadcast( void );
-void		SERVER_MASTER_SendServerInfo( NETADDRESS_s Address, ULONG ulTime, ULONG ulFlags, ULONG ulFlags2, bool bSendSegmentedResponse, bool bBroadcasting );
+void		SERVER_MASTER_SendServerInfo( NETADDRESS_s Address, ULONG ulFlags, ULONG ulTime, ULONG ulFlags2, bool bBroadcasting, bool bSegmentedResponse );
 const char	*SERVER_MASTER_GetGameName( void );
 NETADDRESS_s SERVER_MASTER_GetMasterAddress( void );
 void		SERVER_MASTER_HandleVerificationRequest( BYTESTREAM_s *pByteStream );

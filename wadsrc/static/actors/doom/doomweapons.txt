@@ -25,7 +25,6 @@ ACTOR Fist : Weapon
 	+WEAPON.WIMPY_WEAPON
 	+WEAPON.MELEEWEAPON
 	+WEAPON.ALLOW_WITH_RESPAWN_INVUL
-	+GIVEFISTINGMEDAL // [AK]
 	States
 	{
 	Ready:
@@ -578,7 +577,6 @@ ACTOR BFGBall
 	Damage 100
 	Projectile
 	+RANDOMIZE
-	+GIVESPAMMEDAL // [AK]
 	RenderStyle Add
 	Alpha 0.75
 	DeathSound "weapons/bfgx"
@@ -600,7 +598,6 @@ ACTOR BFGExtra
 {
 	+NOBLOCKMAP
 	+NOGRAVITY
-	+GIVESPAMMEDAL // [AK]
 	RenderStyle Add
 	Alpha 0.75
 	DamageType "BFGSplash"

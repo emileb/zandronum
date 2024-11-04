@@ -1703,7 +1703,7 @@ CSkullBot::CSkullBot( const char *pszName, const char *pszTeamName, ULONG ulPlay
 	m_ulLastEnemyPositionTick = 0;
 	m_bSkillIncrease = false;
 	m_bSkillDecrease = false;
-	m_ulLastMedalReceived = NUM_MEDALS;
+	m_lLastMedalReceived = -1;
 	m_lQueueHead = 0;
 	m_lQueueTail = 0;
 	for ( ulIdx = 0; ulIdx < MAX_STORED_EVENTS; ulIdx++ )
@@ -2123,10 +2123,20 @@ void CSkullBot::Tick( void )
 //
 void CSkullBot::EndTick( void )
 {
-	if ( m_bForwardMovePersist )
-		m_pPlayer->cmd.ucmd.forwardmove = static_cast<short> ( m_lForwardMove << 8 );
-	if ( m_bSideMovePersist )
-		m_pPlayer->cmd.ucmd.sidemove = static_cast<short> ( m_lSideMove << 8 );
+	// [AK] Don't allow the bot to move while frozen.
+	if (( m_pPlayer->cheats & CF_FROZEN ) == false )
+	{
+		if ( m_bForwardMovePersist )
+			m_pPlayer->cmd.ucmd.forwardmove = static_cast<short>( m_lForwardMove << 8 );
+
+		if ( m_bSideMovePersist )
+			m_pPlayer->cmd.ucmd.sidemove = static_cast<short>( m_lSideMove << 8 );
+	}
+	else
+	{
+		m_pPlayer->cmd.ucmd.forwardmove = m_pPlayer->cmd.ucmd.sidemove = 0;
+	}
+
 	m_pPlayer->cmd.ucmd.buttons |= m_lButtons;
 
 	g_BotCycles.Unclock();

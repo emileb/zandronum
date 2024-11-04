@@ -11,6 +11,13 @@ OptionValue ZA_AllowSkins
 	2.0, "No cheat skins"
 }
 
+OptionValue ZA_ShowIcons
+{
+	0.0, "Never"
+	1.0, "Teams only"
+	2.0, "Always"
+}
+
 OptionValue ZA_OverridePlayerColors
 {
 	0.0, "Never"
@@ -46,42 +53,52 @@ OptionMenu ZA_MultiplayerOptions
 {
 	Title "MULTIPLAYER OPTIONS"
 
-	SubMenu		"Offline Skirmish",			"ZA_SkirmishMenu"
-	SubMenu		"Network Options",			"ZA_NetworkOptions"
-	SubMenu		"Log in",					"ZA_LoginMenu"
-	Submenu		"Server Administration",	"ZA_ServerSetupMenu"
-	SubMenu		"Browse servers",			"ZA_Browser"
+	SubMenu		"Offline Skirmish",		"ZA_SkirmishMenu"
+	SubMenu		"Browse servers",		"ZA_Browser"
 	StaticText	" "
-	Command		"Spectate",					"menu_spectate"
-	Command		"Switch teams",				"menu_changeteam"
-	Command		"Disconnect",				"menu_disconnect"
+	SubMenu		"Log in",			"ZA_LoginMenu"
 	StaticText	" "
-	SubMenu		"Call a vote",				"ZA_CallVote"
-	SubMenu		"Player list",				"ZA_PlayerListMenu"
+	SubMenu		"Player list",			"ZA_PlayerListMenu"
+	SubMenu		"Call a vote",			"ZA_CallVote"
 	StaticText	" "
+	Command		"Spectate",			"menu_spectate"
+	Command		"Switch teams",			"menu_changeteam"
+	Command		"Disconnect",			"menu_disconnect"
+	StaticText	" "
+	SubMenu		"Network Options",		"ZA_NetworkOptions"
+	Submenu		"Server settings",		"ZA_ServerSetupMenu"
+	StaticText	" "
+
+	// [AK] cl_autologin only exists in Windows.
+	IfOption( Windows )
+	{
+		Option	"Auto-login",			"cl_autologin",			"YesNo"
+	}
+
 	Option		"Start as spectator",		"cl_startasspectator",		"YesNo"
-	TextField	"Server password",			"cl_password"
+	TextField	"Server password",		"cl_password"
 	TextField	"Server join password",		"cl_joinpassword"
 	Option		"Reset frags at join",		"cl_dontrestorefrags",		"YesNo"
-	Option		"Hide country",				"cl_hidecountry",			"YesNo"
-	Option		"Respawn using attack key",	"cl_respawnonfire",			"YesNo"
-	Option		"Intermission auto-ready",	"cl_autoready",				"YesNo"
-
+	Option		"Hide country",			"cl_hidecountry",		"YesNo"
+	Option		"Respawn using attack key",	"cl_respawnonfire",		"YesNo"
+	Option		"Intermission auto-ready",	"cl_autoready",			"YesNo"
 	StaticText	" "
-	Option		"Skins",					"cl_skins",					"ZA_AllowSkins"
-	Option		"Taunts",					"cl_taunts",				"OnOff"
-	Option		"Icons",					"cl_icons",					"OnOff"
-	Option		"Identify player level",			"cl_identifytarget",		"ZA_IdentifyTargetLevels"
-	Option		"Identify monster level",			"cl_identifymonsters",		"ZA_IdentifyMonsterLevels"
-	Option		"Show spawn spots",			"cl_showspawns",			"YesNo"
-	Option		"Free chasecam",			"cl_freechase",				"YesNo"
-	Option		"Teleport to spied player",	"cl_telespy",				"YesNo"
-	Option		"Spectator mode",		"cl_spectatorsource",			"ZA_SpectatorMode"
-	Slider		"Spectator move speed",		"cl_spectatormove",			0.1, 5.0, 0.1
+	Option		"Skins",			"cl_skins",			"ZA_AllowSkins"
+	Option		"Taunts",			"cl_taunts",			"OnOff"
+	Option		"Icons",			"cl_icons",			"OnOff"
+	Option		"Show ally icon",		"cl_showallyicon",		"ZA_ShowIcons",			"cl_icons"
+	Option		"Show enemy icon",		"cl_showenemyicon",		"ZA_ShowIcons",			"cl_icons"
+	Option		"Identify player level",	"cl_identifytarget",		"ZA_IdentifyTargetLevels"
+	Option		"Identify monster level",	"cl_identifymonsters",		"ZA_IdentifyMonsterLevels"
+	Option		"Show spawn spots",		"cl_showspawns",		"YesNo"
+	Option		"Free chasecam",		"cl_freechase",			"YesNo"
+	Option		"Teleport to spied player",	"cl_telespy",			"YesNo"
+	Option		"Spectator mode",		"cl_spectatorsource",		"ZA_SpectatorMode"
+	Slider		"Spectator move speed",		"cl_spectatormove",		0.1, 5.0, 0.1
 	StaticText	" "
 	Option		"Override player colors",	"cl_overrideplayercolors",	"ZA_OverridePlayerColors"
-	ColorPicker	"Ally color",				"cl_allycolor"
-	ColorPicker	"Enemy color",				"cl_enemycolor"
+	ColorPicker	"Ally color",			"cl_allycolor"
+	ColorPicker	"Enemy color",			"cl_enemycolor"
 }
 
 // =================================================================================================
@@ -166,6 +183,15 @@ OptionValue ZA_VoiceChatFilter
 	2, "Players or spectators only"
 }
 
+OptionValue ZA_ShowVoicePanel
+{
+	0, "No"
+	1, "Top-left"
+	2, "Bottom-left"
+	3, "Top-right"
+	4, "Bottom-right"
+}
+
 OptionValue ZA_VoicePanelShowTeams
 {
 	0, "No"
@@ -180,17 +206,18 @@ OptionMenu "ZA_VoiceChatOptions"
 	Class "VoiceChatMenu"
 
 	Option		"Enable voice chat",		"voice_enable",			"ZA_VoiceMode"
+	Option		"Mute yourself",		"voice_muteself",		"YesNo",			"voice_enable"
 	Option		"Listen filter",		"voice_listenfilter",		"ZA_VoiceChatFilter",		"voice_enable"
 	Option		"Transmit filter",		"voice_transmitfilter",		"ZA_VoiceChatFilter",		"voice_enable"
 	StaticText	" "
 	Option		"Input device",			"voice_recorddriver",		"ZA_RecordDrivers"
 	Slider		"Input volume",			"voice_recordvolume",		0.0, 2.0, 0.1
-	Slider		"Output volume",		"voice_outputvolume",		0.0, 2.0, 0.1
+	Slider		"Output volume",		"voice_outputvolume",		0.0, 1.0, 0.1
 	Slider		"Voice sensitivity (dB)",	"voice_recordsensitivity",	-100, 0, 5
 	Option		"Use noise suppression",	"voice_suppressnoise",		"YesNo"
 	TextField	"RNNoise model file",		"voice_noisemodelfile",		"voice_suppressnoise"
 	StaticText	" "
-	Option		"Show voice panel",		"voice_showpanel",		"YesNo"
+	Option		"Show voice panel",		"voice_showpanel",		"ZA_ShowVoicePanel"
 	TextField	"Panel x-pos",			"voice_panelx",			"voice_showpanel"
 	TextField	"Panel y-pos",			"voice_panely",			"voice_showpanel"
 	NumberField	"Max panel rows",		"voice_panelrows",		1, 64, 1,			"voice_showpanel"

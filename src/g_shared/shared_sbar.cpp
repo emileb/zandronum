@@ -411,7 +411,6 @@ void DBaseStatusBar::AttachMessage (DHUDMessage *msg, DWORD id, int layer)
 {
 	DHUDMessage *old = NULL;
 	DHUDMessage **prev;
-	DObject *container = this;
 
 	old = (id == 0 || id == 0xFFFFFFFF) ? NULL : DetachMessage (id);
 	if (old != NULL)
@@ -432,14 +431,13 @@ void DBaseStatusBar::AttachMessage (DHUDMessage *msg, DWORD id, int layer)
 	// it gets drawn back to front.)
 	while (*prev != NULL && (*prev)->SBarID > id)
 	{
-		container = *prev;
 		prev = &(*prev)->Next;
 	}
 
 	msg->Next = *prev;
 	msg->SBarID = id;
 	*prev = msg;
-	GC::WriteBarrier(container, msg);
+	GC::WriteBarrier(msg);
 }
 
 //---------------------------------------------------------------------------
@@ -1578,7 +1576,8 @@ void DBaseStatusBar::DrawCornerScore ()
 	if( !(cl_stfullscreenhud && gameinfo.gametype == GAME_Doom) && (gameinfo.gametype != GAME_Strife)  )
 	{
 		// Draw the player's counter (points, frags, wins).
-		if ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNPOINTS )
+		// [AK] Players don't receive points in domination, so don't draw anything.
+		if (( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNPOINTS ) && ( domination == false ))
 			DrBNumberOuter (CPlayer->lPointCount, -44, 1);
 		else if ( GAMEMODE_GetCurrentFlags() & GMF_PLAYERSEARNFRAGS )
 			DrBNumberOuter (CPlayer->fragcount, -44, 1);

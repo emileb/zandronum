@@ -478,7 +478,6 @@ OptionMenu "CustomizeControls"
 	Control 	"Show Scoreboard",		"+showscores"
 	Control		"Scroll scoreboard up",		"+sb_scrollup" // [AK]
 	Control		"Scroll scoreboard down",	"+sb_scrolldn" // [AK]
-	Control		"Show medals",			"+showmedals" // [TP]
 	StaticText 	""
 	StaticText 	"Chat", 1
 	Control 	"Say",					"messagemode"
@@ -1221,6 +1220,13 @@ OptionValue ZA_CountryCodeFormat
 }
 
 // [AK]
+OptionValue ZA_LimitStringFormat
+{
+	0, "Score limit to win"
+	1, "How much score left"
+}
+
+// [AK]
 OptionValue ZA_HorizontalAlignment
 {
 	0, "Left"
@@ -1236,15 +1242,53 @@ OptionValue ZA_VerticalAlignment
 	2, "Bottom"
 }
 
+// [AK] A separate menu for custom scoreboard properties.
+OptionMenu CustomizeScoreboardMenu
+{
+	Title "CUSTOMIZE SCOREBOARD"
+
+	SafeCommand "Restore to default",	"restorescoreboardproperties"
+	StaticText " "
+	Option "Customize text",		"sb_customizetext", "YesNo"
+	Option "Use team text colors",		"sb_useteamtextcolors", "YesNo"
+	Option "Header color",			"sb_headertextcolor", "TextColors"
+	Option "Row color",			"sb_rowtextcolor", "TextColors"
+	Option "Local row color",		"sb_localrowtextcolor", "TextColors"
+	Option "Local row demo color",		"sb_localrowdemotextcolor", "TextColors"
+	StaticText " "
+	Option "Customize borders",		"sb_customizeborders", "YesNo"
+	Option "No borders",			"sb_noborders", "YesNo"
+	Option "Use header text color",		"sb_useheadertextcolorforborders", "YesNo"
+	ColorPicker "Light color",		"sb_lightbordercolor"
+	ColorPicker "Dark color",		"sb_darkbordercolor"
+	StaticText " "
+	Option "Customize background",		"sb_customizebackground", "YesNo"
+	ColorPicker "Background color",		"sb_backgroundcolor"
+	Slider "Background alpha",		"sb_backgroundalpha", 0.0, 1.0, 0.05
+	StaticText " "
+	Option "Customize row backgrounds",	"sb_customizerowbackgrounds", "YesNo"
+	Option "Show gaps",			"sb_showgapsinrowbackground", "YesNo"
+	Option "No local row color",		"sb_nolocalrowbackgroundcolor", "YesNo"
+	Option "Only show local row",		"sb_onlylocalrowbackground", "YesNo"
+	ColorPicker "Light color",		"sb_lightrowbackgroundcolor"
+	ColorPicker "Dark color",		"sb_darkrowbackgroundcolor"
+	ColorPicker "Local color",		"sb_localrowbackgroundcolor"
+	Slider "Background alpha",		"sb_rowbackgroundalpha", 0.0, 1.0, 0.05
+	Slider "Dead Background alpha",		"sb_deadrowbackgroundalpha", 0.0, 1.0, 0.05
+}
+
 OptionMenu ScoreboardOptions
 {
 	Title "SCOREBOARD OPTIONS"
 
 	// [AK] Zandronum has its own options for the scoreboard.
+	Submenu "Customize scoreboard",		"CustomizeScoreboardMenu"
+	StaticText " "
 	Option "Colorize pings",		"cl_colorizepings", "YesNo"
 	Option "Use short column names",	"cl_useshortcolumnnames", "YesNo"
 	Option "Show intermission timer",	"cl_intermissiontimer", "YesNo"
 	Option "Country code format",		"cl_usealpha3countrycode", "ZA_CountryCodeFormat"
+	Option "Limit string format",		"cl_showscoreleft", "ZA_LimitStringFormat"
 	Slider "Translucency",			"cl_scoreboardalpha", 0, 1, 0.05
 	Slider "Scroll speed",			"cl_scoreboardscrollspeed", 1, 64, 1
 	StaticText " "
@@ -1257,6 +1301,7 @@ OptionMenu ScoreboardOptions
 	TextField "Y-offset",			"cl_scoreboardy"
 	StaticText " "
 	Option "Use custom scale",		"cl_usescoreboardscale", "YesNo"
+	Option "Use screen ratio",		"cl_usescoreboardscale_screenratio", "YesNo", "cl_usescoreboardscale"
 	TextField "Screen width",		"cl_scoreboardscreenwidth", "cl_usescoreboardscale"
 	TextField "Screen height",		"cl_scoreboardscreenheight", "cl_usescoreboardscale"
 

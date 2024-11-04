@@ -367,6 +367,12 @@ void ClientObituary (AActor *self, AActor *inflictor, AActor *attacker, int dmgf
 			}
 		}
 	}
+	// [TRSR] If the inflictor exists and is unowned, check for selfobituary here too.
+	else if (message == NULL && attacker == NULL && inflictor != NULL)
+	{
+		message = inflictor->GetClass()->Meta.GetMetaString (AMETA_SelfObituary);
+		attacker = self;
+	}
 	else attacker = self;	// for the message creation
 
 	if (message != NULL && message[0] == '$') 
@@ -453,22 +459,10 @@ void AActor::Die (AActor *source, AActor *inflictor, int dmgflags)
 	if ( player )
 	{
 		const ULONG ulPlayer = player - players;
-		int dmgflagsCopy = dmgflags;
-
-		// [AK] If the inflictor has the GIVEFISTINGMEDAL or GIVESPAMMEDAL flags, then the attacker
-		// (assuming that they're also a player) can get a "fisting" or "spam" medal.
-		if ( inflictor )
-		{
-			if ( inflictor->STFlags & STFL_GIVEFISTINGMEDAL )
-				dmgflagsCopy |= DMG_GIVE_FISTING_MEDAL_ON_FRAG;
-
-			if ( inflictor->STFlags & STFL_GIVESPAMMEDAL )
-				dmgflagsCopy |= DMG_GIVE_SPAM_MEDAL_ON_FRAG;
-		}
 
 		// [BC] Check to see if any medals need to be awarded.
 		if ( NETWORK_InClientMode( ) == false )
-			MEDAL_PlayerDied( ulPlayer, (( source ) && ( source->player )) ? static_cast<ULONG>( source->player - players ) : MAXPLAYERS, dmgflagsCopy );
+			MEDAL_PlayerDied( ulPlayer, (( source ) && ( source->player )) ? static_cast<ULONG>( source->player - players ) : MAXPLAYERS );
 
 		// [AK] Increment this player's death count.
 		PLAYER_SetDeaths( &players[ulPlayer], players[ulPlayer].ulDeathCount + 1, false );
@@ -680,7 +674,7 @@ void AActor::Die (AActor *source, AActor *inflictor, int dmgflags)
 		}
 
 		// If the player got telefragged by a player trying to spawn, allow him to respawn.
-		if (( player ) && ( GAMEMODE_AreLivesLimited ( ) ) && ( MeansOfDeath == NAME_SpawnTelefrag ))
+		if (( player ) && ( MeansOfDeath == NAME_SpawnTelefrag ))
 			player->bSpawnTelefragged = true;
 	}
 	else if (( NETWORK_InClientMode() == false ) && (CountsAsKill()))
@@ -735,7 +729,7 @@ void AActor::Die (AActor *source, AActor *inflictor, int dmgflags)
 		FBehavior::StaticStartTypedScripts (SCRIPT_Death, this, true);
 
 		// [EP] Avoid instant body disappearing if the player had no lives left.
-		bool bNoMoreLivesLeft = ( GAMEMODE_AreLivesLimited() && GAMEMODE_IsGameInProgress() && ( player->ulLivesLeft == 0 ));
+		bool bNoMoreLivesLeft = (( GAMEMODE_ShouldPlayerLoseLife( )) && ( player->ulLivesLeft == 0 ));
 
 		// [RH] Force a delay between death and respawn
 		if ((( zacompatflags & ZACOMPATF_INSTANTRESPAWN ) == false ) ||
@@ -925,12 +919,13 @@ void AActor::Die (AActor *source, AActor *inflictor, int dmgflags)
 		Destroy();
 	}
 
-	// [AK] Try to draw a large frag message if we (the consoleplayer) were fragged (by) another player.
-	HUD_PrepareToDrawFragMessage( player, source, MeansOfDeath );
-
 	// [RH] Death messages
 	if (( player ) && ( NETWORK_InClientMode() == false ))
+	{
+		// [AK] Try to draw a large frag message if the player (was) fragged (by) another player.
+		HUD_PrepareToDrawFragMessage( player, source, MeansOfDeath );
 		ClientObituary (this, inflictor, source, dmgflags, MeansOfDeath);
+	}
 
 }
 
@@ -2269,7 +2264,7 @@ void PLAYER_ResetSpecialCounters ( player_t *pPlayer )
 
 	pPlayer->ulLastExcellentTick = 0;
 	pPlayer->ulLastFragTick = 0;
-	pPlayer->ulLastSpamTick = 0;
+	pPlayer->ulLastBFGFragTick = 0;
 	pPlayer->ulConsecutiveHits = 0;
 	pPlayer->ulConsecutiveRailgunHits = 0;
 	pPlayer->ulDeathsWithoutFrag = 0;
@@ -2335,6 +2330,12 @@ void PLAYER_SetTeam( player_t *pPlayer, ULONG ulTeam, bool bNoBroadcast )
 		}
 
 		GAMEMODE_SpawnPlayer ( pPlayer - players );
+	}
+	// [AK] If the player isn't respawned, the HUD should still be refreshed in
+	// case the ally or enemy counters need to be updated.
+	else if ( GAMEMODE_GetCurrentFlags( ) & GMF_DEADSPECTATORS )
+	{
+		HUD_ShouldRefreshBeforeRendering( );
 	}
 
 	// If we're the server, tell clients about this team change.
@@ -2448,6 +2449,9 @@ void PLAYER_SetSpectator( player_t *pPlayer, bool bBroadcast, bool bDeadSpectato
 
 				// This player no longer has a team affiliation.
 				pPlayer->bOnTeam = false;
+
+				// [AK] The spectator count has changed, so refresh the HUD.
+				HUD_ShouldRefreshBeforeRendering( );
 			}
 		}
 
@@ -2743,6 +2747,12 @@ void PLAYER_SpectatorJoinsGame( player_t *pPlayer )
 	pPlayer->bSpectating = false;
 	pPlayer->bDeadSpectator = false;
 
+	// [AK] Reset the client's last move tick to zero so that the server doesn't
+	// immediately assume they're missing packets because it doesn't receive their
+	// movement commands right away, depending on their ping.
+	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
+		SERVER_GetClient( pPlayer - players )->lLastMoveTick = 0;
+
 	// [BB] If the spectator used the chasecam or noclip cheat (which is always allowed for spectators)
 	// remove it now that he joins the game.
 	// [Leo] The fly cheat is set by default in PLAYER_SetDefaultSpectatorValues.
@@ -2893,8 +2903,9 @@ void PLAYER_SetStatus( player_t *player, const int statuses, const bool enable, 
 		}
 
 		// [AK] If we're recording a demo, write a command to update our status.
-		if ( CLIENTDEMO_IsRecording( ))
-			CLIENTDEMO_WriteSetStatus( statuses, enable );
+		// Don't update the "talking" status since voice chat isn't used in demos.
+		if (( CLIENTDEMO_IsRecording( )) && ( player == &players[consoleplayer] ))
+			CLIENTDEMO_WriteSetStatus( statuses & ~PLAYERSTATUS_TALKING, enable );
 	}
 }
 
@@ -2983,33 +2994,32 @@ bool PLAYER_IsTrueSpectator( player_t *pPlayer )
 
 //*****************************************************************************
 //
-void PLAYER_CheckStruckPlayer( AActor *pActor )
+void PLAYER_CheckStruckPlayer( AActor *actor )
 {
-	if ( pActor && pActor->player )
-	{
-		if ( pActor->player->bStruckPlayer )
-			PLAYER_StruckPlayer( pActor->player );
-		else
-			pActor->player->ulConsecutiveHits = 0;
-	}
-}
-
-//*****************************************************************************
-//
-void PLAYER_StruckPlayer( player_t *pPlayer )
-{
-	if ( NETWORK_InClientMode() )
+	if ( NETWORK_InClientMode( ))
 		return;
 
-	pPlayer->ulConsecutiveHits++;
+	if (( actor != nullptr ) && ( actor->player != nullptr ))
+	{
+		player_t *player = actor->player;
 
-	// If the player has made 5 straight consecutive hits with a weapon, award a medal.
-	// Award a "Precision" medal if they made 10+ consecutive hits. Otherwise, award an "Accuracy" medal.
-	if (( pPlayer->ulConsecutiveHits % 5 ) == 0 )
-		MEDAL_GiveMedal( pPlayer - players, pPlayer->ulConsecutiveHits >= 10 ? MEDAL_PRECISION : MEDAL_ACCURACY );
+		if ( player->bStruckPlayer )
+		{
+			player->ulConsecutiveHits++;
 
-	// Reset the struck player flag.
-	pPlayer->bStruckPlayer = false;
+			// If the player has made 5 straight consecutive hits with a weapon, award a medal.
+			// Award a "Precision" medal if they made 10+ consecutive hits. Otherwise, award an "Accuracy" medal.
+			if (( player->ulConsecutiveHits % 5 ) == 0 )
+				MEDAL_GiveMedal( player - players, player->ulConsecutiveHits >= 10 ? "Precision" : "Accuracy" );
+
+			// Reset the struck player flag.
+			player->bStruckPlayer = false;
+		}
+		else
+		{
+			player->ulConsecutiveHits = 0;
+		}
+	}
 }
 
 //*****************************************************************************
@@ -3340,16 +3350,16 @@ void PLAYER_ApplySkinScaleToBody( player_t *player, AActor *body, AWeapon *weapo
 
 //*****************************************************************************
 //
-void PLAYER_SetLivesLeft( player_t *pPlayer, ULONG ulLivesLeft )
+void PLAYER_SetLivesLeft( player_t *player, const unsigned int livesLeft, const bool informClients )
 {
 	// [BB] Validity check.
-	if ( pPlayer == NULL )
+	if ( player == nullptr )
 		return;
 
-	pPlayer->ulLivesLeft = ulLivesLeft;
+	player->ulLivesLeft = livesLeft;
 
-	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-		SERVERCOMMANDS_SetPlayerLivesLeft ( static_cast<ULONG> ( pPlayer - players ) );
+	if (( NETWORK_GetState( ) == NETSTATE_SERVER ) && ( informClients ))
+		SERVERCOMMANDS_SetPlayerLivesLeft ( static_cast<ULONG>( player - players ));
 }
 
 //*****************************************************************************
@@ -3411,7 +3421,7 @@ void PLAYER_LeavesGame( const ULONG ulPlayer )
 	}
 
 	// [BB] Clear the players medals and the medal related counters. The former is something also clients need to do.
-	memset( players[ulPlayer].ulMedalCount, 0, sizeof( ULONG ) * NUM_MEDALS );
+	MEDAL_ResetPlayerMedals( ulPlayer, true );
 	PLAYER_ResetSpecialCounters ( &players[ulPlayer] );
 
 	// [AK] We have no more use for our corpse since we left the game.
@@ -3812,7 +3822,16 @@ CCMD( spectate )
 
 	// Already a spectator!
 	if ( PLAYER_IsTrueSpectator( &players[consoleplayer] ))
+	{
+		// [AK] If the local player is in the join queue, then remove them.
+		if ( JOINQUEUE_GetPositionInLine( consoleplayer ) != -1 )
+		{
+			JOINQUEUE_RemovePlayerFromQueue( consoleplayer );
+			Printf( "You have been removed from the join queue.\n" );
+		}
+
 		return;
+	}
 
 	// Make the player a spectator.
 	PLAYER_SetSpectator( &players[consoleplayer], true, false );
