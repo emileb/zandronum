@@ -120,6 +120,7 @@ int GetRevisionNumber();
 #define GAMESIG "ZANDRONUM"
 #define BASEWAD "zandronum.pk3"
 
+
 // More stuff that needs to be different for derivatives.
 #define GAMENAME "Zandronum"
 #define GAMENAMELOWERCASE "zandronum"

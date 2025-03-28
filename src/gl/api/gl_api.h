@@ -1,6 +1,8 @@
 #if defined(__unix__) || defined(__APPLE__)
+#ifndef __ANDROID__
 #define APIENTRY
 #define APIENTRYP *
+#endif
 #endif // __unix__ || __APPLE__
 
 #ifndef __EXTERN
