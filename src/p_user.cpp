@@ -103,16 +103,28 @@ CUSTOM_CVAR (Float, cl_spectatormove, 1.0, CVAR_ARCHIVE|CVAR_GLOBALCONFIG) {
 		self = -100.0;
 }
 
-// [AK] Enables source-engine like noclipping, allowing spectators to pass through floors and ceilings.
-CUSTOM_CVAR (Bool, cl_spectatorsource, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+// [AK] Determines which mode to use while spectating.
+CUSTOM_CVAR (Int, cl_spectatormode, SPECMODE_NO_RESTRICTIONS, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 {
-	if (players[consoleplayer].bSpectating)
+	player_t *const player = CLIENTDEMO_IsPlaying() ? CLIENTDEMO_GetFreeSpectatorPlayer() : &players[consoleplayer];
+	const int clampedValue = clamp<int>(self, SPECMODE_WITH_RESTRICTIONS, SPECMODE_NO_RESTRICTIONS);
+
+	if (self != clampedValue)
 	{
-		if (self)
-			players[consoleplayer].mo->flags5 |= MF5_NOINTERACTION;
-		else
-			players[consoleplayer].mo->flags5 &= ~MF5_NOINTERACTION;
+		self = clampedValue;
+		return;
 	}
+
+	if ((player->bSpectating) && (player->mo != nullptr))
+	{
+		if (self == SPECMODE_NO_RESTRICTIONS)
+			player->mo->flags5 |= MF5_NOINTERACTION;
+		else
+			player->mo->flags5 &= ~MF5_NOINTERACTION;
+	}
+
+	if ((NETWORK_GetState() == NETSTATE_CLIENT) && (CLIENTDEMO_IsRecording()) && (self != self.GetPastValue()))
+		CLIENTDEMO_WriteConsolePlayerUnrestricted(self == SPECMODE_NO_RESTRICTIONS);
 }
 
 // [GRB] Custom player classes
@@ -1759,12 +1771,6 @@ void APlayerPawn::GiveDefaultInventory ()
 
 					if ( pWeapon != NULL )
 					{
-						if ( pWeapon->WeaponFlags & WIF_NOLMS )
-						{
-							player->mo->RemoveInventory( pWeapon );
-							continue;
-						}
-
 						if (( pPendingWeapon == NULL ) || 
 							( pWeapon->SelectionOrder < pPendingWeapon->SelectionOrder ))
 						{
@@ -2034,7 +2040,7 @@ void APlayerPawn::Die (AActor *source, AActor *inflictor, int dmgflags)
 				weap->SpawnState != ::GetDefault<AActor>()->SpawnState)
 			{
 				item = P_DropItem (this, weap->GetClass(), -1, 256);
-				if (item != NULL)
+				if (item != NULL && item->IsKindOf(RUNTIME_CLASS(AWeapon)))
 				{
 					if (weap->AmmoGive1 && weap->Ammo1)
 					{
@@ -2106,7 +2112,8 @@ void APlayerPawn::DropImportantItems( bool bLeavingGame, AActor *pSource )
 	AActor		*pTeamItem;
 	AInventory	*pInventory;
 
-	if ( player == NULL )
+	// [AK] Don't let clients execute this themselves.
+	if (( NETWORK_InClientMode( )) || ( player == nullptr ))
 		return;
 
 	// If we're in a teamgame, don't allow him to "take" flags or skulls with him. If
@@ -2120,13 +2127,14 @@ void APlayerPawn::DropImportantItems( bool bLeavingGame, AActor *pSource )
 
 			if ( pInventory )
 			{
-				this->RemoveInventory( pInventory );
-
 				// Tell the clients that this player no longer possesses a flag.
 				if (( bLeavingGame == false ) && ( NETWORK_GetState( ) == NETSTATE_SERVER ))
 					SERVERCOMMANDS_TakeInventory( player - players, TEAM_GetItem( i ), 0 );
 				if ( NETWORK_GetState( ) != NETSTATE_SERVER )
 					HUD_ShouldRefreshBeforeRendering( );
+
+				pInventory->Destroy( );
+				pInventory = nullptr;
 
 				// Spawn a new flag.
 				pTeamItem = Spawn( TEAM_GetItem( i ), x, y, z, NO_REPLACE );
@@ -2146,7 +2154,7 @@ void APlayerPawn::DropImportantItems( bool bLeavingGame, AActor *pSource )
 							TEAM_SetReturnTicks( i, sv_flagreturntime * TICRATE );
 
 							// Print flag dropped message and do announcer stuff.
-							TEAM_FlagDropped( player, i );
+							ATeamItem::Drop( player, i );
 
 							// If we're the server, spawn the item to clients.
 							if ( NETWORK_GetState( ) == NETSTATE_SERVER )
@@ -2169,13 +2177,14 @@ void APlayerPawn::DropImportantItems( bool bLeavingGame, AActor *pSource )
 		pInventory = this->FindInventory( PClass::FindClass( "WhiteFlag" ), true );
 		if (( oneflagctf ) && ( pInventory ))
 		{
-			this->RemoveInventory( pInventory );
-
 			// Tell the clients that this player no longer possesses a flag.
 			if (( bLeavingGame == false ) && ( NETWORK_GetState( ) == NETSTATE_SERVER ))
 				SERVERCOMMANDS_TakeInventory( player - players, pInventory->GetClass( ), 0 );
 			if ( NETWORK_GetState( ) != NETSTATE_SERVER )
 				HUD_ShouldRefreshBeforeRendering( );
+
+			pInventory->Destroy( );
+			pInventory = nullptr;
 
 			// Spawn a new flag.
 			pTeamItem = Spawn( PClass::FindClass( "WhiteFlag" ), x, y, z, ALLOW_REPLACE );
@@ -2195,6 +2204,9 @@ void APlayerPawn::DropImportantItems( bool bLeavingGame, AActor *pSource )
 					else
 					{
 						TEAM_SetReturnTicks( teams.Size( ), sv_flagreturntime * TICRATE );
+
+						// [AK] Print the dropped message and do announcer stuff.
+						ATeamItem::Drop( player, teams.Size( ));
 
 						// If we're the server, spawn the item to clients.
 						if ( NETWORK_GetState( ) == NETSTATE_SERVER )
@@ -2577,6 +2589,11 @@ void P_CheckPlayerSprite(AActor *actor, int &spritenum, fixed_t &scalex, fixed_t
 	if ( actor->IsKindOf( RUNTIME_CLASS( APlayerChunk )))
 		return;
 
+	// [SB] In multiplayer emulation, voodoo dolls exist on the client and will therefore be rendered,
+	// but if sv_coopunassignedvoodoodolls is enabled they belong to the dummy player which never has an individual associated mobj.
+	if ( player->mo == nullptr )
+		return;
+
 	// [BC] Because of cl_skins, we might not necessarily use the player's desired skin.
 	const int overrideSkin = PLAYER_GetOverrideSkin( player ); // [AK]
 	int skin = player->userinfo.GetSkin();
@@ -2731,8 +2748,8 @@ void P_CalcHeight (player_t *player)
 	if ( CLIENT_PREDICT_IsPredicting( ))
 		return;
 
-	// [AK] Check if source-engine noclipping is being used by the spectator.
-	const bool usingSourceEngineNoClip = P_IsUsingSourceEngineNoClip(player->mo);
+	// [AK] Check if the spectator has no physical restrictions.
+	const bool noPhysicalRestrictions = P_IsSpectatorUnrestricted(player->mo);
 
 	// Regular movement bobbing
 	// (needs to be calculated for gun swing even if not on ground)
@@ -2743,8 +2760,8 @@ void P_CalcHeight (player_t *player)
 	// it causes bobbing jerkiness when the player moves from ice to non-ice,
 	// and vice-versa.
 
-	// [AK] Don't calculate bobbing while using source-engine noclipping.
-	if ((player->cheats & CF_NOCLIP2) || (usingSourceEngineNoClip))
+	// [AK] Don't calculate bobbing without physical restrictions.
+	if ((player->cheats & CF_NOCLIP2) || (noPhysicalRestrictions))
 	{
 		player->bob = 0;
 	}
@@ -2842,8 +2859,8 @@ void P_CalcHeight (player_t *player)
 	// [AK] Don't bob the screen if cl_viewbob is disabled.
 	player->viewz = player->mo->z + player->viewheight + (cl_viewbob ? bob : 0);
 
-	// [AK] Don't clip the view to the floor/ceiling while using source-engine noclipping.
-	if (usingSourceEngineNoClip)
+	// [AK] Don't clip the view to the floor/ceiling without physical restrictions.
+	if (noPhysicalRestrictions)
 		return;
 
 	if (player->mo->floorclip && player->playerstate != PST_DEAD
@@ -4579,13 +4596,30 @@ bool P_IsPlayerTotallyFrozen(const player_t *player)
 		((level.flags2 & LEVEL2_FROZEN) && player->timefreezer == 0 && (player->bSpectating == false));
 }
 
-// [AK] Checks if source-engine noclipping is being used by the local player.
-bool P_IsUsingSourceEngineNoClip(const AActor *viewActor)
+// [AK] Checks if the local player is physically unrestricted while spectating.
+bool P_IsSpectatorUnrestricted(const AActor *viewActor)
 {
-	if ((cl_spectatorsource == false) || (viewActor == nullptr))
+	player_t *player = &players[consoleplayer];
+
+	// [AK] The server doesn't handle spectator movement.
+	if ((NETWORK_GetState() == NETSTATE_SERVER) || (viewActor == nullptr))
 		return false;
 
-	return ((players[consoleplayer].bSpectating) && (viewActor == players[consoleplayer].mo));
+	// [AK] While playing a demo, check if the local player was using the
+	// unrestricted spectator mode during recording instead. If free spectate
+	// mode is being used, use the free spectator's body instead.
+	if (CLIENTDEMO_IsPlaying())
+	{
+		if (viewActor == players[consoleplayer].mo)
+			return (players[consoleplayer].bSpectating && CLIENTDEMO_IsConsolePlayerUnrestricted());
+
+		player = CLIENTDEMO_GetFreeSpectatorPlayer();
+	}
+
+	if (cl_spectatormode != SPECMODE_NO_RESTRICTIONS)
+		return false;
+
+	return ((player->bSpectating) && (viewActor == player->mo));
 }
 
 // [AK] Resets the player's pitch limits anytime they need to be changed.

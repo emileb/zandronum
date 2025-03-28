@@ -641,7 +641,7 @@ public:
 
 		if ( opt != nullptr )
 		{
-			int numRecordDrivers = ( *opt )->mValues.Size( );
+			unsigned int numRecordDrivers = ( *opt )->mValues.Size( );
 
 			// [AK] "None" doesn't count as a record driver.
 			if ( stricmp(( *opt )->mValues[0].Text, "None" ) == 0 )
@@ -751,6 +751,66 @@ public:
 };
 
 IMPLEMENT_CLASS( DPlayerListMenu )
+
+// =================================================================================================
+//
+// [TRSR/AK] DCallVoteMenu
+//
+// The call vote menu, which automatically adds the list of eligible custom vote menus.
+//
+// =================================================================================================
+
+class DCallVoteMenu : public DOptionMenu
+{
+	DECLARE_CLASS( DCallVoteMenu, DOptionMenu )
+
+public:
+	void Init( DMenu *parent, FOptionMenuDescriptor *desc )
+	{
+		const TArray<VOTETYPE_s> &votes = CALLVOTE_GetCustomVotes( );
+
+		for ( unsigned int i = 0; i < votes.Size( ); i++ )
+		{
+			if ( votes[i].menu.IsNotEmpty( ))
+			{
+				FOptionMenuItem *it = new FOptionMenuItemSubmenu( votes[i].menuName.GetChars( ), votes[i].menu.GetChars( ));
+				mCustomVoteItems.Push( it );
+				desc->mItems.Push( it );
+			}
+		}
+
+		Super::Init( parent, desc );
+	}
+
+	virtual void Close( void )
+	{
+		// [AK] When this menu closes, any custom vote menus that were added when it was opened must
+		// be removed from its descriptor and deleted now. Otherwise, the custom vote menus will be
+		// duplicated when this menu is opened again.
+		for ( unsigned int i = 0; i < mCustomVoteItems.Size( ); i++ )
+		{
+			for ( unsigned int j = 0; j < mDesc->mItems.Size( ); j++ )
+			{
+				if ( mDesc->mItems[j] == mCustomVoteItems[i] )
+				{
+					mDesc->mItems.Delete( j );
+					break;
+				}
+			}
+
+			delete mCustomVoteItems[i];
+			mCustomVoteItems[i] = nullptr;
+		}
+
+		mCustomVoteItems.Clear( );
+		Super::Close( );
+	}
+
+private:
+	TDeletingArray<FOptionMenuItem *> mCustomVoteItems;
+};
+
+IMPLEMENT_CLASS( DCallVoteMenu )
 
 // =================================================================================================
 //

@@ -59,6 +59,10 @@
 #include "team.h"
 #include "chat.h"
 
+#ifndef NO_SOUND
+#include "fmod_errors.h"
+#endif
+
 // [AK] These files must be included to also include "optionmenuitems.h".
 #include "menu/menu.h"
 #include "v_video.h"
@@ -394,9 +398,11 @@ void VOIPController::Init( FMOD::System *mainSystem )
 	}
 
 	// [AK] Create the player VoIP channel group.
-	if ( system->createChannelGroup( "VoIP", &VoIPChannelGroup ) != FMOD_OK )
+	const FMOD_RESULT fmodErrorCode = system->createChannelGroup( "VoIP", &VoIPChannelGroup );
+
+	if ( fmodErrorCode != FMOD_OK )
 	{
-		Printf( TEXTCOLOR_ORANGE "Failed to create VoIP channel group for playback.\n" );
+		Printf( TEXTCOLOR_ORANGE "Failed to create VoIP channel group for playback: %s\n", FMOD_ErrorString( fmodErrorCode ));
 		return;
 	}
 
@@ -656,9 +662,10 @@ void VOIPController::Tick( void )
 	{
 		isRecordButtonPressed = true;
 
-		if ( players[consoleplayer].userinfo.GetVoiceEnable( ) == VOICEMODE_PUSHTOTALK )
+		// [AK] There's no need to do anything if the local player muted themselves.
+		if (( players[consoleplayer].userinfo.GetVoiceEnable( ) == VOICEMODE_PUSHTOTALK ) && ( voice_muteself == false ))
 		{
-			if (( IsVoiceChatAllowed( )) || ( voice_muteself ))
+			if ( IsVoiceChatAllowed( ))
 			{
 				if ( isNotIgnored )
 					StartTransmission( TRANSMISSIONTYPE_BUTTON, true );
@@ -946,19 +953,28 @@ void VOIPController::StartRecording( void )
 	if ( IsRecording( ))
 		return;
 
+	// [AK] Don't start recording audio while using ALSA.
+	if ( IsUsingALSA( ))
+	{
+		Printf( TEXTCOLOR_ORANGE "Can't start VoIP recording with ALSA. Try using PulseAudio instead.\n" );
+		return;
+	}
+
 	int numRecordDrivers = 0;
+	FMOD_RESULT fmodErrorCode = system->getRecordNumDrivers( &numRecordDrivers );
 
 	// [AK] Try to start recording from the selected record driver.
-	if ( system->getRecordNumDrivers( &numRecordDrivers ) == FMOD_OK )
+	if ( fmodErrorCode == FMOD_OK )
 	{
 		if ( numRecordDrivers > 0 )
 		{
 			FMOD_CREATESOUNDEXINFO exinfo = CreateSoundExInfo( RECORD_SAMPLE_RATE, RECORD_SOUND_LENGTH );
+			fmodErrorCode = system->createSound( nullptr, FMOD_LOOP_NORMAL | FMOD_2D | FMOD_OPENUSER, &exinfo, &recordSound );
 
 			// [AK] Abort if creating the sound to record into failed.
-			if ( system->createSound( nullptr, FMOD_LOOP_NORMAL | FMOD_2D | FMOD_OPENUSER, &exinfo, &recordSound ) != FMOD_OK )
+			if ( fmodErrorCode != FMOD_OK )
 			{
-				Printf( TEXTCOLOR_ORANGE "Failed to create sound for recording.\n" );
+				Printf( TEXTCOLOR_ORANGE "Failed to create sound for recording: %s\n", FMOD_ErrorString( fmodErrorCode ));
 				return;
 			}
 
@@ -972,9 +988,11 @@ void VOIPController::StartRecording( void )
 				recordDriverID = voice_recorddriver;
 			}
 
-			if ( system->recordStart( recordDriverID, recordSound, true ) != FMOD_OK )
+			fmodErrorCode = system->recordStart( recordDriverID, recordSound, true );
+
+			if ( fmodErrorCode != FMOD_OK )
 			{
-				Printf( TEXTCOLOR_ORANGE "Failed to start VoIP recording.\n" );
+				Printf( TEXTCOLOR_ORANGE "Failed to start VoIP recording: %s\n", FMOD_ErrorString( fmodErrorCode ));
 
 				// [AK] Delete the recording sound if it was created.
 				if ( recordSound != nullptr )
@@ -991,7 +1009,7 @@ void VOIPController::StartRecording( void )
 	}
 	else
 	{
-		Printf( TEXTCOLOR_ORANGE "Failed to retrieve number of record drivers.\n" );
+		Printf( TEXTCOLOR_ORANGE "Failed to retrieve number of record drivers: %s\n", FMOD_ErrorString( fmodErrorCode ));
 	}
 }
 
@@ -1011,8 +1029,10 @@ void VOIPController::StopRecording( void )
 	// [AK] If we're in the middle of a transmission, stop that too.
 	StopTransmission( );
 
-	if ( system->recordStop( recordDriverID ) != FMOD_OK )
-		Printf( TEXTCOLOR_ORANGE "Failed to stop voice recording.\n" );
+	const FMOD_RESULT fmodErrorCode = system->recordStop( recordDriverID );
+
+	if ( fmodErrorCode != FMOD_OK )
+		Printf( TEXTCOLOR_ORANGE "Failed to stop voice recording: %s\n", FMOD_ErrorString( fmodErrorCode ));
 
 	if ( recordSound != nullptr )
 	{
@@ -1034,10 +1054,22 @@ void VOIPController::StartTransmission( const TRANSMISSIONTYPE_e type, const boo
 	if (( isInitialized == false ) || ( isActive == false ) || ( transmissionType != TRANSMISSIONTYPE_OFF ))
 		return;
 
-	if (( getRecordPosition ) && ( system->getRecordPosition( recordDriverID, &lastRecordPosition ) != FMOD_OK ))
+	// [AK] Don't start transmitting audio while using ALSA.
+	if ( IsUsingALSA( ))
 	{
-		Printf( TEXTCOLOR_ORANGE "Failed to get position of voice recording.\n" );
+		Printf( TEXTCOLOR_ORANGE "Can't start transmission with ALSA. Try using PulseAudio instead.\n" );
 		return;
+	}
+
+	if ( getRecordPosition )
+	{
+		const FMOD_RESULT fmodErrorCode = system->getRecordPosition( recordDriverID, &lastRecordPosition );
+
+		if ( fmodErrorCode != FMOD_OK )
+		{
+			Printf( TEXTCOLOR_ORANGE "Failed to get position of voice recording: %s\n", FMOD_ErrorString( fmodErrorCode ));
+			return;
+		}
 	}
 
 	transmissionType = type;
@@ -1175,8 +1207,10 @@ void VOIPController::SetChannelVolume( const unsigned int player, float volume, 
 	if (( VoIPChannels[player] == nullptr ) || ( VoIPChannels[player]->channel == nullptr ))
 		return;
 
-	if ( VoIPChannels[player]->channel->setVolume( volume ) != FMOD_OK )
-		Printf( TEXTCOLOR_ORANGE "Couldn't change the volume of VoIP channel %u.\n", player );
+	const FMOD_RESULT fmodErrorCode = VoIPChannels[player]->channel->setVolume( volume );
+
+	if ( fmodErrorCode != FMOD_OK )
+		Printf( TEXTCOLOR_ORANGE "Couldn't change the volume of VoIP channel %u: %s\n", player, FMOD_ErrorString( fmodErrorCode ));
 }
 
 //*****************************************************************************
@@ -1192,8 +1226,13 @@ void VOIPController::SetVolume( float volume )
 	if ( isInitialized == false )
 		return;
 
-	if (( VoIPChannelGroup == nullptr ) || ( VoIPChannelGroup->setVolume( volume ) != FMOD_OK ))
-		Printf( TEXTCOLOR_ORANGE "Couldn't change the volume of the VoIP channel group.\n" );
+	if ( VoIPChannelGroup == nullptr )
+	{
+		const FMOD_RESULT fmodErrorCode = VoIPChannelGroup->setVolume( volume );
+
+		if ( fmodErrorCode != FMOD_OK )
+			Printf( TEXTCOLOR_ORANGE "Couldn't change the volume of the VoIP channel group: %s\n", FMOD_ErrorString( fmodErrorCode ));
+	}
 }
 
 //*****************************************************************************
@@ -1211,9 +1250,17 @@ void VOIPController::SetPitch( float pitch )
 
 	float oldPitch = 1.0f;
 
-	if (( VoIPChannelGroup == nullptr ) || ( VoIPChannelGroup->getPitch( &oldPitch ) != FMOD_OK ))
+	if ( VoIPChannelGroup == nullptr )
 	{
-		Printf( TEXTCOLOR_ORANGE "Couldn't get the pitch of the VoIP channel group.\n" );
+		Printf( TEXTCOLOR_ORANGE "Couldn't get the pitch of the VoIP channel group: it doesn't exist.\n" );
+		return;
+	}
+
+	FMOD_RESULT fmodErrorCode = VoIPChannelGroup->getPitch( &oldPitch );
+
+	if ( fmodErrorCode != FMOD_OK )
+	{
+		Printf( TEXTCOLOR_ORANGE "Couldn't get the pitch of the VoIP channel group: %s\n", FMOD_ErrorString( fmodErrorCode ));
 		return;
 	}
 
@@ -1221,9 +1268,11 @@ void VOIPController::SetPitch( float pitch )
 	if ( pitch == oldPitch )
 		return;
 
-	if ( VoIPChannelGroup->setPitch( pitch ) != FMOD_OK )
+	fmodErrorCode = VoIPChannelGroup->setPitch( pitch );
+
+	if ( fmodErrorCode != FMOD_OK )
 	{
-		Printf( TEXTCOLOR_ORANGE "Couldn't change the pitch of the VoIP channel group.\n" );
+		Printf( TEXTCOLOR_ORANGE "Couldn't change the pitch of the VoIP channel group: %s\n", FMOD_ErrorString( fmodErrorCode ));
 		return;
 	}
 
@@ -1253,6 +1302,13 @@ void VOIPController::SetMicrophoneTest( const bool enable )
 
 	if ( enable )
 	{
+		// [AK] Don't start a microphone test while using ALSA.
+		if ( IsUsingALSA( ))
+		{
+			Printf( TEXTCOLOR_ORANGE "Can't start microphone test with ALSA. Try using PulseAudio instead.\n" );
+			return;
+		}
+
 		// [AK] If we're not already recording, then start doing so.
 		if ( isRecording == false )
 			StartRecording( );
@@ -1297,7 +1353,8 @@ void VOIPController::RetrieveRecordDrivers( TArray<FString> &list ) const
 
 	list.Clear( );
 
-	if (( system != nullptr ) && ( system->getRecordNumDrivers( &numDrivers ) == FMOD_OK ))
+	// [AK] Don't retrieve any record drivers while using ALSA.
+	if (( system != nullptr ) && ( system->getRecordNumDrivers( &numDrivers ) == FMOD_OK ) && ( IsUsingALSA( ) == false ))
 	{
 		for ( int i = 0; i < numDrivers; i++ )
 		{
@@ -1513,6 +1570,28 @@ int VOIPController::EncodeOpusFrame( const float *inBuffer, const unsigned int i
 
 //*****************************************************************************
 //
+// [AK] VOIPController::IsUsingALSA
+//
+// Checks if ALSA is being used for the output (Linux only). It seems that ALSA
+// can't retrieve any of the input devices a user has or record audio from any
+// of them, especially when they're used by another process. As a compromise,
+// prevent them from recording or transmitting audio while using it. PulseAudio
+// is a suitable alternative that's widely used nowadays.
+//
+//*****************************************************************************
+
+bool VOIPController::IsUsingALSA( void ) const
+{
+	FMOD_OUTPUTTYPE outputType = FMOD_OUTPUTTYPE_UNKNOWN;
+
+	if (( system != nullptr ) && ( system->getOutput( &outputType ) == FMOD_OK ) && ( outputType == FMOD_OUTPUTTYPE_ALSA ))
+		return true;
+
+	return false;
+}
+
+//*****************************************************************************
+//
 // [AK] VOIPController::CreateSoundExInfo
 //
 // Returns an FMOD_CREATESOUNDEXINFO struct with the settings needed to create
@@ -1618,8 +1697,13 @@ VOIPController::VOIPChannel::VOIPChannel( const unsigned int player ) :
 	FMOD_CREATESOUNDEXINFO exinfo = CreateSoundExInfo( PLAYBACK_SAMPLE_RATE, PLAYBACK_SOUND_LENGTH );
 	FMOD_MODE mode = FMOD_3D | FMOD_OPENUSER | FMOD_LOOP_NORMAL | FMOD_SOFTWARE;
 
-	if (( VOIPController::GetInstance( ).system == nullptr ) || ( VOIPController::GetInstance( ).system->createSound( nullptr, mode, &exinfo, &sound ) != FMOD_OK ))
-		Printf( TEXTCOLOR_ORANGE "Failed to create sound for VoIP channel %u.\n", player );
+	if ( VOIPController::GetInstance( ).system == nullptr )
+		Printf( TEXTCOLOR_ORANGE "Failed to create sound for VoIP channel %u: no valid FMOD system.\n", player );
+
+	const FMOD_RESULT fmodErrorCode = VOIPController::GetInstance( ).system->createSound( nullptr, mode, &exinfo, &sound );
+
+	if ( fmodErrorCode != FMOD_OK )
+		Printf( TEXTCOLOR_ORANGE "Failed to create sound for VoIP channel %u: %s\n", player, FMOD_ErrorString( fmodErrorCode ));
 }
 
 //*****************************************************************************
@@ -1730,9 +1814,11 @@ void VOIPController::VOIPChannel::StartPlaying( void )
 	if ( channel != nullptr )
 		return;
 
-	if ( VOIPController::GetInstance( ).system->playSound( FMOD_CHANNEL_FREE, sound, true, &channel ) != FMOD_OK )
+	const FMOD_RESULT fmodErrorCode = VOIPController::GetInstance( ).system->playSound( FMOD_CHANNEL_FREE, sound, true, &channel );
+
+	if ( fmodErrorCode != FMOD_OK )
 	{
-		Printf( TEXTCOLOR_ORANGE "Failed to start playing VoIP channel %u.\n", player );
+		Printf( TEXTCOLOR_ORANGE "Failed to start playing VoIP channel %u: %s\n", player, FMOD_ErrorString( fmodErrorCode ));
 		return;
 	}
 
@@ -1855,6 +1941,7 @@ void VOIPController::VOIPChannel::Update3DAttributes( void )
 {
 	FMOD_VECTOR pos = { 0.0f, 0.0f, 0.0f };
 	FMOD_VECTOR vel = { 0.0f, 0.0f, 0.0f };
+	FMOD_RESULT fmodErrorCode = FMOD_OK;
 
 	// [AK] If this channel shouldn't play in "3D" mode, then set its position
 	// and velocity to the listener's. This effectively makes them sound "2D".
@@ -1866,9 +1953,11 @@ void VOIPController::VOIPChannel::Update3DAttributes( void )
 			return;
 		}
 
-		if ( VOIPController::GetInstance( ).system->get3DListenerAttributes( 0, &pos, &vel, nullptr, nullptr ) != FMOD_OK )
+		fmodErrorCode = VOIPController::GetInstance( ).system->get3DListenerAttributes( 0, &pos, &vel, nullptr, nullptr );
+
+		if ( fmodErrorCode != FMOD_OK )
 		{
-			Printf( TEXTCOLOR_ORANGE "Failed to get 3D attributes of the listener.\n" );
+			Printf( TEXTCOLOR_ORANGE "Failed to get 3D attributes of the listener: %s\n", FMOD_ErrorString( fmodErrorCode ));
 			return;
 		}
 	}
@@ -1883,8 +1972,10 @@ void VOIPController::VOIPChannel::Update3DAttributes( void )
 		vel.z = FIXED2FLOAT( players[player].mo->vely );
 	}
 
-	if ( channel->set3DAttributes( &pos, &vel ) != FMOD_OK )
-		Printf( TEXTCOLOR_ORANGE "Failed to set 3D attributes for VoIP channel %u.\n", player );
+	fmodErrorCode = channel->set3DAttributes( &pos, &vel );
+
+	if ( fmodErrorCode != FMOD_OK )
+		Printf( TEXTCOLOR_ORANGE "Failed to set 3D attributes for VoIP channel %u: %s\n", player, FMOD_ErrorString( fmodErrorCode ));
 }
 
 //*****************************************************************************

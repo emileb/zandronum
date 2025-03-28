@@ -84,13 +84,13 @@ ULONG		TEAM_CountLivingAndRespawnablePlayers( ULONG ulTeamIdx );
 ULONG		TEAM_TeamsWithPlayersOn( void );
 void		TEAM_ExecuteReturnRoutine( ULONG ulTeamIdx, AActor *pReturner );
 ULONG		TEAM_ChooseBestTeamForPlayer( const bool bIgnoreTeamStartsAvailability = false );
-void		TEAM_ScoreSkulltagPoint( player_t *pPlayer, ULONG ulNumPoints, AActor *pPillar );
+void		TEAM_ScoreSkulltagPoint( player_t *player, unsigned int numPoints, AActor *pillar );
+void		TEAM_PrintScoresMessage( unsigned int team, unsigned int scorer, unsigned int numPoints );
 void		TEAM_DisplayNeedToReturnSkullMessage( player_t *pPlayer );
-void		TEAM_FlagDropped( player_t *pPlayer, ULONG ulTeamIdx );
 WORD		TEAM_GetReturnScriptOffset( ULONG ulTeamIdx );
 void		TEAM_DoWinSequence( ULONG ulTeamIdx );
 void		TEAM_TimeExpired( void );
-bool		TEAM_SpawningTemporaryFlag( void );
+bool		TEAM_SpawningTemporaryTeamItem( void );
 
 // Access functions.
 bool		TEAM_CheckIfValid( ULONG ulTeamIdx );

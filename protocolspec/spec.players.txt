@@ -6,7 +6,7 @@ Command SpawnPlayer
 	Bool isSpectating
 	Bool isDeadSpectator
 	Bool isMorphed
-	Short netid
+	NetID netid
 	Angle angle
 	Fixed x
 	Fixed y
@@ -254,6 +254,11 @@ Command SetLocalPlayerJumpTics
 	SByte jumpTics
 EndCommand
 
+Command SetLocalPlayerRespawnDelayTime
+	ExtendedCommand
+	ULong respawnDelayTics
+EndCommand
+
 Command DisconnectPlayer
 	Player player
 EndCommand
@@ -285,11 +290,14 @@ Command PlayerSay
 	String message
 EndCommand
 
-Command PlayerTaunt
-	Player player with MoTest
+Command PlayerVoIPAudioPacket
+	UnreliableCommand
+	Byte playerNumber
+	Long frame
+	Buffer audio
 EndCommand
 
-Command PlayerRespawnInvulnerability
+Command PlayerTaunt
 	Player player with MoTest
 EndCommand
 

@@ -85,6 +85,7 @@
 #include "maprotation.h"
 #include "voicechat.h"
 #include "d_netinf.h"
+#include "callvote.h"
 #include <memory>
 
 CVAR (Bool, sv_showwarnings, false, CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
@@ -101,7 +102,7 @@ bool EnsureActorHasNetID( const AActor *pActor )
 	if ( pActor == NULL )
 		return false;
 
-	if ( pActor->NetID == -1 )
+	if ( pActor->NetID == 0 )
 	{
 		if ( sv_showwarnings && !( pActor->NetworkFlags & NETFL_SERVERSIDEONLY ) )
 			Printf ( "Warning: Actor %s doesn't have a netID and therefore can't be manipulated online!\n", pActor->GetClass()->TypeName.GetChars() );
@@ -608,7 +609,7 @@ void SERVERCOMMANDS_SetPlayerUserInfo( ULONG ulPlayer, const std::set<FName> &na
 			element.name = name;
 			// [BB] Skin needs special treatment, so that the clients can use skins the server doesn't have.
 			if ( name == NAME_Skin )
-				element.value = SERVER_GetClient( ulPlayer )->szSkin;
+				element.value = SERVER_GetClient( ulPlayer )->skinName;
 			else
 				element.value = cvar->GetGenericRep( CVAR_String ).String;
 
@@ -1086,6 +1087,18 @@ void SERVERCOMMANDS_SetLocalPlayerJumpTics( ULONG ulPlayer )
 
 //*****************************************************************************
 //
+void SERVERCOMMANDS_SetLocalPlayerRespawnDelayTime( unsigned int player )
+{
+	if ( PLAYER_IsValidPlayer( player ) == false )
+		return;
+
+	ServerCommands::SetLocalPlayerRespawnDelayTime command;
+	command.SetRespawnDelayTics( players[player].respawn_time - level.time );
+	command.sendCommandToClients( player, SVCF_ONLYTHISCLIENT );
+}
+
+//*****************************************************************************
+//
 void SERVERCOMMANDS_DisconnectPlayer( ULONG ulPlayer, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
 	if ( PLAYER_IsValidPlayer( ulPlayer ) == false )
@@ -1299,14 +1312,11 @@ void SERVERCOMMANDS_PlayerVoIPAudioPacket( ULONG player, unsigned int frame, uns
 	const bool forbidVoiceChatToPlayers = GAMEMODE_IsClientForbiddenToChatToPlayers( player, true );
 	const int transmitFilter = players[player].userinfo.GetVoiceTransmitFilter( );
 
-	NetCommand command( SVC_PLAYERVOIPAUDIOPACKET );
-	command.addByte( player );
-	command.addLong( frame );
-	command.addShort( length );
-	command.addBuffer( data, length );
-
-	// [AK] We shouldn't care if a VoIP packet doesn't get received by the clients.
-	command.setUnreliable( true );
+	BufferParameter audio( data, length );
+	ServerCommands::PlayerVoIPAudioPacket command;
+	command.SetPlayerNumber( player );
+	command.SetFrame( frame );
+	command.SetAudio( audio );
 
 	for ( ClientIterator it( playerExtra, flags ); it.notAtEnd( ); ++it )
 	{
@@ -1356,18 +1366,6 @@ void SERVERCOMMANDS_PlayerTaunt( ULONG ulPlayer, ULONG ulPlayerExtra, ServerComm
 		return;
 
 	ServerCommands::PlayerTaunt command;
-	command.SetPlayer( &players[ulPlayer] );
-	command.sendCommandToClients( ulPlayerExtra, flags );
-}
-
-//*****************************************************************************
-//
-void SERVERCOMMANDS_PlayerRespawnInvulnerability( ULONG ulPlayer, ULONG ulPlayerExtra, ServerCommandFlags flags )
-{
-	if ( PLAYER_IsValidPlayer( ulPlayer ) == false )
-		return;
-
-	ServerCommands::PlayerRespawnInvulnerability command;
 	command.SetPlayer( &players[ulPlayer] );
 	command.sendCommandToClients( ulPlayerExtra, flags );
 }
@@ -1460,7 +1458,7 @@ void SERVERCOMMANDS_SpawnThing( AActor *pActor, ULONG ulPlayerExtra, ServerComma
 		return;
 
 	// If the actor doesn't have a network ID, it's better to send it ID-less.
-	if ( pActor->NetID == -1 )
+	if ( pActor->NetID == 0 )
 	{
 		SERVERCOMMANDS_SpawnThingNoNetID( pActor, ulPlayerExtra, flags );
 		return;
@@ -1506,7 +1504,7 @@ void SERVERCOMMANDS_SpawnThingExact( AActor *pActor, ULONG ulPlayerExtra, Server
 		return;
 
 	// If the actor doesn't have a network ID, it's better to send it ID-less.
-	if ( pActor->NetID == -1 )
+	if ( pActor->NetID == 0 )
 	{
 		SERVERCOMMANDS_SpawnThingExactNoNetID( pActor, ulPlayerExtra, flags );
 		return;
@@ -1547,7 +1545,7 @@ void SERVERCOMMANDS_LevelSpawnThing( AActor *pActor, ULONG ulPlayerExtra, Server
 		return;
 
 	// If the actor doesn't have a network ID, it's better to send it ID-less.
-	if ( pActor->NetID == -1 )
+	if ( pActor->NetID == 0 )
 	{
 		SERVERCOMMANDS_LevelSpawnThingNoNetID( pActor, ulPlayerExtra, flags );
 		return;
@@ -2319,7 +2317,7 @@ void SERVERCOMMANDS_SpawnPuff( AActor *pActor, ULONG ulPlayerExtra, ServerComman
 		return;
 
 	// If the actor doesn't have a network ID, it's better to send it ID-less.
-	if ( pActor->NetID == -1 )
+	if ( pActor->NetID == 0 )
 	{
 		ULONG ulState = STATE_SPAWN;
 		if ( pActor->state == pActor->MeleeState )
@@ -2500,6 +2498,21 @@ void SERVERCOMMANDS_PrintACSHUDMessage( DLevelScript *pScript, const char *pszSt
 }
 
 //*****************************************************************************
+//
+void SERVERCOMMANDS_PrintTeamScoresMessage( unsigned int team, unsigned int scorer, unsigned int assister, unsigned int numPoints, unsigned int playerExtra, ServerCommandFlags flags )
+{
+	if (( TEAM_CheckIfValid( team ) == false ) || ( PLAYER_IsValidPlayer( scorer ) == false ) || ( numPoints == 0 ))
+		return;
+
+	ServerCommands::PrintTeamScoresMessage command;
+	command.SetTeam( team );
+	command.SetScorer( scorer );
+	command.SetAssister( assister );
+	command.SetNumPoints( numPoints );
+	command.sendCommandToClients( playerExtra, flags );
+}
+
+//*****************************************************************************
 //*****************************************************************************
 //
 void SERVERCOMMANDS_SetGameMode( ULONG ulPlayerExtra, ServerCommandFlags flags )
@@ -2532,6 +2545,7 @@ void SERVERCOMMANDS_SetGameDMFlags( ULONG ulPlayerExtra, ServerCommandFlags flag
 	command.addLong ( compatflags2 );
 	command.addLong ( zacompatflags );
 	command.addLong ( zadmflags );
+	command.addLong ( sv_forbidvoteflags );
 	command.sendCommandToClients( ulPlayerExtra, flags );
 }
 
@@ -2580,6 +2594,8 @@ void SERVERCOMMANDS_SetGameModeLimits( ULONG ulPlayerExtra, ServerCommandFlags f
 	command.addFloat( sv_maxproximityrolloffdist );
 	// [AK] Send sv_respawndelaytime.
 	command.addFloat( sv_respawndelaytime );
+	// [TRSR] Send sv_nocallvote.
+	command.addByte( sv_nocallvote );
 	command.sendCommandToClients( ulPlayerExtra, flags );
 }
 
@@ -2707,29 +2723,31 @@ void SERVERCOMMANDS_DoGameModeWinSequence( ULONG ulWinner, ULONG ulPlayerExtra, 
 
 //*****************************************************************************
 //
-void SERVERCOMMANDS_SetDominationState( ULONG ulPlayerExtra, ServerCommandFlags flags )
+void SERVERCOMMANDS_SetDominationPointOwner( ULONG ulPoint, unsigned int team, bool broadcast, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
-	unsigned int NumPoints = DOMINATION_NumPoints();
-	unsigned int *PointOwners = DOMINATION_PointOwners();
-	NetCommand command( SVC_SETDOMINATIONSTATE );
-	command.addLong( NumPoints );
-
-	for( unsigned int i = 0u; i < NumPoints; i++ )
-	{
-		//one byte should be enough to hold the value of the team.
-		command.addByte( PointOwners[i] );
-	}
-
+	ServerCommands::SetDominationPointOwner command;
+	command.SetPoint( ulPoint );
+	command.SetTeam( team );
+	command.SetBroadcast( broadcast );
 	command.sendCommandToClients( ulPlayerExtra, flags );
 }
 
 //*****************************************************************************
 //
-void SERVERCOMMANDS_SetDominationPointOwnership( ULONG ulPoint, ULONG ulPlayer, ULONG ulPlayerExtra, ServerCommandFlags flags )
+void SERVERCOMMANDS_SetDominationPointState( ULONG ulPoint, DPOINT_s state, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
-	NetCommand command( SVC_SETDOMINATIONPOINTOWNER );
-	command.addByte( ulPoint );
-	command.addByte( ulPlayer );
+	ServerCommands::SetDominationPointState command;
+	command.SetPoint( ulPoint );
+	command.SetDisabled( state.disabled );
+
+	// [TRSR] This serves to initialize the contesters even with an empty list.
+	command.PushToContesters( 0 );
+	command.ClearContesters();
+	for ( std::set<int>::iterator it = state.contesting.begin(); it != state.contesting.end(); ++it )
+	{
+		command.PushToContesters( *it );
+	}
+
 	command.sendCommandToClients( ulPlayerExtra, flags );
 }
 
@@ -2781,28 +2799,32 @@ void SERVERCOMMANDS_SetTeamReturnTicks( ULONG ulTeam, ULONG ulReturnTicks, ULONG
 
 //*****************************************************************************
 //
-void SERVERCOMMANDS_TeamFlagReturned( ULONG ulTeam, ULONG ulPlayerExtra, ServerCommandFlags flags )
+void SERVERCOMMANDS_TeamItemReturned( unsigned int player, unsigned int team, unsigned int playerExtra, ServerCommandFlags flags )
 {
-	// [BB] Allow teams.Size( ) here, this handles the white flag.
-	if (( TEAM_CheckIfValid ( ulTeam ) == false ) && ( ulTeam != teams.Size() ))
+	if (( player != MAXPLAYERS ) && ( PLAYER_IsValidPlayer( player ) == false ))
 		return;
 
-	NetCommand command( SVC_TEAMFLAGRETURNED );
-	command.addByte( ulTeam );
-	command.sendCommandToClients( ulPlayerExtra, flags );
+	// [BB] Allow teams.Size( ) here, this handles the white flag.
+	if (( TEAM_CheckIfValid ( team ) == false ) && ( team != teams.Size() ))
+		return;
+
+	NetCommand command( SVC_TEAMITEMRETURNED );
+	command.addByte( player );
+	command.addByte( team );
+	command.sendCommandToClients( playerExtra, flags );
 }
 
 //*****************************************************************************
 //
-void SERVERCOMMANDS_TeamFlagDropped( ULONG ulPlayer, ULONG ulTeam, ULONG ulPlayerExtra, ServerCommandFlags flags )
+void SERVERCOMMANDS_TeamItemDropped( unsigned int player, unsigned int team, unsigned int playerExtra, ServerCommandFlags flags )
 {
-	if ( PLAYER_IsValidPlayer( ulPlayer ) == false )
+	if ( PLAYER_IsValidPlayer( player ) == false )
 		return;
 
-	NetCommand command( SVC_TEAMFLAGDROPPED );
-	command.addByte( ulPlayer );
-	command.addByte( ulTeam );
-	command.sendCommandToClients( ulPlayerExtra, flags );
+	NetCommand command( SVC_TEAMITEMDROPPED );
+	command.addByte( player );
+	command.addByte( team );
+	command.sendCommandToClients( playerExtra, flags );
 }
 
 //*****************************************************************************
@@ -2829,7 +2851,7 @@ void SERVERCOMMANDS_SpawnMissile( AActor *pMissile, ULONG ulPlayerExtra, ServerC
 	if ( pMissile->target )
 		command.SetTargetNetID( pMissile->target->NetID );
 	else
-		command.SetTargetNetID( -1 );
+		command.SetTargetNetID( 0 );
 
 	command.sendCommandToClients( ulPlayerExtra, flags );
 
@@ -2863,7 +2885,7 @@ void SERVERCOMMANDS_SpawnMissileExact( AActor *pMissile, ULONG ulPlayerExtra, Se
 	if ( pMissile->target )
 		command.SetTargetNetID( pMissile->target->NetID );
 	else
-		command.SetTargetNetID( -1 );
+		command.SetTargetNetID( 0 );
 
 	command.sendCommandToClients( ulPlayerExtra, flags );
 
@@ -3649,7 +3671,7 @@ void SERVERCOMMANDS_SoundActor( AActor *pActor, LONG lChannel, const char *pszSo
 	}
 
 	// [BB] If the actor doesn't have a NetID, we have to instruct the clients differently how to play the sound.
-	if ( pActor->NetID == -1 )
+	if ( pActor->NetID == 0 )
 	{
 		SERVERCOMMANDS_SoundPoint( pActor->x, pActor->y, pActor->z, lChannel, pszSound, fVolume, fAttenuation, ulPlayerExtra, flags );
 		return;
@@ -5110,14 +5132,14 @@ void SERVERCOMMANDS_SetSectorLink( ULONG ulSector, int iArg1, int iArg2, int iAr
 void SERVERCOMMANDS_DoPusher( ULONG ulType, line_t *pLine, int iMagnitude, int iAngle, AActor *pSource, int iAffectee, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
 	const int iLineNum = pLine ? static_cast<ULONG>( pLine - lines ) : -1;
-	const LONG lSourceNetID = pSource ? pSource->NetID : -1;
+	const unsigned short sourceNetID = pSource ? pSource->NetID : 0;
 
 	NetCommand command ( SVC_DOPUSHER );
 	command.addByte ( ulType );
 	command.addShort ( iLineNum );
 	command.addLong ( iMagnitude );
 	command.addLong ( iAngle );
-	command.addShort ( lSourceNetID );
+	command.addShort ( sourceNetID );
 	command.addShort ( iAffectee );
 	command.sendCommandToClients ( ulPlayerExtra, flags );
 }
@@ -5206,7 +5228,7 @@ void SERVERCOMMANDS_SyncCVarToAdmins( const FBaseCVar &CVar )
 void SERVERCOMMANDS_SetDefaultSkybox( ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
 	NetCommand command( SVC2_SETDEFAULTSKYBOX );
-	command.addShort( ( level.DefaultSkybox != NULL ) ? level.DefaultSkybox->NetID : -1 );
+	command.addShort( ( level.DefaultSkybox != NULL ) ? level.DefaultSkybox->NetID : 0 );
 	command.sendCommandToClients( ulPlayerExtra, flags );
 }
 //*****************************************************************************
@@ -5470,8 +5492,8 @@ void APathFollower::SyncWithClient ( const ULONG ulClient )
 
 	NetCommand command( SVC2_SYNCPATHFOLLOWER );
 	command.addShort( this->NetID );
-	command.addShort( this->CurrNode ? this->CurrNode->NetID : -1 );
-	command.addShort( this->PrevNode ? this->PrevNode->NetID : -1 );
+	command.addShort( this->CurrNode ? this->CurrNode->NetID : 0 );
+	command.addShort( this->PrevNode ? this->PrevNode->NetID : 0 );
 	command.addFloat( this->Time );
 	command.sendCommandToOneClient( ulClient );
 }

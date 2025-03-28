@@ -132,6 +132,9 @@ CVAR( Bool, cl_usescoreboardscale, false, CVAR_ARCHIVE )
 // [AK] Whether to use the screen's ratio to scale the scoreboard, if scaling is enabled.
 CVAR( Bool, cl_usescoreboardscale_screenratio, false, CVAR_ARCHIVE )
 
+// [AK] If true, then the country columns will be disabled if everyone's country is unavailable.
+CVAR( Bool, cl_nocountriesifunavailable, false, CVAR_ARCHIVE )
+
 // [AK] How much to offset the scoreboard horizontally.
 CVAR( Int, cl_scoreboardx, 0, CVAR_ARCHIVE );
 
@@ -199,6 +202,8 @@ CUSTOM_CVAR( Int, sb_customizeflags, 0, CVAR_ARCHIVE | CVAR_NOINITCALL | CVAR_NO
 // [AK] CVars for the text colors.
 CVAR( Flag, sb_customizetext, sb_customizeflags, CUSTOMIZE_TEXT )
 CVAR( Bool, sb_useteamtextcolors, false, CVAR_ARCHIVE | CVAR_NOSETBYACS )
+CVAR( String, sb_headerfont, "SmallFont", CVAR_ARCHIVE | CVAR_NOSETBYACS )
+CVAR( String, sb_rowfont, "SmallFont", CVAR_ARCHIVE | CVAR_NOSETBYACS )
 
 CUSTOM_CVAR( Int, sb_headertextcolor, CR_GREY, CVAR_ARCHIVE | CVAR_NOSETBYACS )
 {
@@ -275,12 +280,15 @@ CCMD( restorescoreboardproperties )
 {
 	sb_customizeflags.ResetToDefault( );
 
-	sb_headertextcolor.ResetToDefault( );
 	sb_useteamtextcolors.ResetToDefault( );
+	sb_headerfont.ResetToDefault( );
+	sb_rowfont.ResetToDefault( );
+	sb_headertextcolor.ResetToDefault( );
 	sb_rowtextcolor.ResetToDefault( );
 	sb_localrowtextcolor.ResetToDefault( );
 	sb_localrowdemotextcolor.ResetToDefault( );
 
+	sb_noborders.ResetToDefault( );
 	sb_useheadertextcolorforborders.ResetToDefault( );
 	sb_lightbordercolor.ResetToDefault( );
 	sb_darkbordercolor.ResetToDefault( );
@@ -1195,8 +1203,8 @@ void ScoreColumn::Update( void )
 	ULONG ulHeaderWidth = 0;
 
 	// [AK] If the header is visible on this column, then grab its width.
-	if ((( ulFlags & COLUMNFLAG_DONTSHOWHEADER ) == false ) && ( pScoreboard->pHeaderFont != NULL ))
-		ulHeaderWidth = pScoreboard->pHeaderFont->StringWidth( bUseShortName ? ShortName.GetChars( ) : DisplayName.GetChars( ));
+	if ((( ulFlags & COLUMNFLAG_DONTSHOWHEADER ) == false ) && ( pScoreboard->headerFont != nullptr ))
+		ulHeaderWidth = ( *pScoreboard->headerFont ).StringWidth( bUseShortName ? ShortName.GetChars( ) : DisplayName.GetChars( ));
 
 	ulShortestWidth = MAX( ulShortestWidth, ulHeaderWidth );
 
@@ -1228,7 +1236,7 @@ void ScoreColumn::DrawHeader( const LONG lYPos, const ULONG ulHeight, const floa
 	if (( pScoreboard == NULL ) || ( bDisabled ) || ( ulFlags & COLUMNFLAG_DONTSHOWHEADER ) || ( fAlpha <= 0.0f ))
 		return;
 
-	DrawString( bUseShortName ? ShortName.GetChars( ) : DisplayName.GetChars( ), pScoreboard->pHeaderFont, pScoreboard->headerColor, lYPos, ulHeight, fAlpha );
+	DrawString( bUseShortName ? ShortName.GetChars( ) : DisplayName.GetChars( ), pScoreboard->headerFont, pScoreboard->headerColor, lYPos, ulHeight, fAlpha );
 }
 
 //*****************************************************************************
@@ -1587,16 +1595,16 @@ ULONG DataScoreColumn::GetValueWidthOrHeight( const PlayerValue &Value, const bo
 			case DATATYPE_FLOAT:
 			case DATATYPE_STRING:
 			{
-				if ( pScoreboard->pRowFont == NULL )
+				if ( pScoreboard->rowFont == nullptr )
 					return 0;
 
-				return bGetHeight ? pScoreboard->pRowFont->GetHeight( ) : pScoreboard->pRowFont->StringWidth( GetValueString( Value ).GetChars( ));
+				return bGetHeight ? ( *pScoreboard->rowFont ).GetHeight( ) : ( *pScoreboard->rowFont ).StringWidth( GetValueString( Value ).GetChars( ));
 			}
 
 			case DATATYPE_COLOR:
 			{
 				if ( bGetHeight )
-					return lClipRectHeight > 0 ? MIN<ULONG>( pScoreboard->ulRowHeightToUse, lClipRectHeight ) : pScoreboard->ulRowHeightToUse;
+					return lClipRectHeight > 0 ? MIN<ULONG>( pScoreboard->rowHeightToUse, lClipRectHeight ) : pScoreboard->rowHeightToUse;
 
 				// [AK] If this column must always use the shortest possible width, then return the
 				// clipping rectangle's width, whether it's zero or not.
@@ -2009,6 +2017,37 @@ void DataScoreColumn::ParseCommand( FScanner &sc, const COLUMNCMD_e Command, con
 
 //*****************************************************************************
 //
+// [AK] DataScoreColumn::Refresh
+//
+// On top of performing the regular checks to see if this column needs to be
+// disabled, if this is also a country column, check if it should be disabled
+// because every connected player's country is unavailable. This only matters
+// if cl_nocountriesifunavailable is enabled.
+//
+//*****************************************************************************
+
+void DataScoreColumn::Refresh( void )
+{
+	// [AK] Call the superclass's refresh function first.
+	ScoreColumn::Refresh( );
+
+	if (( bDisabled ) || ( cl_nocountriesifunavailable == false ))
+		return;
+
+	if (( NativeType == COLUMNTYPE_COUNTRYNAME ) || ( NativeType == COLUMNTYPE_COUNTRYCODE ) || ( NativeType == COLUMNTYPE_COUNTRYFLAG ))
+	{
+		for ( unsigned int i = 0; i < MAXPLAYERS; i++ )
+		{
+			if (( CanDrawForPlayer( i )) && ( players[i].ulCountryIndex > 0 ))
+				return;
+		}
+
+		bDisabled = true;
+	}
+}
+
+//*****************************************************************************
+//
 // [AK] DataScoreColumn::Update
 //
 // Gets the smallest width and height that fits the contents in all player rows.
@@ -2094,7 +2133,7 @@ void DataScoreColumn::DrawValue( const ULONG ulPlayer, const ULONG ulColor, cons
 		case DATATYPE_BOOL:
 		case DATATYPE_FLOAT:
 		case DATATYPE_STRING:
-			DrawString( GetValueString( Value ).GetChars( ), pScoreboard->pRowFont, ulColorToUse, lYPos, ulHeight, fAlpha );
+			DrawString( GetValueString( Value ).GetChars( ), pScoreboard->rowFont, ulColorToUse, lYPos, ulHeight, fAlpha );
 			break;
 
 		case DATATYPE_COLOR:
@@ -2572,8 +2611,8 @@ Scoreboard::Scoreboard( void ) :
 	ulWidth( 0 ),
 	ulHeight( 0 ),
 	ulFlags( 0 ),
-	pHeaderFont( NULL ),
-	pRowFont( NULL ),
+	headerFont( sb_headerfont, CUSTOMIZE_TEXT, nullptr ),
+	rowFont( sb_rowfont, CUSTOMIZE_TEXT, nullptr ),
 	headerColor( sb_headertextcolor, CUSTOMIZE_TEXT, CR_UNTRANSLATED ),
 	rowColor( sb_rowtextcolor, CUSTOMIZE_TEXT, CR_UNTRANSLATED ),
 	localRowColors
@@ -2607,7 +2646,8 @@ Scoreboard::Scoreboard( void ) :
 	ulColumnPadding( 0 ),
 	lHeaderHeight( 0 ),
 	lRowHeight( 0 ),
-	ulRowHeightToUse( 0 ),
+	headerHeightToUse( 0 ),
+	rowHeightToUse( 0 ),
 	totalScrollHeight( 0 ),
 	visibleScrollHeight( 0 ),
 	minClipRectY( 0 ),
@@ -2682,11 +2722,11 @@ void Scoreboard::Parse( FScanner &sc )
 				}
 
 				case SCOREBOARDCMD_HEADERFONT:
-					SCOREBOARD_ParseFont( sc, pHeaderFont );
+					SCOREBOARD_ParseFont( sc, headerFont.value );
 					break;
 
 				case SCOREBOARDCMD_ROWFONT:
-					SCOREBOARD_ParseFont( sc, pRowFont );
+					SCOREBOARD_ParseFont( sc, rowFont.value );
 					break;
 
 				case SCOREBOARDCMD_HEADERTEXTCOLOR:
@@ -2859,19 +2899,11 @@ void Scoreboard::Parse( FScanner &sc )
 		}
 	}
 
-	if ( pHeaderFont == NULL )
+	if ( headerFont.value == nullptr )
 		sc.ScriptError( "There's no header font for the scoreboard." );
 
-	if ( pRowFont == NULL )
+	if ( rowFont.value == nullptr )
 		sc.ScriptError( "There's no row font for the scoreboard." );
-
-	// [AK] A negative header or row height means setting the height with respect to the
-	// height of the header or row font's respectively, if valid.
-	if ( lHeaderHeight <= 0 )
-		lHeaderHeight = pHeaderFont->GetHeight( ) - lHeaderHeight;
-
-	if ( lRowHeight <= 0 )
-		lRowHeight = pRowFont->GetHeight( ) - lRowHeight;
 }
 
 //*****************************************************************************
@@ -3087,7 +3119,11 @@ bool Scoreboard::PlayerComparator::operator( )( const int &arg1, const int &arg2
 void Scoreboard::Refresh( const unsigned int displayPlayer, const int minYPos )
 {
 	int scaledMinYPos = minYPos;
-	ulRowHeightToUse = lRowHeight;
+
+	// [AK] A negative header or row height means setting the height with respect
+	// to the height of the header or row font's respectively, if valid.
+	headerHeightToUse = ( lHeaderHeight <= 0 ) ? ( *headerFont ).GetHeight( ) - lHeaderHeight : lHeaderHeight;
+	rowHeightToUse = ( lRowHeight <= 0 ) ? ( *rowFont ).GetHeight( ) - lRowHeight : lRowHeight;
 
 	// [AK] Determine the size of the screen to draw the scoreboard.
 	if ( cl_usescoreboardscale )
@@ -3097,7 +3133,7 @@ void Scoreboard::Refresh( const unsigned int displayPlayer, const int minYPos )
 
 		// [AK] Don't use cl_usescoreboardscale_screenratio if the resolution of
 		// the scoreboard matches the screen's actual ratio.
-		if (( g_ScreenWidth != SCREENWIDTH ) || ( g_ScreenHeight != SCREENHEIGHT ))
+		if (( g_ScreenWidth != static_cast<unsigned>( SCREENWIDTH )) || ( g_ScreenHeight != static_cast<unsigned>( SCREENHEIGHT )))
 			g_KeepScreenRatio = cl_usescoreboardscale_screenratio;
 		else
 			g_KeepScreenRatio = true;
@@ -3110,7 +3146,7 @@ void Scoreboard::Refresh( const unsigned int displayPlayer, const int minYPos )
 	}
 
 	// [AK] The minimum y-position needs to be scaled if the scoreboard is too.
-	if ( g_ScreenHeight != SCREENHEIGHT )
+	if ( g_ScreenHeight != static_cast<unsigned>( SCREENHEIGHT ))
 	{
 		const float scale = static_cast<float>( g_ScreenHeight ) / SCREENHEIGHT;
 		scaledMinYPos = static_cast<int>( minYPos * scale );
@@ -3133,7 +3169,7 @@ void Scoreboard::Refresh( const unsigned int displayPlayer, const int minYPos )
 
 		// [AK] Increase the row height to fit the column's contents, if necessary.
 		if (( ulFlags & SCOREBOARDFLAG_DONTSTRETCHROWHEIGHT ) == false )
-			ulRowHeightToUse = MAX<ULONG>( ulRowHeightToUse, ColumnOrder[i]->ulShortestHeight );
+			rowHeightToUse = MAX<unsigned>( rowHeightToUse, ColumnOrder[i]->ulShortestHeight );
 	}
 
 	UpdateWidth( );
@@ -3261,13 +3297,13 @@ void Scoreboard::UpdateWidth( void )
 
 void Scoreboard::UpdateHeight( const unsigned int displayPlayer, const int minYPos )
 {
-	const ULONG ulRowYOffset = ulRowHeightToUse + ulGapBetweenRows;
+	const ULONG ulRowYOffset = rowHeightToUse + ulGapBetweenRows;
 	const ULONG ulNumActivePlayers = HUD_GetNumPlayers( );
 	const ULONG ulNumSpectators = HUD_GetNumSpectators( );
 	const ULONG marginWidth = ulWidth - 2 * ulBackgroundBorderSize;
 	const int marginRelX = lRelX + ulBackgroundBorderSize;
 
-	ulHeight = 2 * ulBackgroundBorderSize + lHeaderHeight + ulGapBetweenHeaderAndRows;
+	ulHeight = 2 * ulBackgroundBorderSize + headerHeightToUse + ulGapBetweenHeaderAndRows;
 	totalScrollHeight = visibleScrollHeight = 0;
 
 	MainHeader.Refresh( displayPlayer, marginWidth, marginRelX );
@@ -3303,7 +3339,7 @@ void Scoreboard::UpdateHeight( const unsigned int displayPlayer, const int minYP
 					totalScrollHeight += TeamHeader.GetHeight( ) * ulNumTeamsWithPlayers;
 				}
 
-				totalScrollHeight += ulRowHeightToUse * ( ulNumTeamsWithPlayers - 1 );
+				totalScrollHeight += rowHeightToUse * ( ulNumTeamsWithPlayers - 1 );
 			}
 		}
 	}
@@ -3311,7 +3347,7 @@ void Scoreboard::UpdateHeight( const unsigned int displayPlayer, const int minYP
 	// [AK] Do the same for any true spectators.
 	if ( ulNumSpectators > 0 )
 	{
-		totalScrollHeight += ulRowHeightToUse;
+		totalScrollHeight += rowHeightToUse;
 
 		// [AK] Refresh and add the height of the spectator header too, if allowed.
 		if (( ulFlags & SCOREBOARDFLAG_DONTSHOWTEAMHEADERS ) == false )
@@ -3400,9 +3436,9 @@ void Scoreboard::Render( const unsigned int displayPlayer, const int minYPos, co
 
 	// [AK] Draw all of the column headers.
 	for ( unsigned int i = 0; i < ColumnOrder.Size( ); i++ )
-		ColumnOrder[i]->DrawHeader( lYPos, lHeaderHeight, fCombinedAlpha );
+		ColumnOrder[i]->DrawHeader( lYPos, headerHeightToUse, fCombinedAlpha );
 
-	lYPos += lHeaderHeight;
+	lYPos += headerHeightToUse;
 
 	// [AK] Draw another border below the headers.
 	DrawBorder( headerColor, lYPos, fCombinedAlpha, true );
@@ -3414,7 +3450,7 @@ void Scoreboard::Render( const unsigned int displayPlayer, const int minYPos, co
 	// [AK] Check if the user wants to scroll the scoreboard up or down.
 	if ( visibleScrollHeight < totalScrollHeight )
 	{
-		const int offset = static_cast<int>( cl_scoreboardscrollspeed * FIXED2FLOAT( r_TicFrac ));
+		const int offset = static_cast<int>( cl_scoreboardscrollspeed * FIXED2FLOAT( I_GetTimeFrac( nullptr )));
 
 		if ( Button_SB_ScrollUp.bDown )
 			interpolateScrollOffset = currentScrollOffset - offset;
@@ -3439,7 +3475,7 @@ void Scoreboard::Render( const unsigned int displayPlayer, const int minYPos, co
 		{
 			if ( ulIdx > 0 )
 			{
-				lYPos += ulRowHeightToUse;
+				lYPos += rowHeightToUse;
 				bUseLightBackground = true;
 			}
 
@@ -3456,7 +3492,7 @@ void Scoreboard::Render( const unsigned int displayPlayer, const int minYPos, co
 	{
 		const ULONG ulTotalPlayers = ulNumActivePlayers + ulNumTrueSpectators;
 
-		lYPos += ulRowHeightToUse;
+		lYPos += rowHeightToUse;
 
 		// [AK] If there are any active players, make the row background light.
 		if ( ulNumActivePlayers > 0 )
@@ -3555,10 +3591,10 @@ void Scoreboard::DrawRow( const ULONG ulPlayer, const ULONG ulDisplayPlayer, LON
 	if ( fTextAlpha > 0.0f )
 	{
 		for ( unsigned int i = 0; i < ColumnOrder.Size( ); i++ )
-			ColumnOrder[i]->DrawValue( ulPlayer, ulColor, lYPos, ulRowHeightToUse, fTextAlpha );
+			ColumnOrder[i]->DrawValue( ulPlayer, ulColor, lYPos, rowHeightToUse, fTextAlpha );
 	}
 
-	lYPos += ulRowHeightToUse + ulGapBetweenRows;
+	lYPos += rowHeightToUse + ulGapBetweenRows;
 
 	// [AK] Only switch between the "light" and "dark" row backgrounds if more
 	// than one row's background can be drawn.
@@ -3620,7 +3656,7 @@ void Scoreboard::DrawBorder( const EColorRange Color, LONG &lYPos, const float f
 		if ( CheckFlag( SCOREBOARDFLAG_USEHEADERTEXTCOLORFORBORDERS, CUSTOMIZE_BORDERS, sb_useheadertextcolorforborders ))
 		{
 			// [AK] Get the translation table of the (team) header font with its corresponding color.
-			const FRemapTable *trans = pHeaderFont->GetColorTranslation( Color );
+			const FRemapTable *trans = ( *headerFont ).GetColorTranslation( Color );
 
 			// [AK] The light color can be somewhere just past the middle of the remap table.
 			lightColor = trans->Palette[trans->NumEntries * 2 / 3];
@@ -3665,7 +3701,7 @@ void Scoreboard::DrawRowBackground( const PalEntry color, const int y, const flo
 		return;
 
 	int yToUse = y;
-	int height = ulRowHeightToUse;
+	int height = rowHeightToUse;
 
 	if ( SCOREBOARD_AdjustVerticalClipRect( yToUse, height ) == false )
 		return;
@@ -4122,6 +4158,31 @@ bool SCOREBOARD_ShouldDrawBoard( void )
 		return false;
 
 	return true;
+}
+
+//*****************************************************************************
+//
+// [AK] SCOREBOARD_ShouldInterpolateInIntermission
+//
+// Checks if interpolation needs to be enabled while on the intermission screen
+// in case the user is trying to scroll the scoreboard up or down.
+//
+//*****************************************************************************
+
+bool SCOREBOARD_ShouldInterpolateOnIntermission( void )
+{
+	if (( gamestate == GS_INTERMISSION ) && ( g_Scoreboard.visibleScrollHeight < g_Scoreboard.totalScrollHeight ))
+	{
+		const int maxScrollOffset = g_Scoreboard.totalScrollHeight - g_Scoreboard.visibleScrollHeight;
+
+		if ((( Button_SB_ScrollUp.bDown ) && ( g_Scoreboard.currentScrollOffset > 0 )) ||
+			(( Button_SB_ScrollDn.bDown ) && ( g_Scoreboard.currentScrollOffset < maxScrollOffset )))
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 //*****************************************************************************

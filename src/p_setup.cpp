@@ -1952,8 +1952,14 @@ void P_SpawnThings (int position)
 		// [BB] When we are using unassigned voodoo dolls, we have to enforce the spawning
 		// of all dolls for all players (even those who are not in the game) now.
 		COOP_SpawnVoodooDollsForPlayerIfNecessary ( i, sv_coopunassignedvoodoodolls );
-		if (playeringame[i] && players[i].mo != NULL)
-			P_PlayerStartStomp(players[i].mo);
+
+		// [SB] If we are in online or multiplayer emulation, at this point we will be spawning voodoo dolls,
+		// but the actual player mobjs will be spawned later. As such, handling spawn telefragging now will
+		// only result in telefragging the voodoo dolls, which can cause havoc on maps like Plutonia MAP06.
+		// Since the multiplayer spawning code also handles telefragging, skip it here.
+		if ( NETWORK_GetState() == NETSTATE_SINGLE )
+			if (playeringame[i] && players[i].mo != NULL)
+				P_PlayerStartStomp(players[i].mo);
 	}
 	// [BB] When initially spawning the voodoo dolls, we also need to clear the stored pickups
 	// of the unassigned dolls.
@@ -3726,7 +3732,8 @@ void P_RemoveThings( void )
 		// to delete the white flags, which are used for one flag CTF.
 		if (( teamgame ) && ( oneflagctf == false ))
 		{
-			if ( pActor->IsKindOf( PClass::FindClass( "WhiteFlag" )))
+			// [TRSR] Unless a mod explicitly wants their WhiteFlag replacement to spawn in other modes.
+			if (( pActor->IsKindOf( PClass::FindClass( "WhiteFlag" ))) && ( pActor->flags & MF_NOTDMATCH ))
 			{
 				P_RemoveThingLocal( pActor );
 				continue;
@@ -4486,6 +4493,13 @@ void P_SetupLevel (char *lumpname, int position)
 	delete[] sidetemp;
 	sidetemp = NULL;
 
+	// [AK] If there's available start points for each player, add them to the list.
+	for ( i = 0; i < MAXPLAYERS; i++ )
+	{
+		if ( playerstarts[i].type != 0 )
+			AvailableCooperativeStarts.Push( playerstarts[i] );
+	}
+
 	/* [BC/BB] Zandronum handles spawning differently.
 	// if deathmatch, randomly spawn the active players
 	if (deathmatch)
@@ -4515,10 +4529,6 @@ void P_SetupLevel (char *lumpname, int position)
 	*/
 	for ( i = 0; i < MAXPLAYERS; i++ )
 	{
-		// [AK] If there's an available start point for this player, add it to the list.
-		if ( playerstarts[i].type != 0 )
-			AvailableCooperativeStarts.Push( playerstarts[i] );
-
 		if ( playeringame[i] == false )
 			continue;
 

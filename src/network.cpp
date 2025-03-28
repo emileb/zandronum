@@ -377,7 +377,6 @@ void NETWORK_Construct( USHORT usPort, bool bAllocateLANSocket )
 	// can hold the biggest possible size we may get after decompressing (aka Huffman decoding)
 	// the incoming UDP packet.
 	g_NetworkMessage.Init( ((MAX_UDP_PACKET * 8) / 3 + 1), BUFFERTYPE_READ );
-	g_NetworkMessage.Clear();
 
 	// If hosting, update the server GUI.
 	if( NETWORK_GetState() == NETSTATE_SERVER )
@@ -1641,7 +1640,7 @@ bool NETWORK_IsActorClientHandled( const AActor *pActor )
 	if ( pActor == NULL )
 		return false;
 
-	return ( ( pActor->NetworkFlags & NETFL_CLIENTSIDEONLY ) || ( pActor->NetID == -1 ) );
+	return ( ( pActor->NetworkFlags & NETFL_CLIENTSIDEONLY ) || ( pActor->NetID == 0 ) );
 }
 
 //*****************************************************************************
@@ -1782,7 +1781,7 @@ static void network_InitPWADList( void )
 	for ( ULONG ulIdx = 0; Wads.GetWadName( ulIdx ) != NULL; ulIdx++ )
 	{
 		// [SB] Skip nested WADs, they can't be checksummed and only their parents matter anyway. 
-		if ( Wads.GetParentWad( ulIdx ) != ulIdx )
+		if ( Wads.GetParentWad( ulIdx ) != static_cast<int>( ulIdx ))
 		{
 			continue;
 		}
@@ -1918,6 +1917,58 @@ void CMD5Checksum::GetMD5(const BYTE* pBuf, UINT nLength, FString &OutString)
 	}
 	*MD5Sum = 0;
 	OutString = MD5SumFull;
+}
+
+//*****************************************************************************
+//
+BufferParameter &BufferParameter::operator() ( BYTESTREAM_s *byteStream )
+{
+	DeleteData( );
+
+	if ( byteStream != nullptr )
+	{
+		size = byteStream->ReadShort( );
+		data = new unsigned char[size];
+		byteStream->ReadBuffer( data, size );
+	}
+
+	return *this;
+}
+
+//*****************************************************************************
+//
+BufferParameter &BufferParameter::operator= ( const BufferParameter &other )
+{
+	if ( this != &other )
+		CopyData( other.data, other.size );
+
+	return *this;
+}
+
+//*****************************************************************************
+//
+void BufferParameter::DeleteData( void )
+{
+	if ( data != nullptr )
+	{
+		delete[] data;
+		data = nullptr;
+		size = 0;
+	}
+}
+
+//*****************************************************************************
+//
+void BufferParameter::CopyData( unsigned char *newData, unsigned short newSize )
+{
+	DeleteData( );
+
+	if (( newData != nullptr ) && ( newSize > 0 ))
+	{
+		data = new unsigned char[newSize];
+		size = newSize;
+		memcpy( data, newData, newSize );
+	}
 }
 
 //*****************************************************************************

@@ -216,7 +216,6 @@ CUSTOM_CVAR( Int, cl_backupcommands, 0, CVAR_ARCHIVE )
 // Player functions.
 // [BB] Does not work with the latest ZDoom changes. Check if it's still necessary.
 //static	void	client_SetPlayerPieces( BYTESTREAM_s *pByteStream );
-static	void	client_PlayerVoIPAudioPacket( BYTESTREAM_s *byteStream );
 
 // Game commands.
 static	void	client_SetGameMode( BYTESTREAM_s *pByteStream );
@@ -236,14 +235,12 @@ static	void	client_DoPossessionArtifactDropped( BYTESTREAM_s *pByteStream );
 static	void	client_DoGameModeFight( BYTESTREAM_s *pByteStream );
 static	void	client_DoGameModeCountdown( BYTESTREAM_s *pByteStream );
 static	void	client_DoGameModeWinSequence( BYTESTREAM_s *pByteStream );
-static	void	client_SetDominationState( BYTESTREAM_s *pByteStream );
-static	void	client_SetDominationPointOwnership( BYTESTREAM_s *pByteStream );
 
 // Team commands.
 static	void	client_SetTeamScore( BYTESTREAM_s *pByteStream );
 static	void	client_SetTeamReturnTicks( BYTESTREAM_s *pByteStream );
-static	void	client_TeamFlagReturned( BYTESTREAM_s *pByteStream );
-static	void	client_TeamFlagDropped( BYTESTREAM_s *pByteStream );
+static	void	client_TeamItemReturned( BYTESTREAM_s *byteStream );
+static	void	client_TeamItemDropped( BYTESTREAM_s *byteStream );
 
 // Vote commands.
 static	void	client_CallVote( BYTESTREAM_s *pByteStream );
@@ -510,7 +507,6 @@ void CLIENT_Construct( void )
 	NETWORK_Construct( usPort, true );
 
 	g_LocalBuffer.Init( MAX_UDP_PACKET * 8, BUFFERTYPE_WRITE );
-	g_LocalBuffer.Clear();
 
 	// Initialize the stored packets buffer.
 	g_ReceivedPacketBuffer.lMaxSize = MAX_UDP_PACKET * PACKET_BUFFER_SIZE;
@@ -718,13 +714,6 @@ void CLIENT_SetConnectionState( CONNECTIONSTATE_e State )
 NETBUFFER_s *CLIENT_GetLocalBuffer( void )
 {
 	return ( &g_LocalBuffer );
-}
-
-//*****************************************************************************
-//
-void CLIENT_SetLocalBuffer( NETBUFFER_s *pBuffer )
-{
-	g_LocalBuffer = *pBuffer;
 }
 
 //*****************************************************************************
@@ -1227,13 +1216,14 @@ void CLIENT_CheckForMissingPackets( void )
 				CLIENTSTATISTICS_AddToMissingPacketsRequested ( 1 );
 
 				// [Leo] Print how many packets we missed.
-				if ( cl_showpacketloss )
+				// [AK] This should only appear after the client is fully connected.
+				if (( cl_showpacketloss ) && ( StatusBar != nullptr ) && ( CLIENT_GetConnectionState( ) == CTS_ACTIVE ))
 				{
 					FString message;
 					message.Format( "Client missed %d packets.", static_cast<int>( g_lHighestReceivedSequence - g_lLastParsedSequence ));
 
-					DHUDMessageFadeOut *pMsg = new DHUDMessageFadeOut( SmallFont, message, 1.5f, 0.9f, 0, 0, CR_GREEN, 2.f, 0.35f );
-					StatusBar->AttachMessage( pMsg, MAKE_ID( 'P', 'C', 'K', 'T' ));
+					DHUDMessageFadeOut *msg = new DHUDMessageFadeOut( SmallFont, message, 1.5f, 0.9f, 0, 0, CR_GREEN, 2.f, 0.35f );
+					StatusBar->AttachMessage( msg, MAKE_ID( 'P', 'C', 'K', 'T' ));
 				}
 			}
 		}
@@ -1682,14 +1672,6 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 
 		client_DoGameModeWinSequence( pByteStream );
 		break;
-	case SVC_SETDOMINATIONSTATE:
-
-		client_SetDominationState( pByteStream );
-		break;
-	case SVC_SETDOMINATIONPOINTOWNER:
-
-		client_SetDominationPointOwnership( pByteStream );
-		break;
 	case SVC_SETTEAMSCORE:
 
 		client_SetTeamScore( pByteStream );
@@ -1698,13 +1680,13 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 
 		client_SetTeamReturnTicks( pByteStream );
 		break;
-	case SVC_TEAMFLAGRETURNED:
+	case SVC_TEAMITEMRETURNED:
 
-		client_TeamFlagReturned( pByteStream );
+		client_TeamItemReturned( pByteStream );
 		break;
-	case SVC_TEAMFLAGDROPPED:
+	case SVC_TEAMITEMDROPPED:
 
-		client_TeamFlagDropped( pByteStream );
+		client_TeamItemDropped( pByteStream );
 		break;
 	case SVC_CALLVOTE:
 
@@ -1925,11 +1907,6 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 		client_AdjustPusher( pByteStream );
 		break;
 
-	case SVC_PLAYERVOIPAUDIOPACKET:
-
-		client_PlayerVoIPAudioPacket( pByteStream );
-		break;
-
 	case SVC_EXTENDEDCOMMAND:
 		{
 			const LONG lExtCommand = pByteStream->ReadByte();
@@ -2005,13 +1982,13 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 
 			case SVC2_SETTHINGREACTIONTIME:
 				{
-					const LONG lID = pByteStream->ReadShort(); 
+					const unsigned short netID = pByteStream->ReadShort();
 					const LONG lReactionTime = pByteStream->ReadShort();
-					AActor *pActor = CLIENT_FindThingByNetID( lID );
+					AActor *pActor = CLIENT_FindThingByNetID( netID );
 
 					if ( pActor == NULL )
 					{
-						CLIENT_PrintWarning( "SETTHINGREACTIONTIME: Couldn't find thing: %ld\n", lID );
+						CLIENT_PrintWarning( "SETTHINGREACTIONTIME: Couldn't find thing: %u\n", netID );
 						break;
 					}
 					pActor->reactiontime = lReactionTime;
@@ -2021,13 +1998,13 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 			// [Dusk]
 			case SVC2_SETFASTCHASESTRAFECOUNT:
 				{
-					const LONG lID = pByteStream->ReadShort();
+					const unsigned short netID = pByteStream->ReadShort();
 					const LONG lStrafeCount = pByteStream->ReadByte(); 
-					AActor *pActor = CLIENT_FindThingByNetID( lID );
+					AActor *pActor = CLIENT_FindThingByNetID( netID );
 
 					if ( pActor == NULL )
 					{
-						CLIENT_PrintWarning( "SETFASTCHASESTRAFECOUNT: Couldn't find thing: %ld\n", lID );
+						CLIENT_PrintWarning( "SETFASTCHASESTRAFECOUNT: Couldn't find thing: %u\n", netID );
 						break;
 					}
 					pActor->FastChaseStrafeCount = lStrafeCount;
@@ -2116,13 +2093,13 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 
 			case SVC2_SETTHINGSPECIAL:
 				{
-					const LONG lID = pByteStream->ReadShort(); 
+					const unsigned short netID = pByteStream->ReadShort();
 					const LONG lSpecial = pByteStream->ReadShort();
-					AActor *pActor = CLIENT_FindThingByNetID( lID );
+					AActor *pActor = CLIENT_FindThingByNetID( netID );
 
 					if ( pActor == NULL )
 					{
-						CLIENT_PrintWarning( "SVC2_SETTHINGSPECIAL: Couldn't find thing: %ld\n", lID );
+						CLIENT_PrintWarning( "SVC2_SETTHINGSPECIAL: Couldn't find thing: %u\n", netID );
 						break;
 					}
 					pActor->special = lSpecial;
@@ -2156,13 +2133,13 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 
 			case SVC2_SETTHINGHEALTH:
 				{
-					const LONG lID = pByteStream->ReadShort();
+					const unsigned short netID = pByteStream->ReadShort();
 					const int health = pByteStream->ReadByte();
-					AActor* mo = CLIENT_FindThingByNetID( lID );
+					AActor* mo = CLIENT_FindThingByNetID( netID );
 
 					if ( mo == NULL )
 					{
-						CLIENT_PrintWarning( "SVC2_SETTHINGSPECIAL: Couldn't find thing: %ld\n", lID );
+						CLIENT_PrintWarning( "SVC2_SETTHINGSPECIAL: Couldn't find thing: %u\n", netID );
 						break;
 					}
 
@@ -2226,8 +2203,8 @@ void CLIENT_ProcessCommand( LONG lCommand, BYTESTREAM_s *pByteStream )
 
 			case SVC2_SETDEFAULTSKYBOX:
 				{
-					int mobjNetID = pByteStream->ReadShort();
-					if ( mobjNetID == -1  )
+					unsigned short mobjNetID = pByteStream->ReadShort();
+					if ( mobjNetID == 0  )
 						level.DefaultSkybox = NULL;
 					else
 					{
@@ -2405,21 +2382,7 @@ void CLIENT_PrintCommand( LONG lCommand )
 
 	if ( lCommand < NUM_SERVERCONNECT_COMMANDS )
 	{
-		switch ( lCommand )
-		{
-		case SVCC_AUTHENTICATE:
-
-			pszString = "SVCC_AUTHENTICATE";
-			break;
-		case SVCC_MAPLOAD:
-
-			pszString = "SVCC_MAPLOAD";
-			break;
-		case SVCC_ERROR:
-
-			pszString = "SVCC_ERROR";
-			break;
-		}
+		pszString = GetStringServerConnectionCommand( static_cast<ServerConnectionCommand>( lCommand ));
 	}
 	else
 	{
@@ -2514,7 +2477,7 @@ void CLIENT_QuitNetworkGame( const char *pszString )
 	}
 
 	// Clear out our copy of the server address.
-	memset( &g_AddressServer, 0, sizeof( g_AddressServer ));
+	g_AddressServer.Clear( );
 	CLIENT_SetConnectionState( CTS_DISCONNECTED );
 
 	// Go back to the full console.
@@ -2668,7 +2631,7 @@ void CLIENT_AuthenticateLevel( const char *pszMapName )
 
 //*****************************************************************************
 //
-AActor *CLIENT_SpawnThing( const PClass *pType, fixed_t X, fixed_t Y, fixed_t Z, LONG lNetID, BYTE spawnFlags )
+AActor *CLIENT_SpawnThing( const PClass *pType, fixed_t X, fixed_t Y, fixed_t Z, unsigned short netID, BYTE spawnFlags )
 {
 	AActor			*pActor;
 
@@ -2681,16 +2644,16 @@ AActor *CLIENT_SpawnThing( const PClass *pType, fixed_t X, fixed_t Y, fixed_t Z,
 
 	// Potentially print the name, position, and network ID of the thing spawning.
 	if ( cl_showspawnnames )
-		Printf( "Name: %s: (%d, %d, %d), %d\n", pType->TypeName.GetChars( ), X >> FRACBITS, Y >> FRACBITS, Z >> FRACBITS, static_cast<int> (lNetID) );
+		Printf( "Name: %s: (%d, %d, %d), %u\n", pType->TypeName.GetChars( ), X >> FRACBITS, Y >> FRACBITS, Z >> FRACBITS, netID );
 
 	// If there's already an actor with the network ID of the thing we're spawning, kill it!
-	pActor = CLIENT_FindThingByNetID( lNetID );
+	pActor = CLIENT_FindThingByNetID( netID );
 	if ( pActor )
 	{
 #ifdef	_DEBUG
 		if ( pActor == players[consoleplayer].mo )
 		{
-			Printf( "CLIENT_SpawnThing: WARNING! Tried to delete console player's body! lNetID = %ld\n", lNetID );
+			Printf( "CLIENT_SpawnThing: WARNING! Tried to delete console player's body! netID = %u\n", netID );
 			return NULL;
 		}
 #endif
@@ -2742,8 +2705,8 @@ AActor *CLIENT_SpawnThing( const PClass *pType, fixed_t X, fixed_t Y, fixed_t Z,
 			}
 		}
 
-		pActor->NetID = lNetID;
-		g_ActorNetIDList.useID ( lNetID, pActor );
+		pActor->NetID = netID;
+		g_ActorNetIDList.useID( netID, pActor );
 
 		pActor->SpawnPoint[0] = X;
 		pActor->SpawnPoint[1] = Y;
@@ -2772,14 +2735,14 @@ AActor *CLIENT_SpawnThing( const PClass *pType, fixed_t X, fixed_t Y, fixed_t Z,
 			pActor->InvasionWave = INVASION_GetCurrentWave( );
 	}
 	else
-		CLIENT_PrintWarning( "CLIENT_SpawnThing: Failed to spawn actor %s with id %ld\n", pType->TypeName.GetChars( ), lNetID );
+		CLIENT_PrintWarning( "CLIENT_SpawnThing: Failed to spawn actor %s with id %u\n", pType->TypeName.GetChars( ), netID );
 
 	return ( pActor );
 }
 
 //*****************************************************************************
 //
-void CLIENT_SpawnMissile( const PClass *pType, fixed_t X, fixed_t Y, fixed_t Z, fixed_t VelX, fixed_t VelY, fixed_t VelZ, LONG lNetID, LONG lTargetNetID )
+void CLIENT_SpawnMissile( const PClass *pType, fixed_t X, fixed_t Y, fixed_t Z, fixed_t VelX, fixed_t VelY, fixed_t VelZ, unsigned short netID, unsigned short targetNetID )
 {
 	AActor				*pActor;
 
@@ -2792,10 +2755,10 @@ void CLIENT_SpawnMissile( const PClass *pType, fixed_t X, fixed_t Y, fixed_t Z, 
 
 	// Potentially print the name, position, and network ID of the thing spawning.
 	if ( cl_showspawnnames )
-		Printf( "Name: %s: (%d, %d, %d), %d\n", pType->TypeName.GetChars( ), X >> FRACBITS, Y >> FRACBITS, Z >> FRACBITS, static_cast<int> (lNetID) );
+		Printf( "Name: %s: (%d, %d, %d), %u\n", pType->TypeName.GetChars( ), X >> FRACBITS, Y >> FRACBITS, Z >> FRACBITS, netID );
 
 	// If there's already an actor with the network ID of the thing we're spawning, kill it!
-	pActor = CLIENT_FindThingByNetID( lNetID );
+	pActor = CLIENT_FindThingByNetID( netID );
 	if ( pActor )
 	{
 		pActor->Destroy( );
@@ -2805,7 +2768,7 @@ void CLIENT_SpawnMissile( const PClass *pType, fixed_t X, fixed_t Y, fixed_t Z, 
 	pActor = Spawn( pType, X, Y, Z, NO_REPLACE );
 	if ( pActor == NULL )
 	{
-		CLIENT_PrintWarning( "CLIENT_SpawnMissile: Failed to spawn missile: %ld\n", lNetID );
+		CLIENT_PrintWarning( "CLIENT_SpawnMissile: Failed to spawn missile: %u\n", netID );
 		return;
 	}
 
@@ -2817,11 +2780,11 @@ void CLIENT_SpawnMissile( const PClass *pType, fixed_t X, fixed_t Y, fixed_t Z, 
 	// Derive the thing's angle from its velocity.
 	pActor->angle = R_PointToAngle2( 0, 0, VelX, VelY );
 
-	pActor->NetID = lNetID;
-	g_ActorNetIDList.useID ( lNetID, pActor );
+	pActor->NetID = netID;
+	g_ActorNetIDList.useID( netID, pActor );
 
 	// [RK] Moved this up since we need the target before we play the sound.
-	pActor->target = CLIENT_FindThingByNetID(lTargetNetID);
+	pActor->target = CLIENT_FindThingByNetID( targetNetID );
 
 	// Play the seesound if this missile has one.
 	// [RK] Play the sound at the target if the missile has MF_SPAWNSOUNDSOURCE.
@@ -2914,9 +2877,9 @@ bool CLIENT_GainingRCONAccess()
 
 //*****************************************************************************
 //
-AActor *CLIENT_FindThingByNetID( LONG lNetID )
+AActor *CLIENT_FindThingByNetID( unsigned short netID )
 {
-    return ( g_ActorNetIDList.findPointerByID ( lNetID ) );
+    return ( g_ActorNetIDList.findPointerByID( netID ));
 }
 
 //*****************************************************************************
@@ -3188,6 +3151,9 @@ void PLAYER_ResetPlayerData( player_t *pPlayer )
 		CLIENT_PREDICT_Construct();
 	}
 	memset( pPlayer->psprites, 0, sizeof( pPlayer->psprites ));
+
+	// [AK] Clear the player's medals.
+	MEDAL_ResetPlayerMedals( static_cast<ULONG>( pPlayer - players ), true );
 }
 
 //*****************************************************************************
@@ -3327,10 +3293,10 @@ void CLIENT_SetActorToLastDeathStateFrame ( AActor *pActor )
 //
 // 'actor' MUST be either NULL or an instance of the provided subclass!
 //
-bool CLIENT_ReadActorFromNetID( int netid, const PClass *subclass, bool allowNull, AActor *&actor,
+bool CLIENT_ReadActorFromNetID( unsigned short netID, const PClass *subclass, bool allowNull, AActor *&actor,
 								const char *commandName, const char *parameterName )
 {
-	actor = CLIENT_FindThingByNetID( netid );
+	actor = CLIENT_FindThingByNetID( netID );
 
 	if ( actor && ( actor->IsKindOf( subclass ) == false ))
 	{
@@ -3345,7 +3311,7 @@ bool CLIENT_ReadActorFromNetID( int netid, const PClass *subclass, bool allowNul
 
 	if (( actor == NULL ) && ( allowNull == false ))
 	{
-		CLIENT_PrintWarning( "%s: couldn't find %s: %d\n", commandName, parameterName, netid );
+		CLIENT_PrintWarning( "%s: couldn't find %s: %u\n", commandName, parameterName, netID );
 		return false;
 	}
 
@@ -3506,7 +3472,7 @@ void ServerCommands::SpawnPlayer::Execute()
 
 	// [BB] Potentially print the player number, position, and network ID of the player spawning.
 	if ( cl_showspawnnames )
-		Printf( "Player %d body: (%d, %d, %d), %d\n", static_cast<int>(ulPlayer), x >> FRACBITS, y >> FRACBITS, z >> FRACBITS, static_cast<int> (netid) );
+		Printf( "Player %d body: (%d, %d, %d), %u\n", static_cast<int>(ulPlayer), x >> FRACBITS, y >> FRACBITS, z >> FRACBITS, netid );
 
 	// [BB] Remember if we were already ignoring WeaponSelect commands. If so, the server
 	// told us to ignore them and we need to continue to do so after spawning the player.
@@ -3530,7 +3496,7 @@ void ServerCommands::SpawnPlayer::Execute()
 	{
 		// [BB] Possibly play a connect sound.
 		if (( cl_connectsound ) && ( playeringame[ulPlayer] == false ) && ( isSpectating ) && ( CLIENT_GetConnectionState( ) != CTS_RECEIVINGSNAPSHOT ))
-			S_Sound( CHAN_AUTO, "zandronum/connect", 1.f, ATTN_NONE );
+			S_Sound( CHAN_AUTO | CHAN_UI, "zandronum/connect", 1.f, ATTN_NONE );
 	}
 
 	// This player is now in the game!
@@ -4096,20 +4062,6 @@ void ServerCommands::KillPlayer::Execute()
 		ClientObituary( players[ulPlayer].mo, pInflictor, NULL, MOD );
 */
 
-	// [AK] If we died and can respawn, show how long we must wait before we can respawn.
-	if (( CLIENTDEMO_IsPlaying( ) == false ) && (( zacompatflags & ZACOMPATF_INSTANTRESPAWN ) == false ) && ( player - players == consoleplayer ))
-	{
-		bool bNoMoreLivesLeft = ( GAMEMODE_AreLivesLimited( ) && GAMEMODE_IsGameInProgress( ) && ( player->ulLivesLeft == 0 ));
-		float fRespawnDelayTime = 1.0f;
-
-		if (( player->mo->DamageType != NAME_SpawnTelefrag ) && ( bNoMoreLivesLeft == false ))
-			fRespawnDelayTime = sv_respawndelaytime;
-
-		// [AK] The timer is precise to only one decimal place, so it's not worth showing
-		// the message if it's below 0.1 seconds.
-		HUD_SetRespawnTimeLeft(( bNoMoreLivesLeft == false && fRespawnDelayTime > 0.1f ) ? fRespawnDelayTime : -1.0f );
-	}
-
 	// Refresh the HUD, since this could affect the number of players left in an LMS game.
 	HUD_ShouldRefreshBeforeRendering( );
 }
@@ -4667,6 +4619,14 @@ void ServerCommands::SetLocalPlayerJumpTics::Execute()
 
 //*****************************************************************************
 //
+void ServerCommands::SetLocalPlayerRespawnDelayTime::Execute()
+{
+	const float respawnDelayTime = static_cast<float>( respawnDelayTics ) / TICRATE;
+	HUD_SetRespawnTimeLeft(( respawnDelayTime > 0.1f ) ? respawnDelayTime : -1.0f );
+}
+
+//*****************************************************************************
+//
 void ServerCommands::DisconnectPlayer::Execute()
 {
 	const unsigned int playerIndex = static_cast<unsigned>( player - players );
@@ -4840,6 +4800,13 @@ void ServerCommands::PlayerSay::Execute()
 
 //*****************************************************************************
 //
+void ServerCommands::PlayerVoIPAudioPacket::Execute()
+{
+	VOIPController::GetInstance( ).ReceiveAudioPacket( playerNumber, frame, audio.data, audio.size );
+}
+
+//*****************************************************************************
+//
 void ServerCommands::PlayerTaunt::Execute()
 {
 	// Don't taunt if we're not in a level!
@@ -4857,36 +4824,6 @@ void ServerCommands::PlayerTaunt::Execute()
 	// Play the taunt sound!
 	if ( cl_taunts )
 		S_Sound( player->mo, CHAN_VOICE, "*taunt", 1, ATTN_NORM );
-}
-
-//*****************************************************************************
-//
-void ServerCommands::PlayerRespawnInvulnerability::Execute()
-{
-	// Don't taunt if we're not in a level!
-	if ( gamestate != GS_LEVEL )
-		return;
-
-	// First, we need to adjust the blend color, so the player's screen doesn't go white.
-	APowerInvulnerable *invulnerability = player->mo->FindInventory<APowerInvulnerable>();
-
-	if ( invulnerability == NULL )
-		return;
-
-	invulnerability->BlendColor = 0;
-
-	// Apply respawn invulnerability effect.
-	switch ( cl_respawninvuleffect )
-	{
-	case 1:
-		player->mo->RenderStyle = STYLE_Translucent;
-		player->mo->effects |= FX_VISIBILITYFLICKER;
-		break;
-
-	case 2:
-		player->mo->effects |= FX_RESPAWNINVUL;
-		break;
-	}
 }
 
 //*****************************************************************************
@@ -5066,7 +5003,7 @@ void ServerCommands::SpawnThing::Execute()
 //
 void ServerCommands::SpawnThingNoNetID::Execute()
 {
-	CLIENT_SpawnThing( type, x, y, z, -1 );
+	CLIENT_SpawnThing( type, x, y, z, 0 );
 }
 
 //*****************************************************************************
@@ -5080,7 +5017,7 @@ void ServerCommands::SpawnThingExact::Execute()
 //
 void ServerCommands::SpawnThingExactNoNetID::Execute()
 {
-	CLIENT_SpawnThing( type, x, y, z, -1 );
+	CLIENT_SpawnThing( type, x, y, z, 0 );
 }
 
 //*****************************************************************************
@@ -5094,7 +5031,7 @@ void ServerCommands::LevelSpawnThing::Execute()
 //
 void ServerCommands::LevelSpawnThingNoNetID::Execute()
 {
-	CLIENT_SpawnThing( type, x, y, z, -1, SPAWNFLAG_LEVELTHING );
+	CLIENT_SpawnThing( type, x, y, z, 0, SPAWNFLAG_LEVELTHING );
 }
 
 //*****************************************************************************
@@ -5848,7 +5785,7 @@ void ServerCommands::SpawnPuff::Execute()
 //
 void ServerCommands::SpawnPuffNoNetID::Execute()
 {
-	AActor *puff = CLIENT_SpawnThing( pufftype, x, y, z, -1, SPAWNFLAG_PUFF );
+	AActor *puff = CLIENT_SpawnThing( pufftype, x, y, z, 0, SPAWNFLAG_PUFF );
 
 	if ( puff == NULL )
 		return;
@@ -5987,6 +5924,22 @@ void ServerCommands::PrintHUDMessage::Execute()
 
 //*****************************************************************************
 //
+void ServerCommands::PrintTeamScoresMessage::Execute( )
+{
+	if ( TEAM_CheckIfValid( team ) == false )
+		return;
+
+	// [AK] The assist player of a team isn't synced with the clients, so just
+	// temporarily set it to the assister that was passed with this command.
+	const unsigned int oldAssister = TEAM_GetAssistPlayer( team );
+	TEAM_SetAssistPlayer( team, assister );
+
+	TEAM_PrintScoresMessage( team, scorer, numPoints );
+	TEAM_SetAssistPlayer( team, oldAssister );
+}
+
+//*****************************************************************************
+//
 static void client_SetGameMode( BYTESTREAM_s *pByteStream )
 {
 	UCVarValue	Value;
@@ -6048,6 +6001,10 @@ static void client_SetGameDMFlags( BYTESTREAM_s *pByteStream )
 	// [BB] ... and zadmflags.
 	Value.Int = pByteStream->ReadLong();
 	zadmflags.ForceSet( Value, CVAR_Int );
+
+	// [TRSR] ... and sv_forbidvoteflags.
+	Value.Int = pByteStream->ReadLong();
+	sv_forbidvoteflags.ForceSet( Value, CVAR_Int );
 }
 
 //*****************************************************************************
@@ -6155,6 +6112,10 @@ static void client_SetGameModeLimits( BYTESTREAM_s *pByteStream )
 	// [AK] Read in, and set the value for sv_respawndelaytime.
 	Value.Float = pByteStream->ReadFloat();
 	sv_respawndelaytime.ForceSet( Value, CVAR_Float );
+
+	// [TRSR] Read in, and set the value for sv_nocallvote.
+	Value.Int = pByteStream->ReadByte();
+	sv_nocallvote.ForceSet( Value, CVAR_Int );
 }
 
 //*****************************************************************************
@@ -6392,45 +6353,6 @@ static void client_DoGameModeWinSequence( BYTESTREAM_s *pByteStream )
 
 //*****************************************************************************
 //
-static void client_SetDominationState( BYTESTREAM_s *pByteStream )
-{
-	unsigned int NumPoints = pByteStream->ReadLong();
-
-	// [BB] It's impossible that the server sends us this many points
-	// in a single packet, so something must be wrong. Just parse
-	// what the server has claimed to have send, but don't try to store
-	// it or allocate memory for it.
-	if ( NumPoints > MAX_UDP_PACKET )
-	{
-		for ( unsigned int i = 0; i < NumPoints; ++i )
-			pByteStream->ReadByte();
-		return;
-	}
-
-	unsigned int *PointOwners = new unsigned int[NumPoints];
-	for(unsigned int i = 0;i < NumPoints;i++)
-	{
-		PointOwners[i] = pByteStream->ReadByte();
-	}
-	DOMINATION_LoadInit(NumPoints, PointOwners);
-}
-
-//*****************************************************************************
-//
-static void client_SetDominationPointOwnership( BYTESTREAM_s *pByteStream )
-{
-	unsigned int ulPoint = pByteStream->ReadByte();
-	unsigned int ulPlayer = pByteStream->ReadByte();
-
-	// If this is an invalid player, break out.
-	if ( PLAYER_IsValidPlayer( ulPlayer ) == false )
-		return;
-
-	DOMINATION_SetOwnership(ulPoint, &players[ulPlayer]);
-}
-
-//*****************************************************************************
-//
 static void client_SetTeamScore( BYTESTREAM_s *pByteStream )
 {
 	// Read in the team having its score updated.
@@ -6484,30 +6406,27 @@ static void client_SetTeamReturnTicks( BYTESTREAM_s *pByteStream )
 
 //*****************************************************************************
 //
-static void client_TeamFlagReturned( BYTESTREAM_s *pByteStream )
+static void client_TeamItemReturned( BYTESTREAM_s *byteStream )
 {
-	ULONG	ulTeam;
-
-	// Read in the team that the flag has been returned for.
-	ulTeam = pByteStream->ReadByte();
+	// Read in the team that the item has been returned for.
+	// [AK] Read in the player that returned the item first.
+	const unsigned int player = byteStream->ReadByte( );
+	const unsigned int team = byteStream->ReadByte( );
 
 	// Finally, just call this function that does all the dirty work.
-	TEAM_ExecuteReturnRoutine( ulTeam, NULL );
+	TEAM_ExecuteReturnRoutine( team, PLAYER_IsValidPlayer( player ) ? players[player].mo : nullptr );
 }
 
 //*****************************************************************************
 //
-static void client_TeamFlagDropped( BYTESTREAM_s *pByteStream )
+static void client_TeamItemDropped( BYTESTREAM_s *byteStream )
 {
-	ULONG	ulPlayer;
-	ULONG	ulTeamIdx;
-
-	// Read in the player that dropped a flag.
-	ulPlayer = pByteStream->ReadByte();
-	ulTeamIdx = pByteStream->ReadByte();
+	// Read in the player that dropped the item.
+	const unsigned int player = byteStream->ReadByte( );
+	const unsigned int team = byteStream->ReadByte( );
 
 	// Finally, just call this function that does all the dirty work.
-	TEAM_FlagDropped( &players[ulPlayer], ulTeamIdx );
+	ATeamItem::Drop( &players[player], team );
 }
 
 //*****************************************************************************
@@ -9153,13 +9072,12 @@ static void client_SetPolyobjRotation( BYTESTREAM_s *pByteStream )
 static void client_EarthQuake( BYTESTREAM_s *pByteStream )
 {
 	AActor	*pCenter;
-	LONG	lID;
 	LONG	lIntensity;
 	LONG	lDuration;
 	LONG	lTremorRadius;
 
 	// Read in the center's network ID.
-	lID = pByteStream->ReadShort();
+	unsigned short netID = pByteStream->ReadShort();
 
 	// Read in the intensity of the quake.
 	lIntensity = pByteStream->ReadByte();
@@ -9175,7 +9093,7 @@ static void client_EarthQuake( BYTESTREAM_s *pByteStream )
 
 	// Find the actor that represents the center of the quake based on the network
 	// ID sent. If we can't find the actor, then the quake has no center.
-	pCenter = CLIENT_FindThingByNetID( lID );
+	pCenter = CLIENT_FindThingByNetID( netID );
 	if ( pCenter == NULL )
 		return;
 
@@ -9348,14 +9266,13 @@ static void client_GenericCheat( BYTESTREAM_s *pByteStream )
 //
 static void client_SetCameraToTexture( BYTESTREAM_s *pByteStream )
 {
-	LONG		lID;
 	const char	*pszTexture;
 	LONG		lFOV;
 	AActor		*pCamera;
 	FTextureID	picNum;
 
 	// Read in the ID of the camera.
-	lID = pByteStream->ReadShort();
+	unsigned short netID = pByteStream->ReadShort();
 
 	// Read in the name of the texture.
 	pszTexture = pByteStream->ReadString();
@@ -9365,7 +9282,7 @@ static void client_SetCameraToTexture( BYTESTREAM_s *pByteStream )
 
 	// Find the actor that represents the camera. If we can't find the actor, then
 	// break out.
-	pCamera = CLIENT_FindThingByNetID( lID );
+	pCamera = CLIENT_FindThingByNetID( netID );
 	if ( pCamera == NULL )
 		return;
 
@@ -9383,7 +9300,7 @@ static void client_SetCameraToTexture( BYTESTREAM_s *pByteStream )
 //
 static void client_CreateTranslation( BYTESTREAM_s *pByteStream )
 {
-	EDITEDTRANSLATION_s	Translation;
+	EDITEDTRANSLATION_s	Translation = { };
 	FRemapTable	*pTranslation;
 
 	// Read in which translation is being created.
@@ -9458,31 +9375,17 @@ static void client_CreateTranslation( BYTESTREAM_s *pByteStream )
 
 //*****************************************************************************
 //
-static void client_PlayerVoIPAudioPacket( BYTESTREAM_s *byteStream )
-{
-	const unsigned int player = byteStream->ReadByte( );
-	const unsigned int frame = byteStream->ReadLong( );
-	const unsigned int length = byteStream->ReadShort( );
-	unsigned char *data = new unsigned char[length];
-
-	byteStream->ReadBuffer( data, length );
-	VOIPController::GetInstance( ).ReceiveAudioPacket( player, frame, data, length );
-	delete[] data;
-}
-
-//*****************************************************************************
-//
 static void client_DoPusher( BYTESTREAM_s *pByteStream )
 {
 	const ULONG ulType = pByteStream->ReadByte();
 	const int iLineNum = pByteStream->ReadShort();
 	const int iMagnitude = pByteStream->ReadLong();
 	const int iAngle = pByteStream->ReadLong();
-	const LONG lSourceNetID = pByteStream->ReadShort();
+	const unsigned short sourceNetID = pByteStream->ReadShort();
 	const int iAffectee = pByteStream->ReadShort();
 
 	line_t *pLine = ( iLineNum >= 0 && iLineNum < numlines ) ? &lines[iLineNum] : NULL;
-	new DPusher ( static_cast<DPusher::EPusher> ( ulType ), pLine, iMagnitude, iAngle, CLIENT_FindThingByNetID( lSourceNetID ), iAffectee );
+	new DPusher ( static_cast<DPusher::EPusher> ( ulType ), pLine, iMagnitude, iAngle, CLIENT_FindThingByNetID( sourceNetID ), iAffectee );
 }
 
 //*****************************************************************************
@@ -9508,9 +9411,9 @@ void ServerCommands::ReplaceTextures::Execute()
 //
 void APathFollower::InitFromStream ( BYTESTREAM_s *pByteStream )
 {
-	APathFollower *pPathFollower = static_cast<APathFollower*> ( CLIENT_FindThingByNetID( pByteStream->ReadShort() ) );
-	const int currNodeId = pByteStream->ReadShort();
-	const int prevNodeId = pByteStream->ReadShort();
+	APathFollower *pPathFollower = static_cast<APathFollower*> ( CLIENT_FindThingByNetID( static_cast<unsigned short>( pByteStream->ReadShort() ) ) );
+	const unsigned short currNodeId = static_cast<unsigned short>(pByteStream->ReadShort());
+	const unsigned short prevNodeId = static_cast<unsigned short>(pByteStream->ReadShort());
 	const float serverTime = pByteStream->ReadFloat();
 
 	if ( pPathFollower )
@@ -9626,6 +9529,27 @@ void ServerCommands::ConversationReply::Execute( )
 void ServerCommands::EndConversation::Execute( )
 {
 	P_ConversationClose( player - players );
+}
+
+//*****************************************************************************
+// [TRSR]
+void ServerCommands::SetDominationPointOwner::Execute()
+{
+	DOMINATION_SetOwnership( point, team, broadcast );
+}
+
+//*****************************************************************************
+// [TRSR]
+void ServerCommands::SetDominationPointState::Execute()
+{
+	std::set<int> contesting;
+	for ( unsigned int i = 0; i < contesters.Size(); i++ )
+	{
+		contesting.insert( contesters[i] );
+	}
+
+	DOMINATION_SetContesting( point, contesting );
+	DOMINATION_SetDisabled( point, disabled );
 }
 
 //*****************************************************************************

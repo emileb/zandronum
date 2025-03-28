@@ -518,7 +518,7 @@ struct CLIENT_s
 	unsigned int	numMissingPackets;
 
 	// What is the name of the client's skin?
-	char			szSkin[MAX_SKIN_NAME+1];
+	FString			skinName;
 
 	// [AK] A list of IP addresses that this client has set up communication rules for.
 	std::list<ClientCommRule> commRules;
@@ -714,6 +714,7 @@ bool		SERVER_IsExtrapolatingPlayer( ULONG ulClient );
 bool		SERVER_IsBacktracingPlayer( ULONG ulClient );
 void		SERVER_ResetClientTicBuffer( ULONG ulClient );
 void		SERVER_ResetClientExtrapolation( ULONG ulClient, bool bAfterBacktrace = false );
+void		SERVER_DestroyActorIfClientsidedOnly( AActor *actor );
 
 // From sv_master.cpp
 void		SERVER_MASTER_Construct( void );

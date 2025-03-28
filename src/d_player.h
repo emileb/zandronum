@@ -350,6 +350,15 @@ enum
 	RAILCOLOR_RAINBOW
 };
 
+// [AK] Enumerations for the different options used by cl_spectatormode.
+enum
+{
+	// With physical restrictions (can't pass through walls, floors, or ceilings).
+	SPECMODE_WITH_RESTRICTIONS,
+	// No physical restrictions (can pass through everything freely).
+	SPECMODE_NO_RESTRICTIONS
+};
+
 struct userinfo_t : TMap<FName,FBaseCVar *>
 {
 	~userinfo_t();
@@ -921,7 +930,9 @@ inline bool AActor::IsNoClip2() const
 #define CROUCHSPEED (FRACUNIT/12)
 
 bool P_IsPlayerTotallyFrozen(const player_t *player);
-bool P_IsUsingSourceEngineNoClip(const AActor *viewActor); // [AK]
+bool P_IsSpectatorUnrestricted(const AActor *viewActor); // [AK]
 void P_ResetPlayerPitchLimits(void); // [AK]
+
+EXTERN_CVAR( Int, cl_spectatormode ) // [AK]
 
 #endif // __D_PLAYER_H__

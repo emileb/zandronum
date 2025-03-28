@@ -587,14 +587,6 @@ void BOTS_RemoveBot( ULONG ulPlayerIdx, bool bExitMsg )
 		return;
 	}
 
-	if ( bExitMsg )
-	{
-		if ( NETWORK_GetState( ) != NETSTATE_SERVER )
-			Printf( PRINT_HIGH, "%s left the game.\n", players[ulPlayerIdx].userinfo.GetName() );
-		else
-			SERVER_Printf( "%s left the game.\n", players[ulPlayerIdx].userinfo.GetName() );
-	}
-
 	// [AK] Clear all the saved chat messages this bot said.
 	CHAT_ClearChatMessages( ulPlayerIdx );
 
@@ -602,20 +594,30 @@ void BOTS_RemoveBot( ULONG ulPlayerIdx, bool bExitMsg )
 	PLAYER_ResetCustomValues( ulPlayerIdx );
 
 	// [BB] Morphed bots need to be unmorphed before disconnecting.
-	if (players[ulPlayerIdx].morphTics)
-		P_UndoPlayerMorph (&players[ulPlayerIdx], &players[ulPlayerIdx]);
+	// [AK] Using MORPH_UNDOBYTIMEOUT ensures this succeeds when they're invulnerable.
+	if ( players[ulPlayerIdx].morphTics )
+		P_UndoPlayerMorphWithoutFlash( &players[ulPlayerIdx], &players[ulPlayerIdx], MORPH_UNDOBYTIMEOUT, true );
 
 	// [RK] Stop the runing scripts for the bot.
 	FBehavior::StaticStopMyScripts (players[ulPlayerIdx].mo);
 
+	// If they're disconnecting while carrying an important item like a flag, etc.,
+	// make sure they drop it before leaving.
+	// [AK] This must be executed before telling the clients the player left.
+	if ( players[ulPlayerIdx].mo )
+		players[ulPlayerIdx].mo->DropImportantItems( true );
+
+	if ( bExitMsg )
+	{
+		if ( NETWORK_GetState( ) != NETSTATE_SERVER )
+			Printf( PRINT_HIGH, "%s left the game.\n", players[ulPlayerIdx].userinfo.GetName( ));
+		else
+			SERVER_Printf( "%s left the game.\n", players[ulPlayerIdx].userinfo.GetName( ));
+	}
+
 	// Remove the bot from the game.
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 		SERVERCOMMANDS_DisconnectPlayer( ulPlayerIdx, ulPlayerIdx, SVCF_SKIPTHISCLIENT );
-
-	// If he's carrying an important item like a flag, etc., make sure he, 
-	// drops it before he leaves.
-	if ( players[ulPlayerIdx].mo )
-		players[ulPlayerIdx].mo->DropImportantItems( true );
 
 	// If this bot was eligible to get an assist, cancel that.
 	TEAM_CancelAssistsOfPlayer ( ulPlayerIdx );
@@ -1756,7 +1758,12 @@ CSkullBot::CSkullBot( const char *pszName, const char *pszTeamName, ULONG ulPlay
 	m_pPlayer = &players[ulPlayerNum];
 	m_pPlayer->pSkullBot = this;
 	m_pPlayer->bIsBot = true;
-	m_pPlayer->bSpectating = false;
+
+	// [AK] Later on, PLAYER_ShouldSpawnAsSpectator gets called, which in turn
+	// calls GAMEMODE_PreventPlayersFromJoining and then DUEL_CountActiveDuelers.
+	// Thus, The bot's spectating status should be initialized to true, or else
+	// they could be prevented from joining.
+	m_pPlayer->bSpectating = true;
 	m_pPlayer->bDeadSpectator = false;
 
 	// [AK] Bots have a local connection to the host, so set their country index to LAN.
@@ -1777,7 +1784,7 @@ CSkullBot::CSkullBot( const char *pszName, const char *pszTeamName, ULONG ulPlay
 	// Store the name of the skin the client gave us, so others can view the skin
 	// even if the server doesn't have the skin loaded.
 	if ( NETWORK_GetState( ) == NETSTATE_SERVER )
-		strncpy( SERVER_GetClient( ulPlayerNum )->szSkin, g_BotInfo[m_ulBotInfoIdx].szSkinName, MAX_SKIN_NAME + 1 );
+		SERVER_GetClient( ulPlayerNum )->skinName = g_BotInfo[m_ulBotInfoIdx].szSkinName;
 
 	LONG lSkin = R_FindSkin( g_BotInfo[m_ulBotInfoIdx].szSkinName, 0 );
 	m_pPlayer->userinfo.SkinNumChanged ( lSkin );

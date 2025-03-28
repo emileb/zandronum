@@ -1263,17 +1263,17 @@ CCMD (spyto)
 		return;
 	}
 
-	ULONG ulPlayer = SERVER_GetPlayerIndexFromName( argv[1], true, true );
+	int player = SERVER_GetPlayerIndexFromName( argv[1], true, true );
 
 	// [AK] Make sure the player exists.
-	if ( ulPlayer == MAXPLAYERS )
+	if ( player == MAXPLAYERS )
 	{
 		Printf( "There isn't a player named %s" TEXTCOLOR_NORMAL ".\n", argv[1] );
 		return;
 	}
 
 	// allow spy mode changes even during the demo
-	ChangeSpy ( ulPlayer != static_cast<ULONG>( consoleplayer ) ? ulPlayer : SPY_CANCEL );
+	ChangeSpy ( player != consoleplayer ? player : static_cast<int>( SPY_CANCEL ));
 }
 
 // [AK] Spy on a player by passing their number.
@@ -1951,6 +1951,11 @@ void G_Ticker ()
 		if ( CALLVOTE_GetVoteState() == VOTESTATE_INVOTE )
 			CALLVOTE_ClearVote();
 
+		// [AK] Interpolation is normally disabled during intermissions, but it
+		// can be enabled temporarily if the console is moving or the scoreboard
+		// is being scrolled up or down.
+		r_NoInterpolate = !(C_ShouldForceInterpolation() || SCOREBOARD_ShouldInterpolateOnIntermission());
+
 		WI_Ticker ();
 		break;
 
@@ -2484,7 +2489,9 @@ void G_DeathMatchSpawnPlayer (int playernum, bool clientUpdate)
 	// At level start, none of the players have mobjs attached to them,
 	// so we always use the random deathmatch spawn. During the game,
 	// though, we use whatever dmflags specifies.
-	if ((dmflags & DF_SPAWN_FARTHEST) && players[playernum].mo)
+	// [AK] Try spawning them as far away as possible anyways, and if
+	// that doesn't work, then spawn them at a random spot.
+	if ((dmflags & DF_SPAWN_FARTHEST) /*&& players[playernum].mo*/)
 		spot = SelectFarthestDeathmatchSpot (playernum, selections);
 	else
 		spot = SelectRandomDeathmatchSpot (playernum, selections);
@@ -3803,10 +3810,10 @@ void GAME_ResetMap( bool bRunEnterScripts )
 			bSendSkyUpdate = true;
 		}
 
-		strncpy( level.skypic1, pLevelInfo->skypic1, 8 );
-		strncpy( level.skypic2, pLevelInfo->skypic2, 8 );
+		snprintf( level.skypic1, sizeof( level.skypic1 ), "%s", pLevelInfo->skypic1 );
+		snprintf( level.skypic2, sizeof( level.skypic2 ), "%s", pLevelInfo->skypic2 );
 		if ( level.skypic2[0] == 0 )
-			strncpy( level.skypic2, level.skypic1, 8 );
+			snprintf( level.skypic2, sizeof( level.skypic2 ), "%s", level.skypic1 );
 
 		sky1texture = TexMan.GetTexture( level.skypic1, FTexture::TEX_Wall, FTextureManager::TEXMAN_Overridable );
 		sky2texture = TexMan.GetTexture( level.skypic2, FTexture::TEX_Wall, FTextureManager::TEXMAN_Overridable );

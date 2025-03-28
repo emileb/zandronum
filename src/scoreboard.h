@@ -213,6 +213,7 @@ class ScoreColumn
 {
 public:
 	ScoreColumn( const char *pszName );
+	virtual ~ScoreColumn( void ) { }
 
 	Scoreboard *GetScoreboard( void ) const { return pScoreboard; }
 	const char *GetInternalName( void ) const { return InternalName.GetChars( ); }
@@ -309,6 +310,7 @@ public:
 	virtual ULONG GetValueWidthOrHeight( const PlayerValue &Value, const bool bGetHeight ) const;
 	virtual PlayerValue GetValue( const ULONG ulPlayer ) const;
 	virtual void ParseCommand( FScanner &sc, const COLUMNCMD_e Command, const FString CommandName );
+	virtual void Refresh( void );
 	virtual void Update( void );
 	virtual void DrawValue( const ULONG ulPlayer, const ULONG ulColor, const LONG lYPos, const ULONG ulHeight, const float fAlpha ) const;
 
@@ -482,7 +484,7 @@ struct Scoreboard
 	// [AK] Template class for properties that can be customized in-game.
 	template <typename Type, typename CVar> struct CustomizableProperty
 	{
-		CustomizableProperty( const CVar &cvar, const CustomizeScoreboardFlag flag, const Type initial ) :
+		CustomizableProperty( const CVar &cvar, CustomizeScoreboardFlag flag, Type initial ) :
 			cvar( cvar ), flag( flag ), value( initial ) { }
 
 		void operator= ( const Type other ) { value = other; }
@@ -493,10 +495,31 @@ struct Scoreboard
 		Type value;
 	};
 
+	// [AK] Specialized template class for font properties.
+	struct CustomizableFont : public CustomizableProperty<FFont *, FStringCVar>
+	{
+		CustomizableFont( const FStringCVar &cvar, CustomizeScoreboardFlag flag, FFont *initial ) :
+			CustomizableProperty( cvar, flag, initial ) { }
+
+		operator FFont *( ) const
+		{
+			if ( sb_customizeflags & flag )
+			{
+				FFont *customFont = V_GetFont( cvar );
+
+				// [AK] If the CVar value is invalid, use the SCORINFO value.
+				if ( customFont != nullptr )
+					return customFont;
+			}
+
+			return value;
+		}
+	};
+
 	// [AK] Specialized template class for text color properties.
 	struct CustomizableTextColor : public CustomizableProperty<EColorRange, FIntCVar>
 	{
-		CustomizableTextColor( const FIntCVar &cvar, const CustomizeScoreboardFlag flag, const EColorRange initial ) :
+		CustomizableTextColor( const FIntCVar &cvar, CustomizeScoreboardFlag flag, EColorRange initial ) :
 			CustomizableProperty( cvar, flag, initial ) { }
 
 		operator EColorRange( ) const { return ( sb_customizeflags & flag ) ? static_cast<EColorRange>( cvar.GetGenericRep( CVAR_Int ).Int ) : value; }
@@ -532,8 +555,8 @@ struct Scoreboard
 	ULONG ulWidth;
 	ULONG ulHeight;
 	ULONG ulFlags;
-	FFont *pHeaderFont;
-	FFont *pRowFont;
+	CustomizableFont headerFont;
+	CustomizableFont rowFont;
 	CustomizableTextColor headerColor;
 	CustomizableTextColor rowColor;
 	CustomizableTextColor localRowColors[NUM_LOCALROW_COLORS];
@@ -554,7 +577,8 @@ struct Scoreboard
 	ULONG ulColumnPadding;
 	LONG lHeaderHeight;
 	LONG lRowHeight;
-	ULONG ulRowHeightToUse;
+	unsigned int headerHeightToUse;
+	unsigned int rowHeightToUse;
 	unsigned int totalScrollHeight;
 	unsigned int visibleScrollHeight;
 	int minClipRectY;
@@ -599,6 +623,9 @@ private:
 	void UpdateWidth( void );
 	void UpdateHeight( const unsigned int displayPlayer, const int minYPos );
 	void DrawRow( const ULONG ulPlayer, const ULONG ulDisplayPlayer, LONG &lYPos, const float fAlpha, bool &bUseLightBackground ) const;
+
+	// [AK] This function needs access to Scoreboard::currentScrollOffset.
+	friend bool SCOREBOARD_ShouldInterpolateOnIntermission( void );
 };
 
 //*****************************************************************************
@@ -614,6 +641,7 @@ void STACK_ARGS SCOREBOARD_DrawString( FFont *font, const int color, const int x
 void			SCOREBOARD_DrawColor( const PalEntry color, const float alpha, int left, int top, int width, int height );
 void STACK_ARGS SCOREBOARD_DrawTexture( FTexture *texture, const int x, const int y, const float scale, ... );
 bool			SCOREBOARD_ShouldDrawBoard( void );
+bool			SCOREBOARD_ShouldInterpolateOnIntermission( void );
 bool			SCOREBOARD_AdjustVerticalClipRect( int &clipTop, int &clipHeight );
 int				SCOREBOARD_CenterAlign( const int biggerSize, const int smallerSize );
 void			SCOREBOARD_ConvertVirtualCoordsToReal( int &left, int &top, int &width, int &height );

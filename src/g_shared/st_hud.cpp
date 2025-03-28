@@ -941,9 +941,15 @@ static void HUD_RenderHolders( void )
 			patchName = "STFLA3";
 
 			if ( g_pArtifactCarrier )
+			{
+				// [AK] Use the carrier's team color instead.
+				color = TEAM_GetTextColor( g_pArtifactCarrier->Team );
 				text.AppendFormat( "%s" TEXTCOLOR_NORMAL ": ", g_pArtifactCarrier->userinfo.GetName( ));
+			}
 			else
+			{
 				text.AppendFormat( "%s: ", TEAM_GetReturnTicks( teams.Size( )) ? "?" : "-" );
+			}
 		}
 		else
 		{
@@ -1003,24 +1009,47 @@ static void HUD_RenderHolders( void )
 	//Domination can have an indefinite amount
 	else if ( domination )
 	{
-		int numPoints = DOMINATION_NumPoints( );
-		unsigned int *pointOwners = DOMINATION_PointOwners( );
+		int screenWidthScaled = g_bScale ? con_virtualwidth : SCREENWIDTH;
 
-		for ( int i = numPoints - 1; i >= 0; i-- )
+		ulYPos = ST_Y - g_ulTextHeight * 2 + 1;
+
+		int numPoints = 0;
+		int longestPointWidth = -1;
+		for ( unsigned int i = 0; i < level.info->SectorInfo.Points.Size(); i++ )
 		{
-			if ( TEAM_CheckIfValid( pointOwners[i] ))
+			if ( level.info->SectorInfo.Points[i].disabled )
+				continue;
+
+			numPoints++;
+			longestPointWidth = MAX<int>( longestPointWidth, SmallFont->StringWidth( level.info->SectorInfo.Points[i].name.GetChars() ) );
+		}
+
+		longestPointWidth += SmallFont->StringWidth( " " );
+
+		int currentPoint = 1;
+		for ( unsigned int i = 0; i < level.info->SectorInfo.Points.Size(); i++ )
+		{
+			if ( level.info->SectorInfo.Points[i].disabled )
+				continue;
+
+			if ( TEAM_CheckIfValid( level.info->SectorInfo.Points[i].owner ))
 			{
-				color = TEAM_GetTextColor( pointOwners[i] );
-				text = TEAM_GetName( pointOwners[i] );
+				color = TEAM_GetTextColor( level.info->SectorInfo.Points[i].owner );
+				text = TEAM_GetName( level.info->SectorInfo.Points[i].owner );
 			}
 			else
 			{
 				color = CR_GRAY;
 				text = "-";
 			}
-		
-			text.AppendFormat( ": " TEXTCOLOR_GRAY "%s", level.info->SectorInfo.PointNames[i]->GetChars( ));
-			HUD_DrawTextAligned( color, static_cast<int>( ST_Y * g_rYScale ) - ( numPoints - i ) * SmallFont->GetHeight( ), text, false, g_bScale );
+
+			text.AppendFormat( ": " TEXTCOLOR_GRAY );
+			int width = SmallFont->StringWidth( text );
+
+			text.AppendFormat( "%s", level.info->SectorInfo.Points[i].name.GetChars() );
+			HUD_DrawText ( color, screenWidthScaled - ( width + longestPointWidth ), static_cast<int>( (ulYPos - ( numPoints - currentPoint ) * g_ulTextHeight) * g_rYScale ), text, g_bScale );
+
+			currentPoint++;
 		}
 	}
 }
@@ -1173,17 +1202,14 @@ static void HUD_RenderCountdown( ULONG ulTimeLeft )
 		ulYPos += 24;
 	}
 
-	// [AK] Draw the actual countdown message in grey, but use the same color
-	// as the title for the counter itself to make it stand out more.
-	text = TEXTCOLOR_GREY;
-
+	// [AK] Draw the actual countdown message in grey.
 	if ( invasion )
-		text += INVASION_GetState( ) == IS_FIRSTCOUNTDOWN ? "First wave begins" : "Begins";
+		text = INVASION_GetState( ) == IS_FIRSTCOUNTDOWN ? "First wave begins" : "Begins";
 	else
-		text += "Match begins";
+		text = "Match begins";
 
-	text.AppendFormat( " in: " TEXTCOLOR_NORMAL "%u", static_cast<unsigned int>( ulTimeLeft / TICRATE ));
-	HUD_DrawTextCleanCentered( SmallFont, ulTitleColor, ulYPos, text );
+	text.AppendFormat( " in: %u", static_cast<unsigned int>( ulTimeLeft / TICRATE ));
+	HUD_DrawTextCleanCentered( SmallFont, CR_GREY, ulYPos, text );
 }
 
 //*****************************************************************************

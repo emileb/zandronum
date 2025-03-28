@@ -45,8 +45,8 @@ OptionValue ZA_IdentifyMonsterLevels
 
 OptionValue ZA_SpectatorMode
 {
-	0.0, "Standard"
-	1.0, "Source-engine"
+	0.0, "With physical restrictions"
+	1.0, "No physical restrictions"
 }
 
 OptionMenu ZA_MultiplayerOptions
@@ -93,7 +93,7 @@ OptionMenu ZA_MultiplayerOptions
 	Option		"Show spawn spots",		"cl_showspawns",		"YesNo"
 	Option		"Free chasecam",		"cl_freechase",			"YesNo"
 	Option		"Teleport to spied player",	"cl_telespy",			"YesNo"
-	Option		"Spectator mode",		"cl_spectatorsource",		"ZA_SpectatorMode"
+	Option		"Spectator mode",		"cl_spectatormode",		"ZA_SpectatorMode"
 	Slider		"Spectator move speed",		"cl_spectatormove",		0.1, 5.0, 0.1
 	StaticText	" "
 	Option		"Override player colors",	"cl_overrideplayercolors",	"ZA_OverridePlayerColors"
@@ -150,10 +150,10 @@ OptionMenu ZA_NetworkOptions
 	// to enable this, they should be made aware of this too.
 	StaticText	" "
 	StaticText	"--- WARNING ---"
-	StaticText	"Sending backup commands helps mitigate packet loss", 1
-	StaticText	"but increases outbound net traffic!", 1
+	StaticText	"Sending backup commands helps mitigate", 1
+	StaticText	"packet loss, but increases net traffic!", 1
 	StaticText	" "
-	StaticText	"You should only enable them if you're actually", 1
+	StaticText	"Only use this feature if you're actually", 1
 	StaticText	"suffering from severe packet loss!", 1
 	StaticText	" "
 
@@ -210,9 +210,18 @@ OptionMenu "ZA_VoiceChatOptions"
 	Option		"Listen filter",		"voice_listenfilter",		"ZA_VoiceChatFilter",		"voice_enable"
 	Option		"Transmit filter",		"voice_transmitfilter",		"ZA_VoiceChatFilter",		"voice_enable"
 	StaticText	" "
+
+	// [AK] Tip message for Linux users if no input devices are listed.
+	IfOption( Unix )
+	{
+	StaticText	"If none of your input devices are listed,", 1
+	StaticText	"try switching the output to PulseAudio.", 1
+	StaticText	" "
+	}
+
 	Option		"Input device",			"voice_recorddriver",		"ZA_RecordDrivers"
-	Slider		"Input volume",			"voice_recordvolume",		0.0, 2.0, 0.1
-	Slider		"Output volume",		"voice_outputvolume",		0.0, 1.0, 0.1
+	Slider		"Input volume",			"voice_recordvolume",		0.0, 2.0, 0.05, 2
+	Slider		"Output volume",		"voice_outputvolume",		0.0, 1.0, 0.05, 2
 	Slider		"Voice sensitivity (dB)",	"voice_recordsensitivity",	-100, 0, 5
 	Option		"Use noise suppression",	"voice_suppressnoise",		"YesNo"
 	TextField	"RNNoise model file",		"voice_noisemodelfile",		"voice_suppressnoise"
@@ -409,6 +418,7 @@ OptionValue ZA_VoteLimitTypes
 OptionMenu ZA_CallVote
 {
 	Title "CALL VOTE"
+	Class "CallVoteMenu"
 	NetGameOnly
 
 	SubMenu		"Kick a player",			"ZA_CallKickVote"
@@ -514,6 +524,7 @@ OptionMenu ZA_PlayerListMenu
 {
 	Title "PLAYER LIST"
 	Class "PlayerListMenu"
+	Indent 150
 	NetGameOnly
 
 	PlayerField	"Player",			"menu_playerindex",		NoBots, NotSelf
@@ -527,6 +538,7 @@ OptionMenu ZA_PlayerListMenu
 	// attribute which is displayed instead of the value when the value is at the minimum.
 	// Maybe something similar could be done here? This needs to be coordinated with ZDoom though.
 	Option		"Duration",			"menu_ignoreduration",		"ZA_IgnoreDuration",	"menu_ignoreaction"
+	StaticText	" "
 	Command		"Execute!",			"menu_ignore"
 	StaticText	" "
 	StaticText	"Adjust their VoIP channel volume", 1
@@ -616,6 +628,14 @@ OptionValue ZA_SwitchOnPickup
 	3, "Use PWO"
 }
 
+OptionValue ZA_SwitchWhileFiring
+{
+	0, "Yes"
+	1, "No primary fire"
+	2, "No seconday fire"
+	3, "Never"
+}
+
 OptionValue "ZA_WeaponBobStyle"
 {
 	0, "Normal"
@@ -649,27 +669,28 @@ OptionMenu ZA_WeaponSetup
 	Title		"WEAPON SETUP"
 	Indent 170
 
-	Option		"Switch on pickup",		"switchonpickup",				"ZA_SwitchOnPickup"
-	Option		"Switch without ammo",	"cl_noammoswitch",				"YesNo"
-	Option		"Railgun color",		"railcolor",					"ZA_RailgunColors"
+	Option		"Switch on pickup",		"switchonpickup",		"ZA_SwitchOnPickup"
+	Option		"Switch while firing",		"cl_noswitchonfire",		"ZA_SwitchWhileFiring", 	"switchonpickup"
+	Option		"Switch without ammo",		"cl_noammoswitch",		"YesNo"
+	Option		"Railgun color",		"railcolor",			"ZA_RailgunColors"
 	StaticText	" "
-	Option		"Always bob weapon",	"cl_alwaysbob",					"YesNo"
-	Option		"Allow screen bob",		"cl_viewbob",					"YesNo"
-	Option		"Use custom bob",		"cl_usecustombob",				"YesNo"
-	Option		"Bob style",			"cl_bobstyle",					"ZA_WeaponBobStyle"
-	Slider		"Bob speed",			"cl_bobspeed",					0.0, 2.0, 0.1
-	Slider		"Still bob speed",		"cl_stillbobspeed",				0.0, 2.0, 0.1
-	Slider		"Still bob range",		"cl_stillbobrange",				0.0, 2.0, 0.1
+	Option		"Always bob weapon",		"cl_alwaysbob",			"YesNo"
+	Option		"Allow screen bob",		"cl_viewbob",			"YesNo"
+	Option		"Use custom bob",		"cl_usecustombob",		"YesNo"
+	Option		"Bob style",			"cl_bobstyle",			"ZA_WeaponBobStyle"
+	Slider		"Bob speed",			"cl_bobspeed",			0.0, 2.0, 0.1
+	Slider		"Still bob speed",		"cl_stillbobspeed",		0.0, 2.0, 0.1
+	Slider		"Still bob range",		"cl_stillbobrange",		0.0, 2.0, 0.1
 	StaticText	" "
-	Option		"Use custom sway",		"cl_usecustomsway",				"YesNo"
-	Option		"Sway weapon",			"cl_swaystyle",					"ZA_WeaponSwayStyle"
-	Slider		"View sway speed",		"cl_viewswayspeed",				-5.0, 5.0, 0.5
-	Slider		"Motion sway speed",		"cl_motionswayspeed",				-5.0, 5.0, 0.5
-	Slider		"Jump sway speed",		"cl_jumpswayspeed",				-5.0, 5.0, 0.5
+	Option		"Use custom sway",		"cl_usecustomsway",		"YesNo"
+	Option		"Sway weapon",			"cl_swaystyle",			"ZA_WeaponSwayStyle"
+	Slider		"View sway speed",		"cl_viewswayspeed",		-5.0, 5.0, 0.5
+	Slider		"Motion sway speed",		"cl_motionswayspeed",		-5.0, 5.0, 0.5
+	Slider		"Jump sway speed",		"cl_jumpswayspeed",		-5.0, 5.0, 0.5
 	StaticText	" "
-	Option		"Use custom pitch",		"cl_usecustompitch",			"YesNo"
-	Option		"Offset weapon pitch",	"cl_viewpitchstyle",			"ZA_WeaponPitchStyle"
-	Slider		"Offset multiplier",	"cl_viewpitchoffset",			-16.0, 16.0, 1.0
+	Option		"Use custom pitch",		"cl_usecustompitch",		"YesNo"
+	Option		"Offset weapon pitch",		"cl_viewpitchstyle",		"ZA_WeaponPitchStyle"
+	Slider		"Offset multiplier",		"cl_viewpitchoffset",		-16.0, 16.0, 1.0
 
 	Class WeaponSetupMenu
 }
@@ -684,7 +705,17 @@ OptionMenu ZA_LoginMenu
 {
 	NetGameOnly
 	Title "LOG IN"
+	Indent 150
 
+	StaticText	"To create an account, visit:", 1
+	StaticText	"https://auth.zandronum.com/register"
+	StaticText	" "
+	StaticText	"--- NOTICE ---"
+	StaticText	"If the server is using their own auth host,", 1
+	StaticText	"you must register there instead.", 1
+	StaticText	" "
+	StaticText	"Contact the server host for more info.", 1
+	StaticText	" "
 	TextField	"Username",				"menu_authusername"
 	TextField	"Password",				"menu_authpassword"
 	StaticText	" "
@@ -811,9 +842,11 @@ OptionMenu ZA_RconLoginMenu
 {
 	NetGameOnly
 	Title "LOG IN TO RCON"
+	Indent 150
 
 	StaticText	"You must provide the RCON password", 1
 	StaticText	"to administer this server.", 1
+	StaticText	" "
 	TextField	"RCON Password",		"menu_rconpassword"
 	StaticText	" "
 	Command		"Log in",				"menu_rconlogin"

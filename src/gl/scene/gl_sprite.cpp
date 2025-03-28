@@ -528,14 +528,22 @@ void GLSprite::Process(AActor* thing,sector_t * sector)
 	// If this thing is in a map section that's not in view it can't possibly be visible
 	if (!(currentmapsection[thing->subsector->mapsection>>3] & (1 << (thing->subsector->mapsection & 7)))) return;
 
-	// [BB] If the actor is supposed to be invisible to the player, skip it here.
-	if ( !thing->IsVisibleToPlayer() )
-		return;
+	// [AK] Unless the sprite's in a horizontal mirror or the local player's using
+	// the chasecam, don't render icons above the heads of players being spied on.
+	// TODO: Use the ONLYVISIBLEINMIRRORS actor flag from GZDoom when we support it.
+	if ((GLRenderer->mCurrentPortal == nullptr) || ((GLRenderer->mCurrentPortal->MirrorFlag == 0) && (GLRenderer->mCurrentPortal->PlaneMirrorFlag == 0)))
+	{
+		if (((players[consoleplayer].cheats & CF_CHASECAM) == false) && (players[consoleplayer].camera != nullptr))
+		{
+			if ((players[consoleplayer].camera->player != nullptr) && (thing == players[consoleplayer].camera->player->pIcon))
+				return;
+		}
+	}
 
 	// [RH] Interpolate the sprite's position to make it look smooth
 	// [AK] Don't do this if the game is supposed to be paused but the console
 	// is still interpolated. Otherwise, any moving sprites will appear jittery.
-	const fixed_t ticFracToUse = C_ShouldInterpolateWhilePaused() ? FRACUNIT : r_TicFrac;
+	const fixed_t ticFracToUse = C_ShouldForceInterpolation() ? FRACUNIT : r_TicFrac;
 	fixed_t thingx = thing->PrevX + FixedMul (ticFracToUse, thing->x - thing->PrevX);
 	fixed_t thingy = thing->PrevY + FixedMul (ticFracToUse, thing->y - thing->PrevY);
 	fixed_t thingz = thing->PrevZ + FixedMul (ticFracToUse, thing->z - thing->PrevZ);

@@ -455,7 +455,6 @@ void CLIENTCOMMANDS_Pong( unsigned int time )
 	// other commands tic-synced in CLIENT_EndTick().
 	NETBUFFER_s	TempBuffer;
 	TempBuffer.Init( MAX_UDP_PACKET, BUFFERTYPE_WRITE );
-	TempBuffer.Clear();
 	TempBuffer.ByteStream.WriteByte( CLC_PONG );
 	TempBuffer.ByteStream.WriteLong( time );
 	NETWORK_LaunchPacket( &TempBuffer, NETWORK_GetFromAddress( ) );
@@ -813,7 +812,7 @@ void CLIENTCOMMANDS_FullUpdateReceived ( void )
 // [Dusk]
 void CLIENTCOMMANDS_InfoCheat( AActor* mobj, bool extended )
 {
-	if ( mobj == NULL || mobj->NetID == -1 )
+	if ( mobj == NULL || mobj->NetID == 0 )
 		return;
 
 	CLIENT_GetLocalBuffer( )->ByteStream.WriteByte( CLC_INFOCHEAT );

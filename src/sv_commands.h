@@ -126,6 +126,7 @@ void	SERVERCOMMANDS_UpdatePlayerExtraData( ULONG ulPlayer, ULONG ulDisplayPlayer
 void	SERVERCOMMANDS_UpdatePlayerTime( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_MoveLocalPlayer( ULONG ulPlayer );
 void	SERVERCOMMANDS_SetLocalPlayerJumpTics( ULONG ulPlayer );
+void	SERVERCOMMANDS_SetLocalPlayerRespawnDelayTime( unsigned int player );
 void	SERVERCOMMANDS_DisconnectPlayer( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_SetConsolePlayer( ULONG ulPlayer );
 void	SERVERCOMMANDS_ConsolePlayerKicked( ULONG ulPlayer );
@@ -137,7 +138,6 @@ void	SERVERCOMMANDS_PlayerSay( ULONG ulPlayer, const char *pszString, ULONG ulMo
 void	SERVERCOMMANDS_PrivateSay( ULONG ulSender, ULONG ulReceiver, const char *pszString, bool bForbidChatToPlayers, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PlayerVoIPAudioPacket( ULONG player, unsigned int frame, unsigned char *data, unsigned int length, ULONG playerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PlayerTaunt( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
-void	SERVERCOMMANDS_PlayerRespawnInvulnerability( ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PlayerUseInventory( ULONG ulPlayer, AInventory *pItem, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PlayerDropInventory( ULONG ulPlayer, AInventory *pItem, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PotentiallySendPlayerCommRule( const unsigned int player );
@@ -206,6 +206,7 @@ void	SERVERCOMMANDS_PrintMid( const char *pszString, bool bBold, ULONG ulPlayerE
 void	SERVERCOMMANDS_PrintMOTD( const char *pszString, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PrintHUDMessage( const char *pszString, float fX, float fY, LONG lHUDWidth, LONG lHUDHeight, LONG lType, LONG lColor, float fHoldTime, float fInTime, float fOutTime, const char *pszFont, LONG lID, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_PrintACSHUDMessage( DLevelScript *pScript, const char *pszString, float fX, float fY, LONG lType, LONG lColor, float fHoldTime, float fInTime, float fOutTime, fixed_t Alpha, LONG lID, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
+void	SERVERCOMMANDS_PrintTeamScoresMessage( unsigned int team, unsigned int scorer, unsigned int assister, unsigned int numPoints, unsigned int playerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 
 // Game commands. These manipulate some aspect of the gameplay.
 void	SERVERCOMMANDS_SetGameMode( ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
@@ -225,14 +226,14 @@ void	SERVERCOMMANDS_DoPossessionArtifactDropped( ULONG ulPlayerExtra = MAXPLAYER
 void	SERVERCOMMANDS_DoGameModeFight( ULONG ulCurrentWave, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_DoGameModeCountdown( ULONG ulTicks, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_DoGameModeWinSequence( ULONG ulWinner, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
-void	SERVERCOMMANDS_SetDominationState( ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
-void	SERVERCOMMANDS_SetDominationPointOwnership( ULONG ulPoint, ULONG ulPlayer, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
+void	SERVERCOMMANDS_SetDominationPointOwner( ULONG ulPoint, unsigned int team, bool broadcast = true, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
+void	SERVERCOMMANDS_SetDominationPointState( ULONG ulPoint, DPOINT_s state, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 
 // Team commands. These involve one of the teams in teamgame mode.
 void	SERVERCOMMANDS_SetTeamScore( ULONG ulTeam, ULONG ulType, bool bAnnounce, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 void	SERVERCOMMANDS_SetTeamReturnTicks( ULONG ulTeam, ULONG ulReturnTicks, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
-void	SERVERCOMMANDS_TeamFlagReturned( ULONG ulTeam, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
-void	SERVERCOMMANDS_TeamFlagDropped( ULONG ulPlayer, ULONG ulTeam, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
+void	SERVERCOMMANDS_TeamItemReturned( unsigned int player, unsigned int team, unsigned int playerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
+void	SERVERCOMMANDS_TeamItemDropped( unsigned int player, unsigned int team, unsigned int playerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );
 
 // Missile commands. These handle missiles in some way.
 void	SERVERCOMMANDS_SpawnMissile( AActor *pMissile, ULONG ulPlayerExtra = MAXPLAYERS, ServerCommandFlags flags = 0 );

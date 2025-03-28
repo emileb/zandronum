@@ -234,7 +234,7 @@ CVAR( Int, con_colorinmessages, 1, CVAR_ARCHIVE )
 // [AK] Add a timestamp to every line printed to the console.
 CVAR (Bool, con_showtimestamps, false, CVAR_ARCHIVE)
 
-// [AK] Interpolates the movement of the console. This doesn't work if the game is paused.
+// [AK] Interpolates the movement of the console.
 CVAR (Bool, con_interpolate, true, CVAR_ARCHIVE)
 
 // [AK] Controls how fast the console moves.
@@ -1439,7 +1439,7 @@ void C_DrawConsole (bool hw2d)
 	// [AK] Interpolate the console while it's moving.
 	if (bInterpolate)
 	{
-		int offset = static_cast<int>(FIXED2FLOAT(r_TicFrac) * static_cast<float>(SCREENHEIGHT * 2 / con_speed));
+		int offset = static_cast<int>(FIXED2FLOAT(I_GetTimeFrac(nullptr)) * static_cast<float>(SCREENHEIGHT * 2 / con_speed));
 		ConBottom = clamp<int>(SavedConBottom + offset * (ConsoleState == c_falling ? 1 : -1), 0, SCREENHEIGHT / 2);
 	}
 
@@ -2663,11 +2663,11 @@ unsigned int C_GetMessageLevel()
 }
 
 //
-// [AK] Checks if the console should still be interpolated, even when the game's paused.
+// [AK] Checks if the console should still be interpolated, even when interpolation is normally disabled.
 //
-bool C_ShouldInterpolateWhilePaused()
+bool C_ShouldForceInterpolation()
 {
-	if (paused || P_CheckTickerPaused())
+	if (gamestate == GS_INTERMISSION || paused || P_CheckTickerPaused())
 	{
 		if (con_interpolate && (ConsoleState == c_falling || ConsoleState == c_rising))
 			return true;

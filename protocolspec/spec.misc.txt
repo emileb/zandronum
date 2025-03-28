@@ -79,3 +79,16 @@ EndCommand
 Command CloseMenu
 	ExtendedCommand
 EndCommand
+
+Command SetDominationPointOwner
+	Byte point
+	Byte team
+	Bool broadcast
+EndCommand
+
+Command SetDominationPointState
+	ExtendedCommand
+	Byte point
+	Bool disabled
+	Byte[] contesters
+EndCommand
