@@ -1,4 +1,4 @@
-// c53eeb2946e2b8c8637c965137ad3ece
+// 7b01611234b51d5fb289026617c7bbd2
 // This file has been automatically generated. Do not edit by hand.
 #pragma once
 #include "actor.h"
@@ -53,7 +53,7 @@ namespace ServerCommands
 			BuildNetCommand().sendCommandToClients( playerExtra, flags );
 		}
 	};
-			
+
 	class Header : public BaseServerCommand
 	{
 	public:
@@ -692,7 +692,7 @@ namespace ServerCommands
 		void SetIsSpectating( bool value );
 		void SetIsDeadSpectator( bool value );
 		void SetIsMorphed( bool value );
-		void SetNetid( int value );
+		void SetNetid( unsigned short value );
 		void SetAngle( angle_t value );
 		void SetX( fixed_t value );
 		void SetY( fixed_t value );
@@ -760,7 +760,7 @@ namespace ServerCommands
 		bool isSpectating;
 		bool isDeadSpectator;
 		bool isMorphed;
-		int netid;
+		unsigned short netid;
 		angle_t angle;
 		fixed_t x;
 		fixed_t y;
@@ -2045,6 +2045,30 @@ namespace ServerCommands
 		bool _jumpTicsInitialized;
 	};
 
+	class SetLocalPlayerRespawnDelayTime : public BaseServerCommand
+	{
+	public:
+		SetLocalPlayerRespawnDelayTime() :
+			_respawnDelayTicsInitialized( false ) {}
+		void SetRespawnDelayTics( unsigned int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _respawnDelayTicsInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _respawnDelayTicsInitialized == false )
+				Printf( "Missing: respawnDelayTics\n" );
+		}
+
+	protected:
+		unsigned int respawnDelayTics;
+		bool _respawnDelayTicsInitialized;
+	};
+
 	class DisconnectPlayer : public BaseServerCommand
 	{
 	public:
@@ -2234,34 +2258,48 @@ namespace ServerCommands
 		bool _messageInitialized;
 	};
 
-	class PlayerTaunt : public BaseServerCommand
+	class PlayerVoIPAudioPacket : public BaseServerCommand
 	{
 	public:
-		PlayerTaunt() :
-			_playerInitialized( false ) {}
-		void SetPlayer( player_t * value );
+		PlayerVoIPAudioPacket() :
+			_playerNumberInitialized( false ),
+			_frameInitialized( false ),
+			_audioInitialized( false ) {}
+		void SetPlayerNumber( int value );
+		void SetFrame( int value );
+		void SetAudio( const BufferParameter & value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
 		bool AllParametersInitialized() const
 		{
-			return _playerInitialized;
+			return _playerNumberInitialized
+				&& _frameInitialized
+				&& _audioInitialized;
 		}
 		void PrintMissingParameters() const
 		{
-			if ( _playerInitialized == false )
-				Printf( "Missing: player\n" );
+			if ( _playerNumberInitialized == false )
+				Printf( "Missing: playerNumber\n" );
+			if ( _frameInitialized == false )
+				Printf( "Missing: frame\n" );
+			if ( _audioInitialized == false )
+				Printf( "Missing: audio\n" );
 		}
 
 	protected:
-		player_t *player;
-		bool _playerInitialized;
+		int playerNumber;
+		int frame;
+		BufferParameter audio;
+		bool _playerNumberInitialized;
+		bool _frameInitialized;
+		bool _audioInitialized;
 	};
 
-	class PlayerRespawnInvulnerability : public BaseServerCommand
+	class PlayerTaunt : public BaseServerCommand
 	{
 	public:
-		PlayerRespawnInvulnerability() :
+		PlayerTaunt() :
 			_playerInitialized( false ) {}
 		void SetPlayer( player_t * value );
 		void Execute();
@@ -2799,6 +2837,51 @@ namespace ServerCommands
 		bool _alphaInitialized;
 	};
 
+	class PrintTeamScoresMessage : public BaseServerCommand
+	{
+	public:
+		PrintTeamScoresMessage() :
+			_teamInitialized( false ),
+			_scorerInitialized( false ),
+			_assisterInitialized( false ),
+			_numPointsInitialized( false ) {}
+		void SetTeam( int value );
+		void SetScorer( int value );
+		void SetAssister( int value );
+		void SetNumPoints( int value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _teamInitialized
+				&& _scorerInitialized
+				&& _assisterInitialized
+				&& _numPointsInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _teamInitialized == false )
+				Printf( "Missing: team\n" );
+			if ( _scorerInitialized == false )
+				Printf( "Missing: scorer\n" );
+			if ( _assisterInitialized == false )
+				Printf( "Missing: assister\n" );
+			if ( _numPointsInitialized == false )
+				Printf( "Missing: numPoints\n" );
+		}
+
+	protected:
+		int team;
+		int scorer;
+		int assister;
+		int numPoints;
+		bool _teamInitialized;
+		bool _scorerInitialized;
+		bool _assisterInitialized;
+		bool _numPointsInitialized;
+	};
+
 	class SpawnThing : public BaseServerCommand
 	{
 	public:
@@ -2812,7 +2895,7 @@ namespace ServerCommands
 		void SetY( fixed_t value );
 		void SetZ( fixed_t value );
 		void SetType( const PClass * value );
-		void SetId( int value );
+		void SetId( unsigned short value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
@@ -2843,7 +2926,7 @@ namespace ServerCommands
 		fixed_t y;
 		fixed_t z;
 		const PClass *type;
-		int id;
+		unsigned short id;
 		bool _xInitialized;
 		bool _yInitialized;
 		bool _zInitialized;
@@ -2909,7 +2992,7 @@ namespace ServerCommands
 		void SetY( fixed_t value );
 		void SetZ( fixed_t value );
 		void SetType( const PClass * value );
-		void SetId( int value );
+		void SetId( unsigned short value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
@@ -2940,7 +3023,7 @@ namespace ServerCommands
 		fixed_t y;
 		fixed_t z;
 		const PClass *type;
-		int id;
+		unsigned short id;
 		bool _xInitialized;
 		bool _yInitialized;
 		bool _zInitialized;
@@ -3006,7 +3089,7 @@ namespace ServerCommands
 		void SetY( fixed_t value );
 		void SetZ( fixed_t value );
 		void SetType( const PClass * value );
-		void SetId( int value );
+		void SetId( unsigned short value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
@@ -3037,7 +3120,7 @@ namespace ServerCommands
 		fixed_t y;
 		fixed_t z;
 		const PClass *type;
-		int id;
+		unsigned short id;
 		bool _xInitialized;
 		bool _yInitialized;
 		bool _zInitialized;
@@ -4644,7 +4727,7 @@ namespace ServerCommands
 		void SetY( fixed_t value );
 		void SetZ( fixed_t value );
 		void SetPufftype( const PClass * value );
-		void SetId( int value );
+		void SetId( unsigned short value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
@@ -4675,7 +4758,7 @@ namespace ServerCommands
 		fixed_t y;
 		fixed_t z;
 		const PClass *pufftype;
-		int id;
+		unsigned short id;
 		bool _xInitialized;
 		bool _yInitialized;
 		bool _zInitialized;
@@ -6821,8 +6904,8 @@ namespace ServerCommands
 		void SetVelY( fixed_t value );
 		void SetVelZ( fixed_t value );
 		void SetMissileType( const PClass * value );
-		void SetNetID( int value );
-		void SetTargetNetID( int value );
+		void SetNetID( unsigned short value );
+		void SetTargetNetID( unsigned short value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
@@ -6868,8 +6951,8 @@ namespace ServerCommands
 		fixed_t velY;
 		fixed_t velZ;
 		const PClass *missileType;
-		int netID;
-		int targetNetID;
+		unsigned short netID;
+		unsigned short targetNetID;
 		bool _xInitialized;
 		bool _yInitialized;
 		bool _zInitialized;
@@ -6901,8 +6984,8 @@ namespace ServerCommands
 		void SetVelY( fixed_t value );
 		void SetVelZ( fixed_t value );
 		void SetMissileType( const PClass * value );
-		void SetNetID( int value );
-		void SetTargetNetID( int value );
+		void SetNetID( unsigned short value );
+		void SetTargetNetID( unsigned short value );
 		void Execute();
 		NetCommand BuildNetCommand() const;
 		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
@@ -6948,8 +7031,8 @@ namespace ServerCommands
 		fixed_t velY;
 		fixed_t velZ;
 		const PClass *missileType;
-		int netID;
-		int targetNetID;
+		unsigned short netID;
+		unsigned short targetNetID;
 		bool _xInitialized;
 		bool _yInitialized;
 		bool _zInitialized;
@@ -7618,6 +7701,95 @@ namespace ServerCommands
 		}
 
 	protected:
+	};
+
+	class SetDominationPointOwner : public BaseServerCommand
+	{
+	public:
+		SetDominationPointOwner() :
+			_pointInitialized( false ),
+			_teamInitialized( false ),
+			_broadcastInitialized( false ) {}
+		void SetPoint( int value );
+		void SetTeam( int value );
+		void SetBroadcast( bool value );
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseServerCommand( SVC, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _pointInitialized
+				&& _teamInitialized
+				&& _broadcastInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _pointInitialized == false )
+				Printf( "Missing: point\n" );
+			if ( _teamInitialized == false )
+				Printf( "Missing: team\n" );
+			if ( _broadcastInitialized == false )
+				Printf( "Missing: broadcast\n" );
+		}
+
+	protected:
+		int point;
+		int team;
+		bool broadcast;
+		bool _pointInitialized;
+		bool _teamInitialized;
+		bool _broadcastInitialized;
+	};
+
+	class SetDominationPointState : public BaseServerCommand
+	{
+	public:
+		SetDominationPointState() :
+			_pointInitialized( false ),
+			_disabledInitialized( false ),
+			_contestersInitialized( false ) {}
+		void SetPoint( int value );
+		void SetDisabled( bool value );
+		void SetContesters( const TArray<int> & value );
+		void PushToContesters(int value)
+		{
+			contesters.Push(value);
+			_contestersInitialized = true;
+		}
+		bool PopFromContesters(int& value)
+		{
+			return contesters.Pop(value);
+		}
+		void ClearContesters()
+		{
+			contesters.Clear();
+		}
+		void Execute();
+		NetCommand BuildNetCommand() const;
+		friend bool ::CLIENT_ParseExtendedServerCommand( SVC2, BYTESTREAM_s * );
+		bool AllParametersInitialized() const
+		{
+			return _pointInitialized
+				&& _disabledInitialized
+				&& _contestersInitialized;
+		}
+		void PrintMissingParameters() const
+		{
+			if ( _pointInitialized == false )
+				Printf( "Missing: point\n" );
+			if ( _disabledInitialized == false )
+				Printf( "Missing: disabled\n" );
+			if ( _contestersInitialized == false )
+				Printf( "Missing: contesters\n" );
+		}
+
+	protected:
+		int point;
+		bool disabled;
+		TArray<int> contesters;
+		bool _pointInitialized;
+		bool _disabledInitialized;
+		bool _contestersInitialized;
 	};
 
 }
