@@ -104,6 +104,8 @@ bool P_MorphPlayer (player_t *activator, player_t *p, const PClass *spawntype, i
 		morphed->vely = actor->vely;
 		morphed->velz = actor->velz;
 		morphed->pitch = actor->pitch;
+		// [AK] Set the morphed player's reaction time to zero too.
+		morphed->reactiontime = 0;
 	}
 	if (actor->renderflags & RF_INVISIBLE)
 	{
@@ -198,6 +200,7 @@ bool P_MorphPlayer (player_t *activator, player_t *p, const PClass *spawntype, i
 		{
 			SERVERCOMMANDS_MoveLocalPlayer( ulPlayer );
 			SERVERCOMMANDS_MovePlayer( ulPlayer, ulPlayer, SVCF_SKIPTHISCLIENT );
+			SERVERCOMMANDS_MoveThing( morphed, CM_PITCH );
 		}
 	}
 
@@ -230,6 +233,7 @@ bool P_UndoPlayerMorph (player_t *activator, player_t *player, int unmorphflag, 
 	}
 
 	bool DeliberateUnmorphIsOkay = !!(MORPH_STANDARDUNDOING & unmorphflag);
+	bool noMorphLimitations = !!(pmo->PlayerFlags & PPF_NOMORPHLIMITATIONS); // [AK]
 
     if ((pmo->flags2 & MF2_INVULNERABLE) // If the player is invulnerable
         && ((player != activator)       // and either did not decide to unmorph,
@@ -272,10 +276,12 @@ bool P_UndoPlayerMorph (player_t *activator, player_t *player, int unmorphflag, 
 	}
 	mo->angle = pmo->angle;
 	mo->player = player;
-	mo->reactiontime = 18;
+	// [AK] Don't adjust the reaction time if NOMORPHLIMITATIONS is enabled.
+	if (noMorphLimitations == false)
+		mo->reactiontime = 18;
 	mo->flags = pmo->special2 & ~MF_JUSTHIT;
 	// [Binary] Keep movement if +NOMORPHLIMITATIONS is used.
-	if (pmo->PlayerFlags & PPF_NOMORPHLIMITATIONS)
+	if (noMorphLimitations)
 	{
 		mo->velx = pmo->velx;
 		mo->vely = pmo->vely;
@@ -435,6 +441,9 @@ bool P_UndoPlayerMorph (player_t *activator, player_t *player, int unmorphflag, 
 		SERVERCOMMANDS_SetThingFrame( player->mo, player->mo->state, MAXPLAYERS, 0, false );
 		if ( player->mo->tid != 0 )
 			SERVERCOMMANDS_SetThingTID( player->mo );
+		// [AK] Keep the player's pitch if +NOMORPHLIMITATIONS is used.
+		if ( noMorphLimitations )
+			SERVERCOMMANDS_MoveThing( player->mo, CM_PITCH );
 	}
 	return true;
 }

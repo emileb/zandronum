@@ -1001,7 +1001,8 @@ AInventory *AActor::FindInventory (FName type)
 //
 //============================================================================
 
-AInventory *AActor::GiveInventoryType (const PClass *type)
+// [AK] Added checkNoLMSFlag, specifically for weapons.
+AInventory *AActor::GiveInventoryType (const PClass *type, bool checkNoLMSFlag)
 {
 	AInventory *item = NULL;
 	AWeapon *weapon = NULL; // [RK]
@@ -1011,12 +1012,13 @@ AInventory *AActor::GiveInventoryType (const PClass *type)
 		item = static_cast<AInventory *>(Spawn (type, 0,0,0, NO_REPLACE));
 
 		// [RK] In LMS or TLMS we'll cast the item to check for the NOLMS flag.
-		if ( item->IsKindOf( RUNTIME_CLASS( AWeapon )) && ( lastmanstanding || teamlms ))
+		// [AK] Only do this when we should check for this flag.
+		if (checkNoLMSFlag && item->IsKindOf (RUNTIME_CLASS(AWeapon)) && (lastmanstanding || teamlms))
 			weapon = static_cast<AWeapon*>(item);
 
 		// [RK] If the NOLMS flag is found on the weapon, skip any further pickup checks.
 		// Otherwise CallTryPickup will proceed as normal and run checks on the item.
-		if (( weapon && ( weapon->WeaponFlags & WIF_NOLMS )) || !item->CallTryPickup (this))
+		if ((weapon && (weapon->WeaponFlags & WIF_NOLMS)) || !item->CallTryPickup (this))
 		{
 			item->Destroy ();
 			return NULL;
@@ -1031,17 +1033,18 @@ AInventory *AActor::GiveInventoryType (const PClass *type)
 //
 //============================================================================
 
-AInventory *AActor::GiveInventoryTypeRespectingReplacements (const PClass *type)
+// [AK] Added checkNoLMSFlag, specifically for weapons.
+AInventory *AActor::GiveInventoryTypeRespectingReplacements (const PClass *type, bool checkNoLMSFlag)
 {
 	const PClass *pReplacementClass = type->ActorInfo->GetReplacement( )->Class;
 	// [BB] Special handling for DehackedPickup: In this case the original actor is
 	// already modified and we need to give it to him instead of the replacement.
 	if ( pReplacementClass->IsDescendantOf ( PClass::FindClass( "DehackedPickup" ) ) )
-		return GiveInventoryType ( type );
+		return GiveInventoryType ( type, checkNoLMSFlag );
 	// [BB] If the replacement is something, that is not of type AInventory, we
 	// can't give it to the actor.
 	else if ( pReplacementClass->IsDescendantOf( RUNTIME_CLASS( AInventory )) )
-		return GiveInventoryType ( pReplacementClass );
+		return GiveInventoryType ( pReplacementClass, checkNoLMSFlag );
 	else
 		return NULL;
 }
@@ -2585,7 +2588,11 @@ explode:
 		if (player && player->mo == mo)
 			player->velx = player->vely = 0; 
 	}
-	else
+	// [AK] Don't apply friction to a player's velocity when they just morphed
+	// to a class with NOMORPHLIMITATIONS enabled. They must keep the same
+	// velocity they had prior to morphing, since friction was already applied.
+	// Checking for the MF7_HANDLENODELAY flag is good enough to verify this.
+	else if (player == nullptr || player->morphTics == 0 || !(player->mo->PlayerFlags & PPF_NOMORPHLIMITATIONS) || !(player->mo->flags7 & MF7_HANDLENODELAY))
 	{
 		// phares 3/17/98
 		// Friction will have been adjusted by friction thinkers for icy
@@ -2885,7 +2892,8 @@ void P_ZMovement (AActor *mo, fixed_t oldfloorz)
 // check for smooth step up
 //
 	// [BC] Don't adjust viewheight while predicting.
-	if ( CLIENT_PREDICT_IsPredicting( ) == false )
+	// [AK] Don't do this while using the unrestricted spectator mode either.
+	if (CLIENT_PREDICT_IsPredicting() == false && P_IsSpectatorUnrestricted(mo) == false)
 	{
 		if (mo->player && mo->player->mo == mo && mo->z < mo->floorz)
 		{
@@ -3017,7 +3025,8 @@ void P_ZMovement (AActor *mo, fixed_t oldfloorz)
 			}
 		}
 	}
-	if (mo->player && (mo->flags & MF_NOGRAVITY) && (mo->z > mo->floorz))
+	// [AK] Friction must always be applied while using the unrestricted spectator mode.
+	if (mo->player && (mo->flags & MF_NOGRAVITY) && (mo->z > mo->floorz || P_IsSpectatorUnrestricted(mo)))
 	{
 		if (!mo->IsNoClip2())
 		{
@@ -3051,7 +3060,8 @@ void P_ZMovement (AActor *mo, fixed_t oldfloorz)
 		P_CheckFor3DFloorHit(mo);
 		// [RH] Need to recheck this because the sector action might have
 		// teleported the actor so it is no longer below the floor.
-		if (mo->z <= mo->floorz)
+		// [AK] Spectators without physical restrictions are allowed to pass through the floor.
+		if (mo->z <= mo->floorz && P_IsSpectatorUnrestricted(mo) == false)
 		{
 			// [BC] We need to do the sky check first, otherwise bouncy things
 			// can potentially bounce off the sky (such as grenades).
@@ -3199,7 +3209,8 @@ void P_ZMovement (AActor *mo, fixed_t oldfloorz)
 		P_CheckFor3DCeilingHit(mo);
 		// [RH] Need to recheck this because the sector action might have
 		// teleported the actor so it is no longer above the ceiling.
-		if (mo->z + mo->height > mo->ceilingz)
+		// [AK] Spectators without physical restrictions are allowed to pass through the ceiling.
+		if (mo->z + mo->height > mo->ceilingz && P_IsSpectatorUnrestricted(mo) == false)
 		{
 			// [BC] We need to do the sky check first, otherwise bouncy things
 			// can potentially bounce off the sky (such as grenades).
@@ -4015,37 +4026,11 @@ void AActor::Tick ()
 				{
 					special2++;
 				}
-
-				// [AK] Don't freeze spectators who have no physical restrictions.
-				if (P_IsSpectatorUnrestricted(this) == false)
-					return;
 			}
 		}
 
 		UnlinkFromWorld ();
 		flags |= MF_NOBLOCKMAP;
-
-		// [AK] Spectators without physical restrictions still need a way to slow down.
-		if (P_IsSpectatorUnrestricted(this))
-		{
-			fixed_t *const velocity[3] = {&velx, &vely, &velz};
-
-			for (unsigned int i = 0; i < 3; i++)
-			{
-				*velocity[i] = FixedMul(*velocity[i], FRICTION_FLY);
-
-				if (abs(*velocity[i]) < STOPSPEED)
-				{
-					// [AK] Use forward/backward and side movement for the x and y velocities.
-					const short movement = (i < 2) ? (player->cmd.ucmd.forwardmove | player->cmd.ucmd.sidemove) : player->cmd.ucmd.upmove;
-
-					if (movement == 0)
-						*velocity[i] = 0;
-				}
-			}
-
-			UpdateWaterLevel(z, false);
-		}
 
 		x += velx;
 		y += vely;

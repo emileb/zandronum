@@ -119,17 +119,16 @@ CUSTOM_CVAR (Int, cl_spectatormode, SPECMODE_NO_RESTRICTIONS, CVAR_ARCHIVE|CVAR_
 	{
 		if (self == SPECMODE_NO_RESTRICTIONS)
 		{
-			player->mo->flags |= MF_NOGRAVITY;
+			player->mo->flags |= (MF_NOGRAVITY | MF_NOCLIP);
 			player->mo->flags2 |= MF2_FLY;
-			player->mo->flags5 |= MF5_NOINTERACTION;
 
-			// [AK] Always enable the fly cheat and disable the noclip cheats.
-			player->cheats |= CF_FLY;
-			player->cheats &= ~(CF_NOCLIP | CF_NOCLIP2);
+			// [AK] Always enable the fly and noclip cheats.
+			player->cheats |= (CF_FLY | CF_NOCLIP | CF_NOCLIP2);
 		}
 		else
 		{
-			player->mo->flags5 &= ~MF5_NOINTERACTION;
+			player->mo->flags &= ~MF_NOCLIP;
+			player->cheats &= ~(CF_NOCLIP | CF_NOCLIP2);
 		}
 	}
 
@@ -357,6 +356,7 @@ player_t::player_t()
   Team( 0 ),
   lPointCount( 0 ),
   ulDeathCount( 0 ),
+  lastRespawnTick( 0 ),
   ulLastFragTick( 0 ),
   ulLastExcellentTick( 0 ),
   ulLastBFGFragTick( 0 ),
@@ -515,6 +515,7 @@ player_t &player_t::operator=(const player_t &p)
 	Team = p.Team;
 	lPointCount = p.lPointCount;
 	ulDeathCount = p.ulDeathCount;
+	lastRespawnTick = p.lastRespawnTick;
 	ulLastFragTick = p.ulLastFragTick;
 	ulLastExcellentTick = p.ulLastExcellentTick;
 	ulLastBFGFragTick = p.ulLastBFGFragTick;
@@ -1633,7 +1634,7 @@ void APlayerPawn::GiveDefaultInventory ()
 				I_Error("Tried to give an improperly defined railgun.\n");
 
 			// Give the player the weapon.
-			pInventory = player->mo->GiveInventoryType( pRailgun );
+			pInventory = player->mo->GiveInventoryType( pRailgun, true );
 
 			if ( pInventory )
 			{
@@ -1657,7 +1658,7 @@ void APlayerPawn::GiveDefaultInventory ()
 		else if (( buckshot && bBuckshotPossible ) && ( deathmatch || teamgame ))
 		{
 			// Give the player the weapon.
-			pInventory = player->mo->GiveInventoryTypeRespectingReplacements( PClass::FindClass( "SuperShotgun" ) );
+			pInventory = player->mo->GiveInventoryTypeRespectingReplacements( PClass::FindClass( "SuperShotgun" ), true );
 
 			if ( pInventory )
 			{
@@ -1770,7 +1771,7 @@ void APlayerPawn::GiveDefaultInventory ()
 
 				if ( pType->ParentClass->IsDescendantOf( RUNTIME_CLASS( AWeapon )))
 				{
-					pInventory = player->mo->GiveInventoryTypeRespectingReplacements( pType );
+					pInventory = player->mo->GiveInventoryTypeRespectingReplacements( pType, true );
 
 					// Make this weapon the player's pending weapon if it ranks higher.
 					// [BB] We obviously only can do the cast when the possible replacement is still a weapon.
@@ -1900,7 +1901,7 @@ void APlayerPawn::GiveDefaultInventory ()
 
 				if ( pType->ParentClass->IsDescendantOf( RUNTIME_CLASS( AWeapon )))
 				{
-					pInventory = player->mo->GiveInventoryTypeRespectingReplacements( pType );
+					pInventory = player->mo->GiveInventoryTypeRespectingReplacements( pType, true );
 
 					// Make this weapon the player's pending weapon if it ranks higher.
 					pWeapon = static_cast<AWeapon *>( pInventory );
@@ -2861,7 +2862,8 @@ void P_CalcHeight (player_t *player)
 		}
 	}
 
-	if (player->morphTics)
+	// [AK] Bob the screen for morphed players if NOMORPHLIMITATIONS is enabled.
+	if (player->morphTics && ((player->mo->PlayerFlags & PPF_NOMORPHLIMITATIONS) == false))
 	{
 		bob = 0;
 	}

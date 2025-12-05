@@ -293,6 +293,7 @@ CVAR( Bool, sv_useticbuffer, true, CVAR_ARCHIVE|CVAR_NOSETBYACS|CVAR_DEBUGONLY )
 CVAR( Int, sv_showcommands, 0, CVAR_ARCHIVE|CVAR_DEBUGONLY )
 CVAR( Int, sv_smoothplayers_debuginfo, 0, CVAR_ARCHIVE|CVAR_DEBUGONLY ) // [AK]
 CVAR( Bool, sv_noplayertimeout, false, CVAR_NOSETBYACS|CVAR_DEBUGONLY ) // [SB]
+CVAR( Bool, sv_printconnectionmessages, true, CVAR_ARCHIVE|CVAR_NOSETBYACS ) // [SB]
 
 //*****************************************************************************
 // [AK] Smooths the movement of lagging players using extrapolation and correction.
@@ -1901,7 +1902,9 @@ void SERVER_DetermineConnectionType( BYTESTREAM_s *pByteStream )
 			return;
 		default:
 
-			Printf( "Unknown challenge (%d) from %s. Ignoring IP for 10 seconds.\n", static_cast<int> (lCommand), NETWORK_GetFromAddress().ToString() );
+			// [SB]
+			if ( sv_printconnectionmessages )
+				Printf( "Unknown challenge (%d) from %s. Ignoring IP for 10 seconds.\n", static_cast<int> (lCommand), NETWORK_GetFromAddress().ToString() );
 			// [BB] Block all further challenges of this IP for ten seconds to prevent log flooding.
 			SERVER_IgnoreIP( NETWORK_GetFromAddress( ));
 
@@ -2030,7 +2033,10 @@ void SERVER_SetupNewConnection( BYTESTREAM_s *pByteStream, bool bNewPlayer )
 	g_aClients[lClient].UnreliablePacketBuffer.Clear();
 
 	// Who is connecting?
-	Printf( "Connect (v%s): %s\n", clientVersion.GetChars(), NETWORK_GetFromAddress().ToString() );
+	// [SB] Only print if sv_printconnectionmessages is enabled.
+	// We still see the player's IP when the "<player> has connected" message is printed once they're in the game.
+	if ( sv_printconnectionmessages )
+		Printf( "Connect (v%s): %s\n", clientVersion.GetChars(), NETWORK_GetFromAddress().ToString() );
 
 	// Setup the client.
 	g_aClients[lClient].State = CLS_CHALLENGE;
@@ -2139,7 +2145,6 @@ void SERVER_SetupNewConnection( BYTESTREAM_s *pByteStream, bool bNewPlayer )
 	g_aClients[lClient].ScreenWidth = 0;
 	g_aClients[lClient].ScreenHeight = 0;
 	g_aClients[lClient].ulClientGameTic = 0;
-	g_aClients[lClient].lastRespawnTick = 0;
 	// [CK] Since the client is not up to date at all, the farthest the client
 	// should be able to go back is the gametic they connected with.
 	g_aClients[lClient].lLastServerGametic = gametic;
@@ -2424,7 +2429,8 @@ void SERVER_ConnectionError( NETADDRESS_s Address, const char *pszMessage, ULONG
 	TempBuffer.Init( MAX_UDP_PACKET, BUFFERTYPE_WRITE );
 
 	// Display error message locally in the console.
-	Printf( "Denied connection for %s: %s\n", Address.ToString(), pszMessage );
+	if ( sv_printconnectionmessages )
+		Printf( "Denied connection for %s: %s\n", Address.ToString(), pszMessage );
 
 	// Make sure the packet has a packet header. The client is expecting this!
 	TempBuffer.ByteStream.WriteHeader( SVC_HEADER );
@@ -2445,23 +2451,25 @@ void SERVER_ClientError( ULONG ulClient, ULONG ulErrorCode )
 	g_aClients[ulClient].PacketBuffer.ByteStream.WriteByte( SVCC_ERROR );
 	g_aClients[ulClient].PacketBuffer.ByteStream.WriteByte( ulErrorCode );
 
+	FString printMessage;
+
 	// Display error message locally in the console.
 	switch ( ulErrorCode )
 	{
 	case NETWORK_ERRORCODE_WRONGPASSWORD:
 
-		Printf( "Incorrect password.\n" );
+		printMessage.Format( "Incorrect password.\n" );
 		break;
 	case NETWORK_ERRORCODE_WRONGVERSION:
 
-		Printf( "Incorrect version.\n" );
+		printMessage.Format( "Incorrect version.\n" );
 
 		// Tell the client what version this server using.
 		g_aClients[ulClient].PacketBuffer.ByteStream.WriteString( DOTVERSIONSTR );
 		break;
 	case NETWORK_ERRORCODE_WRONGPROTOCOLVERSION:
 
-		Printf( "Incorrect protocol version.\n" );
+		printMessage.Format( "Incorrect protocol version.\n" );
 
 		// Tell the client what version this server using.
 		g_aClients[ulClient].PacketBuffer.ByteStream.WriteString( GetVersionStringRev() );
@@ -2472,9 +2480,9 @@ void SERVER_ClientError( ULONG ulClient, ULONG ulErrorCode )
 			FString banReason = (( entry != nullptr ) && ( strlen( entry->szComment ) > 0 )) ? entry->szComment : "";
 
 			if ( banReason.IsNotEmpty() )
-				Printf( "Client banned (reason: %s)\n", banReason.GetChars() );
+				printMessage.Format( "Client banned (reason: %s)\n", banReason.GetChars() );
 			else
-				Printf( "Client banned.\n" );
+				printMessage.Format( "Client banned.\n" );
 
 			bool masterban = SERVERBAN_IsIPMasterBanned( g_aClients[ulClient].Address );
 			g_aClients[ulClient].PacketBuffer.ByteStream.WriteByte( masterban );
@@ -2500,18 +2508,23 @@ void SERVER_ClientError( ULONG ulClient, ULONG ulErrorCode )
 			g_aClients[ulClient].PacketBuffer.ByteStream.WriteString( pwad.checksum );
 		}
 
-		Printf( "%s authentication failed.\n", ( ulErrorCode == NETWORK_ERRORCODE_PROTECTED_LUMP_AUTHENTICATIONFAILED ) ? "Protected lump" : "Level" );
+		printMessage.Format( "%s authentication failed.\n", ( ulErrorCode == NETWORK_ERRORCODE_PROTECTED_LUMP_AUTHENTICATIONFAILED ) ? "Protected lump" : "Level" );
 		break;
 	case NETWORK_ERRORCODE_USERINFOREJECTED:
 
-		Printf( "Userinfo rejected.\n" );
+		printMessage.Format( "Userinfo rejected.\n" );
 		break;
 	}
 
 	// Send the packet off.
 	SERVER_SendClientPacket( ulClient, true );
 
-	Printf( "%s disconnected. Ignoring IP for 10 seconds.\n", g_aClients[ulClient].Address.ToString() );
+	// [SB] Only print if sv_printconnectionmessages is set, or the client was already in the game.
+	if ( sv_printconnectionmessages || g_aClients[ulClient].State >= CLS_SPAWNED_BUT_NEEDS_AUTHENTICATION )
+	{
+		Printf( "%s", printMessage.GetChars() );
+		Printf( "%s disconnected. Ignoring IP for 10 seconds.\n", g_aClients[ulClient].Address.ToString() );
+	}
 
 	// [BB] Block this IP for ten seconds to prevent log flooding.
 	SERVER_IgnoreIP( g_aClients[ulClient].Address );
@@ -4231,7 +4244,15 @@ void SERVER_ResetInventory( ULONG ulClient, const bool bChangeClientWeapon, bool
 	// [BB]: After giving back the inventory, inform the player about which weapon he is using.
 	// This at least partly fixes the "Using unknown weapon type" bug.
 	if ( bChangeClientWeapon )
+	{
+		// [AK] After clearing the player's inventory, any weapons that we gave back
+		// to them could've made them select it unintentionally. This is especially
+		// true if they just morphed with NOMORPHLIMITATIONS enabled and they don't
+		// have a morph weapon, but they were carrying other weapons before. If we're
+		// going to tell them which weapon they're using, clear their weapon first.
+		SERVERCOMMANDS_ClearConsoleplayerWeapon( ulClient );
 		SERVERCOMMANDS_WeaponChange( ulClient, ulClient, SVCF_ONLYTHISCLIENT );
+	}
 
 	// [Dusk] Also inform the client about his Hexen armor values as
 	// SERVERCOMMANDS_DestroyAllInventory clears it from the client.
@@ -4880,12 +4901,15 @@ void SERVER_ParsePacket( BYTESTREAM_s *pByteStream )
 				// can be freed so that another client may use it.
 				if (( g_aClients[g_lCurrentClient].State > CLS_CHALLENGE ) && ( lCommand == CLC_QUIT ))
 				{
-					Printf( "Non-authenticated client (%s) disconnected.\n", NETWORK_GetFromAddress().ToString() );
+					// [SB] But only print the message if sv_printconnectionmessages is enabled.
+					if ( sv_printconnectionmessages )
+						Printf( "Non-authenticated client (%s) disconnected.\n", NETWORK_GetFromAddress().ToString() );
 				}
 				else
 				{
 					// [BB] Under these special, rare circumstances valid clients can send illegal commands.
-					if ( g_aClients[g_lCurrentClient].State != CLS_AUTHENTICATED_BUT_OUTDATED_MAP )
+					// [SB] But only print the message if sv_printconnectionmessages is enabled.
+					if ( g_aClients[g_lCurrentClient].State != CLS_AUTHENTICATED_BUT_OUTDATED_MAP && sv_printconnectionmessages )
 						Printf( "Illegal command (%ld) from non-authenticated client (%s).\n", lCommand, NETWORK_GetFromAddress().ToString() );
 
 					// [BB] Ignore the rest of the packet, it can't be valid.
@@ -6214,7 +6238,7 @@ bool ClientMoveCommand::process( const ULONG clientIndex ) const
 			// [AK] Don't do this if we're processing a move commmand sent by the client before they
 			// respawned. Doing so causes their weapon to desync, especially at higher pings.
 			if ((( level.maptime > 3 * TICRATE ) || (( client->State == CLS_SPAWNED ) && ( player->ReadyWeapon == nullptr ) && ( player->PendingWeapon == WP_NOCHANGE ))) &&
-				( static_cast<int>( moveCmd.ulServerGametic - client->lastRespawnTick ) > 0 ))
+				( static_cast<int>( moveCmd.ulServerGametic - player->lastRespawnTick ) > 0 ))
 			{
 				const PClass *type = NETWORK_GetClassFromIdentification( moveCmd.usWeaponNetworkIndex );
 				if (( type ) && ( type->IsDescendantOf( RUNTIME_CLASS( AWeapon ))))
