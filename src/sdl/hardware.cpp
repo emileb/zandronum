@@ -192,6 +192,9 @@ DFrameBuffer *I_SetMode (int &width, int &height, DFrameBuffer *old)
 
 bool I_CheckResolution (int width, int height, int bits)
 {
+#ifdef __ANDROID__ // All resolutions OK
+    return true;
+#endif
 	int twidth, theight;
 
 	Video->StartModeIterator (bits, screen ? screen->IsFullscreen() : fullscreen);
@@ -205,6 +208,9 @@ bool I_CheckResolution (int width, int height, int bits)
 
 void I_ClosestResolution (int *width, int *height, int bits)
 {
+#ifdef __ANDROID__ // Always allow the specifed resolution
+	return;
+#endif
 	int twidth, theight;
 	int cwidth = 0, cheight = 0;
 	int iteration;

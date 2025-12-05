@@ -663,7 +663,7 @@ unsigned int server_GetDeltaTicks( unsigned int &nowTime, const unsigned int pre
 
 		// [AK] Next, split the whole (150323855) and fractional (0.325) portions
 		// of maxTics from each other.
-		const double fractionPortion = std::modf( maxTics, &wholePortion );
+		const double fractionPortion = modf( maxTics, &wholePortion );
 
 		// [AK] Remember that maxTics doesn't round to a whole number completely,
 		// meaning that when the overflow occurs, we must compensate for an extra
