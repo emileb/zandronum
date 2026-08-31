@@ -63,7 +63,7 @@ static geoipv6_t IPV6_NULL;
 #include <sys/types.h> /* for fstat */
 #include <sys/stat.h>	/* for fstat */
 
-#ifdef HAVE_GETTIMEOFDAY
+#if defined(HAVE_GETTIMEOFDAY) || !defined(_WIN32)
 #include <sys/time.h> /* for gettimeofday */
 #endif
 
